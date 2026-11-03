@@ -1,0 +1,3 @@
+[workspace]
+members = ["agent", "apps/desktop/src-tauri"]
+resolver = "2"

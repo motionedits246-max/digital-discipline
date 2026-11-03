@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"></head>
+<body class="popup">
+  <header class="top"><div class="glyph" aria-hidden="true">◐</div><div><h1>Digital Discipline</h1><p class="eyebrow">BROWSER COMPANION</p></div></header>
+  <section class="connection-card" aria-live="polite">
+    <div class="connection-line"><span id="led" class="led"></span><strong id="connection">Checking connection…</strong></div>
+    <p id="errorDetail" class="error-detail" hidden></p>
+    <p class="help">Direct local connection — no native host setup. If disconnected, open the desktop app → Settings & Privacy → Browser setup wizard.</p>
+    <button id="sync" class="action primary" type="button">Connect directly & sync events</button>
+    <p class="status" id="status" role="status"></p>
+  </section>
+  <section class="stats" aria-label="Companion status">
+    <div><small>Queued events</small><strong id="queued">—</strong></div>
+    <div><small>Active restrictions</small><strong id="count">—</strong></div>
+  </section>
+  <section class="setting-group">
+    <h2>Privacy & recording</h2>
+    <label class="switch-row"><input id="enabled" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Record browser activity</strong><small>Local domains, observed Shorts & Reels only.</small></span></label>
+    <p class="note">Disabled by default. Your data stays on this computer. Without a connection, events are queued for later delivery.</p>
+  </section>
+  <section class="setting-group">
+    <h2>Notifications</h2>
+    <label class="switch-row"><input id="notifications" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Rule notifications</strong><small>Receive local restriction alerts</small></span></label>
+    <label class="switch-row"><input id="dnd" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Do not disturb</strong><small>Mute alerts; restrictions remain active</small></span></label>
+    <div class="time-row"><label>From <input type="time" id="quietStart" aria-label="Quiet hours start"></label><label>Until <input type="time" id="quietEnd" aria-label="Quiet hours end"></label></div>
+  </section>
+  <section class="setting-group">
+    <h2>Browser profile</h2>
+    <div class="browser-buttons" role="group" aria-label="Select browser"><button type="button" data-browser="brave">Brave</button><button type="button" data-browser="chrome">Chrome</button><button type="button" data-browser="edge">Edge</button></div>
+    <p class="note">Extension ID · <button id="copyId" type="button" class="id-copy" title="Copy extension ID"><code id="extensionId"></code><span>Copy</span></button></p>
+  </section>
+  <button id="recover" class="action secondary" type="button">Emergency unblock · 30 min</button>
+  <script src="popup.js"></script>
+</body>
+</html>

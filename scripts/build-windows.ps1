@@ -1,0 +1,45 @@
+# Build the agent, run tests, compile the desktop, and package Windows release artifacts.
+# This script changes nothing outside the repo until the installer is launched by the user.
+$ErrorActionPreference='Stop'
+$root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+Push-Location $root
+try {
+ if(-not(Get-Command cargo -ErrorAction SilentlyContinue)){throw 'Install Rust stable (MSVC target) from rustup.rs'}
+ if(-not(Get-Command npm -ErrorAction SilentlyContinue)){throw 'Install Node.js LTS and npm'}
+ Write-Host '[1/6] Browser policy, notifications, encrypted bundles'
+ $testFiles = @(Get-ChildItem -Path tests -Filter '*.test.mjs' | ForEach-Object { $_.FullName })
+ node --test $testFiles
+ if($LASTEXITCODE -ne 0){throw 'Extension tests failed'}
+ Write-Host '[1b/6] SQLite migration smoke test'
+ python 'tests/migration-contract.py'
+ if($LASTEXITCODE -ne 0){throw 'SQL schema tests failed'}
+ python 'tests/browser-pair-migration.py'
+ if($LASTEXITCODE -ne 0){throw 'Browser pairing migration test failed'}
+ Write-Host '[2/6] Rust unit tests'
+ cargo test -p digital-discipline-agent
+ if($LASTEXITCODE -ne 0){throw 'Agent tests failed'}
+ Write-Host '[3/6] Build independent Rust agent'
+ cargo build -p digital-discipline-agent --release
+ if($LASTEXITCODE -ne 0){throw 'Agent build failed'}
+ Push-Location 'apps/desktop'
+ try {
+  Write-Host '[4/6] Install locked app dependencies'
+  if(Test-Path package-lock.json){npm ci}else{npm install --no-audit --no-fund}
+  if($LASTEXITCODE -ne 0){throw 'npm dependency install failed'}
+  Write-Host '[5/6] Build application frontend'
+  npm run build
+  if($LASTEXITCODE -ne 0){throw 'Frontend compilation failed'}
+  Write-Host '[6/6] Build unsigned Tauri NSIS installer'
+  npm run tauri:build
+  if($LASTEXITCODE -ne 0){throw 'Tauri installer failed'}
+ } finally {Pop-Location}
+ $dest=Join-Path $root 'release-output'
+ New-Item -ItemType Directory -Force $dest | Out-Null
+ Copy-Item (Join-Path $root 'target/release/digital-discipline-agent.exe') $dest -Force
+ $installers=Get-ChildItem (Join-Path $root 'target/release/bundle/nsis') -Filter '*.exe' -ErrorAction SilentlyContinue
+ if(-not $installers){throw 'No NSIS installer generated'}
+ $installers | Copy-Item -Destination $dest -Force
+ if(Test-Path (Join-Path $root 'release-output/extension.zip')){Remove-Item (Join-Path $root 'release-output/extension.zip')}
+ Compress-Archive -Path (Join-Path $root 'extension/*') -DestinationPath (Join-Path $root 'release-output/extension.zip')
+ Write-Host "Output: $dest (UNSIGNED: Windows SmartScreen warning likely)"
+} finally {Pop-Location}

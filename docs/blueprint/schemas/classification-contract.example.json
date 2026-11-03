@@ -1,0 +1,38 @@
+{
+  "purpose": "Illustrative schema-shaped exchange for a future async classifier. Not executable application code.",
+  "schema_version": "1.0-draft",
+  "request_example": {
+    "request_id": "c-example-001",
+    "subject": {
+      "type": "application",
+      "display_name": "Example Development Editor",
+      "publisher": "Example Tools Ltd",
+      "product_name": "Example Development Editor"
+    },
+    "candidate_categories": [
+      "Development", "Design", "Productivity", "Education", "Entertainment",
+      "Gaming", "Communication", "Utility", "System", "Browser", "Unknown"
+    ],
+    "known_evidence": [
+      { "id": "e1", "source": "local_product_metadata", "summary": "Described as code editing software" }
+    ],
+    "privacy_tier": "sanitized_app_metadata_only",
+    "instruction": "Respond with one supported category or Unknown. Do not infer productivity judgment or invent evidence."
+  },
+  "response_example": {
+    "status": "classified",
+    "category": "Development",
+    "subcategory": "IDE_or_Editor",
+    "confidence": 0.86,
+    "short_reason": "Local product metadata identifies code-editing functionality.",
+    "evidence_ids": ["e1"]
+  },
+  "validation_requirements": {
+    "category_must_be_allowlisted": true,
+    "confidence_min": 0.0,
+    "confidence_max": 1.0,
+    "unknown_allowed": true,
+    "evidence_ids_must_exist_in_request": true,
+    "response_must_not_contain_private_path_or_raw_title": true
+  }
+}

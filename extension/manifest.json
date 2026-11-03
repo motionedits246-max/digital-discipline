@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Digital Discipline — Brave Companion",
+  "version": "0.3.3",
+  "description": "Opt-in local browser counting and restrictions via direct localhost; no native messaging registration required.",
+  "permissions": [
+    "tabs",
+    "webNavigation",
+    "windows",
+    "storage",
+    "alarms",
+    "declarativeNetRequest",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.instagram.com/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.instagram.com/*"
+      ],
+      "js": [
+        "src/video.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Digital Discipline",
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "blocked.html",
+        "blocked.js",
+        "popup.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

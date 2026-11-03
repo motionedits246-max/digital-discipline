@@ -1,0 +1,21 @@
+[package]
+name = "digital-discipline-desktop"
+version = "0.3.3"
+description = "Windows-first private productivity overlay"
+authors = ["Digital Discipline contributors"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+default = []
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-global-shortcut = "2"

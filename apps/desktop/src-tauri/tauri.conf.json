@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Digital Discipline",
+  "version": "0.3.3",
+  "identifier": "dev.digitaldiscipline.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Digital Discipline",
+        "width": 280,
+        "height": 56,
+        "center": true,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": true,
+        "minWidth": 260,
+        "minHeight": 52
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../../target/release/digital-discipline-agent.exe": "bin/digital-discipline-agent.exe",
+      "../../../extension/blocked.html": "browser-extension/blocked.html",
+      "../../../extension/blocked.js": "browser-extension/blocked.js",
+      "../../../extension/icons/icon128.png": "browser-extension/icons/icon128.png",
+      "../../../extension/icons/icon16.png": "browser-extension/icons/icon16.png",
+      "../../../extension/icons/icon32.png": "browser-extension/icons/icon32.png",
+      "../../../extension/icons/icon48.png": "browser-extension/icons/icon48.png",
+      "../../../extension/manifest.json": "browser-extension/manifest.json",
+      "../../../extension/popup.css": "browser-extension/popup.css",
+      "../../../extension/popup.html": "browser-extension/popup.html",
+      "../../../extension/popup.js": "browser-extension/popup.js",
+      "../../../extension/src/background.js": "browser-extension/src/background.js",
+      "../../../extension/src/notifications.js": "browser-extension/src/notifications.js",
+      "../../../extension/src/rules.js": "browser-extension/src/rules.js",
+      "../../../extension/src/video.js": "browser-extension/src/video.js"
+    }
+  }
+}

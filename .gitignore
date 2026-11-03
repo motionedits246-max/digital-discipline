@@ -1,0 +1,33 @@
+# Build artifacts and dependencies
+/target/
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/release-output/
+*.tsbuildinfo
+*.log
+
+# Local databases, user settings and credentials
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.token
+
+# Temporary directories and editor state
+/.vs/
+/.vscode/
+/.idea/
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+
+/github-build-output/

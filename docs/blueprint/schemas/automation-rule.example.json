@@ -1,0 +1,35 @@
+{
+  "purpose": "Illustrative rule data only. This is not a directly deployable extension or firewall rule.",
+  "schema_version": "1.0-draft",
+  "rule_id": "rule-shorts-cap-example",
+  "name": "No more than fifteen qualified Shorts during study hours",
+  "enabled": true,
+  "target": {
+    "type": "content_route",
+    "platform": "youtube",
+    "route_class": "shorts",
+    "browser_scope": "paired_profiles"
+  },
+  "trigger": {
+    "type": "qualifying_play_count_at_least",
+    "count": 15,
+    "count_replays": true,
+    "measurement_window": "daily_local"
+  },
+  "conditions": {
+    "local_time_between": ["09:00", "13:00"],
+    "timezone": "user_configured"
+  },
+  "action": {
+    "type": "block_route",
+    "duration_minutes": 60,
+    "interstitial": true,
+    "close_existing_tabs": false
+  },
+  "difficulty": "balanced",
+  "expiry_and_recovery": {
+    "expiry_must_work_without_gui": true,
+    "display_reason_and_time_left": true,
+    "emergency_override_available": true
+  }
+}
