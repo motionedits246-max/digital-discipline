@@ -1,40 +1,54 @@
 name: Build Windows installer
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   windows-installer:
-    if: ${{ hashFiles('scripts/build-windows.ps1') != '' }}
     runs-on: windows-2022
-    timeout-minutes: 55
+    timeout-minutes: 65
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Ensure application source was uploaded
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'scripts/build-windows.ps1')) { throw 'Source missing: upload the DigitalDiscipline project before building.' }
+          if (-not (Test-Path 'agent/Cargo.toml')) { throw 'Source missing: agent/Cargo.toml' }
+      - name: Install Rust stable MSVC
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-      - uses: actions/setup-node@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: actions/setup-python@v5
+      - name: Install Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: Swatinem/rust-cache@v2
-      - name: Test and build
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+      - name: Test and build Windows installer
         shell: pwsh
         run: |
           .\scripts\build-windows.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-      - name: Verify installer
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed' }
+      - name: Verify and hash installer
         shell: pwsh
         run: |
-          if (-not @(Get-ChildItem release-output -Filter '*.exe' -ErrorAction SilentlyContinue).Count) { throw 'No installer produced' }
-          Get-ChildItem release-output -File | Select-Object Name,Length
-      - uses: actions/upload-artifact@v4
+          $installers = @(Get-ChildItem release-output -Filter '*setup*.exe' -ErrorAction SilentlyContinue)
+          if ($installers.Count -eq 0) { throw 'No NSIS installer produced' }
+          $installers | ForEach-Object { Get-FileHash $_.FullName -Algorithm SHA256 }
+      - name: Upload Windows installer, agent, extension
+        uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-Windows-x64
+          name: DigitalDiscipline-Windows-x64-v0.3.3
           path: release-output/*
           if-no-files-found: error
           retention-days: 30
