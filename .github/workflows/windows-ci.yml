@@ -1,0 +1,40 @@
+name: Build Windows installer
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-installer:
+    if: ${{ hashFiles('scripts/build-windows.ps1') != '' }}
+    runs-on: windows-2022
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: Swatinem/rust-cache@v2
+      - name: Test and build
+        shell: pwsh
+        run: |
+          .\scripts\build-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          if (-not @(Get-ChildItem release-output -Filter '*.exe' -ErrorAction SilentlyContinue).Count) { throw 'No installer produced' }
+          Get-ChildItem release-output -File | Select-Object Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DigitalDiscipline-Windows-x64
+          path: release-output/*
+          if-no-files-found: error
+          retention-days: 30
