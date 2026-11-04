@@ -55,13 +55,13 @@ pub async fn revoke(Path(id):Path<String>,State(state):State<Arc<AppState>>)->Ap
 pub async fn cors_guard(req:Request,next:Next)->Response {
  // No broad CORS grant. Browser service workers send an Origin header
  // identifying their actual extension. HTTP sites cannot claim that Origin.
- let origin=req.headers().get(ORIGIN).and_then(|v|v.to_str().ok()).unwrap_or("");
- if extension_origin(origin).is_none() {return (StatusCode::FORBIDDEN,"extension_origin_required").into_response();}
+ let origin=req.headers().get(ORIGIN).and_then(|v|v.to_str().ok()).unwrap_or("").to_owned();
+ if extension_origin(&origin).is_none() {return (StatusCode::FORBIDDEN,"extension_origin_required").into_response();}
  if req.headers().get(HOST).and_then(|v|v.to_str().ok())!=Some("127.0.0.1:48761") {
   return (StatusCode::FORBIDDEN,"loopback_host_required").into_response();
  }
  let mut response=if req.method()==Method::OPTIONS {StatusCode::NO_CONTENT.into_response()}else{next.run(req).await};
- response.headers_mut().insert(ACCESS_CONTROL_ALLOW_ORIGIN,HeaderValue::from_str(origin).unwrap());
+ response.headers_mut().insert(ACCESS_CONTROL_ALLOW_ORIGIN,HeaderValue::from_str(&origin).unwrap());
  response.headers_mut().insert(ACCESS_CONTROL_ALLOW_METHODS,HeaderValue::from_static("GET, POST, OPTIONS"));
  response.headers_mut().insert(ACCESS_CONTROL_ALLOW_HEADERS,HeaderValue::from_static("content-type, x-dd-bridge"));
  response.headers_mut().insert("access-control-allow-private-network",HeaderValue::from_static("true"));
