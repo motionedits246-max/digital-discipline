@@ -34,6 +34,21 @@ jobs:
           python-version: '3.12'
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+      - name: Create ephemeral development signing certificate
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Digital Discipline Development (UNTRUSTED)' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(30)
+          if (-not $cert.Thumbprint) { throw 'Could not create development certificate' }
+          "DD_DEV_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $confPath = 'apps/desktop/src-tauri/tauri.conf.json'
+          $conf = Get-Content $confPath -Raw | ConvertFrom-Json -AsHashtable
+          if (-not $conf['bundle'].ContainsKey('windows')) { $conf['bundle']['windows'] = @{} }
+          $conf['bundle']['windows']['certificateThumbprint'] = $cert.Thumbprint
+          $conf['bundle']['windows']['digestAlgorithm'] = 'sha256'
+          $conf | ConvertTo-Json -Depth 60 | Set-Content $confPath -Encoding utf8
+          New-Item -ItemType Directory -Force -Path release-output | Out-Null
+          Export-Certificate -Cert $cert -FilePath release-output/dev-signing-public-cert.cer | Out-Null
+          Write-Host 'Self-signed development certificate created. This does not establish public trust.'
       - name: Test and build Windows installer
         shell: pwsh
         run: |
@@ -45,10 +60,17 @@ jobs:
           $installers = @(Get-ChildItem release-output -Filter '*setup*.exe' -ErrorAction SilentlyContinue)
           if ($installers.Count -eq 0) { throw 'No NSIS installer produced' }
           $installers | ForEach-Object { Get-FileHash $_.FullName -Algorithm SHA256 }
+          foreach ($exe in @(Get-ChildItem release-output -Filter '*.exe')) {
+            $signature = Get-AuthenticodeSignature $exe.FullName
+            if (-not $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $env:DD_DEV_CERT_THUMBPRINT) {
+              throw "Development Authenticode signature missing on $($exe.Name)"
+            }
+            Write-Host "$($exe.Name): development-signed; status $($signature.Status) (self-signed, not publicly trusted)"
+          }
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-Windows-x64-v0.3.3
+          name: DigitalDiscipline-Windows-x64-v0.3.4-DEV-SIGNED
           path: release-output/*
           if-no-files-found: error
           retention-days: 30
