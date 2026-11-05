@@ -105,3 +105,50 @@ body { background:transparent; }
 @keyframes coachReveal {from{opacity:.25;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:860px){.onboarding-top{flex-wrap:wrap;padding:18px}.onboarding-main{padding:8px 14px}.onboarding-controls{width:100%;justify-content:space-between}}
 @media(prefers-reduced-motion:reduce){.coach-orb{animation:none}.coach-response-card .coach-answer{animation:none}}
+
+/* v0.3.5 — accessible graphite checkbox system and refined window controls */
+input[type="checkbox"]:not(.toggle) {
+  appearance:none;-webkit-appearance:none;display:inline-grid;place-content:center;
+  width:19px!important;height:19px!important;min-width:19px;min-height:19px;
+  margin:0;border:1px solid #74747d;border-radius:6px;background:#2b2b32;
+  cursor:pointer;transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease;
+  vertical-align:middle;flex-shrink:0;
+}
+input[type="checkbox"]:not(.toggle)::before {
+  content:"";width:9px;height:5px;border-left:2px solid #16161b;border-bottom:2px solid #16161b;
+  transform:translateY(-2px) rotate(-45deg) scale(0);transition:transform .14s ease;
+}
+input[type="checkbox"]:not(.toggle):hover {border-color:#b8b8bf;background:#383840}
+input[type="checkbox"]:not(.toggle):checked {background:#c4c4cd;border-color:#dedee5}
+input[type="checkbox"]:not(.toggle):checked::before {transform:translateY(-2px) rotate(-45deg) scale(1)}
+input[type="checkbox"]:not(.toggle):focus-visible {outline:2px solid #bbbbcc;outline-offset:3px}
+input[type="checkbox"]:not(.toggle):disabled {opacity:.45;cursor:not-allowed}
+label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
+  display:flex!important;flex-direction:row!important;align-items:center!important;
+  justify-content:flex-start!important;gap:12px!important;line-height:1.5!important;
+  min-height:36px;font-size:12px;color:#cacad0;font-weight:450;cursor:pointer;
+}
+.category-choices {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));column-gap:14px;row-gap:8px;padding:18px!important}
+.category-choices legend {margin-left:4px}
+.category-choices p {grid-column:1/-1}
+.category-choices label.check-line {border:1px solid #36363d;background:#202027;border-radius:9px;padding:10px 12px;min-width:0!important;transition:border-color .18s,background .18s}
+.category-choices label.check-line:hover {background:#2b2b32;border-color:#666671}
+.category-choices label.check-line:has(input:checked){background:#303039;border-color:#a0a0ad;color:#f3f3f6}
+.window-control {transition:color .18s ease,background .18s ease,transform .18s ease,border-color .18s ease; border:1px solid transparent!important}
+.window-control:hover {background:#3b3b43!important;color:#f3f3f6!important;transform:scale(1.045)}
+.window-control:active {transform:scale(.93)}
+.window-control-close:hover {background:#482d34!important;color:#ffd8dc!important;border-color:#7f454f!important}
+.window-control:focus-visible {outline:2px solid #a8a8b5;outline-offset:2px}
+.coach-vault {border:1px solid #44444f;background:linear-gradient(145deg,#272730,#1c1c22);padding:15px;border-radius:12px;display:grid;gap:12px}
+.coach-vault-header {display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.coach-vault-header>div {display:flex;flex-direction:column;gap:6px}
+.coach-vault-header strong {font-size:12px;color:#e9e9ee}
+.coach-vault-header small {font-size:10px;color:#a5a5b0}
+.coach-key-ready,.coach-key-empty {display:inline-block;font-size:10px;border:1px solid #6b6b76;padding:5px 9px;border-radius:20px;color:#dedee6;white-space:nowrap}
+.coach-key-ready {border-color:#698476;color:#b9d7c3;background:#26382f}
+.coach-vault-actions {display:flex;gap:8px;flex-wrap:wrap}
+.coach-vault .form-hint {margin:0!important}
+.coach-key-choice {margin:0}
+@media(prefers-reduced-motion:reduce){
+ input[type="checkbox"]:not(.toggle),input[type="checkbox"]:not(.toggle)::before,.window-control,.category-choices label.check-line {transition:none!important}
+}
