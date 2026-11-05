@@ -51,10 +51,13 @@ fn set_presentation(app:tauri::AppHandle,mode:String)->Result<(),String> {
         }
     }
     let popout=mode=="popout";
+    // A real maximize operation is available only for the decorated pop-out window.
+    if !popout {let _=w.unmaximize();}
     w.set_size(Size::Logical(LogicalSize::new(width,height))).map_err(|e|e.to_string())?;
     w.set_always_on_top(!popout).map_err(|e|e.to_string())?;
     w.set_skip_taskbar(!popout).map_err(|e|e.to_string())?;
     w.set_decorations(popout).map_err(|e|e.to_string())?;
+    if popout {w.maximize().map_err(|e|e.to_string())?;}
     // Keep the user's chosen position when switching between pill, panel, and workspace.
     // Clamp after resizing so a larger panel cannot disappear beyond a monitor edge.
     if let Some(monitor)=w.current_monitor().map_err(|e|e.to_string())? {
