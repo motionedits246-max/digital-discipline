@@ -14,9 +14,11 @@ fn token_path() -> Result<PathBuf,String> {
 async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<Value,String> {
     // Strict IPC allowlist prevents a compromised WebView from becoming an arbitrary HTTP proxy.
     let allowed=match (method.as_str(),path.as_str()) {
-        ("GET","/state"|"/export"|"/videos"|"/insights"|"/categories"|"/goals"|"/settings"|"/classifications"|"/devices"|"/devices/export"|"/rules/audit"|"/browser-pairs"|"/coach/credentials") => true,
+        ("GET","/state"|"/export"|"/videos"|"/insights"|"/categories"|"/goals"|"/workflows"|"/settings"|"/classifications"|"/devices"|"/devices/export"|"/rules/audit"|"/browser-pairs"|"/coach/credentials") => true,
         ("GET",p) if p.starts_with("/sessions/") && p.len()==20 && p[10..].bytes().all(|c|c.is_ascii_digit()||c==b'-') => true,
-        ("POST","/tracking/pause"|"/rules"|"/categories/override"|"/goals"|"/focus/start"|"/focus/end"|"/focus/hint/choice"|"/settings"|"/coach"|"/coach/credentials"|"/classifications/config"|"/devices/import"|"/rules/preview"|"/browser-pairs") => true,
+        ("POST","/tracking/pause"|"/rules"|"/categories/override"|"/goals"|"/workflows/profiles"|"/workflows/tasks"|"/focus/start"|"/focus/end"|"/focus/hint/choice"|"/settings"|"/coach"|"/coach/credentials"|"/classifications/config"|"/devices/import"|"/rules/preview"|"/browser-pairs") => true,
+        ("POST",p) if p.starts_with("/workflows/tasks/") && p.len()==53 && p[17..].bytes().all(|c|c.is_ascii_hexdigit()||c==b'-') => true,
+        ("DELETE",p) if p.starts_with("/workflows/profiles/") && p.len()==56 && p[20..].bytes().all(|c|c.is_ascii_hexdigit()||c==b'-') => true,
         ("DELETE","/data") => true,
         ("DELETE","/classifications/config") => true,
         ("DELETE",p) if matches!(p,"/coach/credentials/openai"|"/coach/credentials/gemini"|"/coach/credentials/anthropic"|"/coach/credentials/groq"|"/coach/credentials/openrouter") => true,
