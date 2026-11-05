@@ -163,7 +163,7 @@ export default function App(){
 
   {page==='Behavior Insights'&&<><SectionTitle overline="EVIDENCE & WHAT-IFS" title="Behavior Insights" subtitle="Week-over-week comparisons, app switching, video streaks and hypothetical time recovery."/><InsightsPanel active={page==='Behavior Insights'} readonly={demo||offline} refreshKey={shown?.observed_at_ms||0}/><div className="surface padded"><span className="eyebrow">TIME RECOVERY SIMULATOR</span><h2>What if you reclaimed {recovery} minutes a day?</h2><p className="muted-paragraph">Hypothetical only; no measured savings or guaranteed prediction.</p><input className="range-input" type="range" min={5} max={120} step={5} value={recovery} onChange={e=>setRecovery(Number(e.target.value))}/><div className="simulation-results"><div><strong>{duration(recovery*7*60_000)}</strong><span>per week</span></div><div><strong>{duration(recovery*30*60_000)}</strong><span>per 30 days</span></div></div></div></>}
 
-  {page==='AI Coach'&&<><SectionTitle overline="OPTIONAL · USER-AUTHORIZED" title="AI Coach" subtitle="Ask an external or local model about today's aggregate statistics. API keys are never persisted."/><CoachPanel readonly={demo||offline}/></>}
+  {page==='AI Coach'&&<><SectionTitle overline="OPTIONAL · USER-AUTHORIZED" title="AI Coach" subtitle="Ask questions about observed activity. API keys can be stored locally with Windows encryption; sharing requires your consent."/><CoachPanel readonly={demo||offline}/></>}
 
   {page==='Devices'&&<><SectionTitle overline="OFFLINE · ENCRYPTED EXCHANGE" title="Devices" subtitle="Import and export local observations across installations using a user-owned password."/><DevicesPanel readonly={demo||offline}/></>}
 
