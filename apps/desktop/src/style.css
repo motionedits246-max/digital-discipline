@@ -227,3 +227,46 @@ label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
 .coach-privacy-details summary {cursor:pointer;color:#d1d1d9}
 @media(max-width:1020px){.coach-chat-layout{grid-template-columns:minmax(0,1fr)}.coach-chat-settings{grid-row:1}.coach-settings-panel{position:static}.coach-chat-main{min-height:460px}}
 @media(prefers-reduced-motion:reduce){.coach-chat-emblem,.coach-chat-thinking i,.coach-chat-suggestions button{animation:none;transition:none}}
+
+/* v0.3.7 tour: all coordinates are clamped by GuidedTour to the live viewport. */
+.dd-tour{position:fixed;inset:0;z-index:9999;pointer-events:none;font-family:inherit}
+.dd-tour-backdrop{position:absolute;inset:0;background:rgba(4,4,7,.49);pointer-events:auto}
+.dd-tour-spot{position:fixed;z-index:1;border:2px solid #d5d5de;border-radius:12px;box-shadow:0 0 0 9999px rgba(3,3,6,.63),0 0 0 5px #dedee92b,0 0 28px #aaaacc3b;transition:top .25s ease,left .25s ease,width .25s ease,height .25s ease;pointer-events:none}
+.dd-tour-popover{position:fixed;z-index:3;width:min(350px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;background:linear-gradient(148deg,#303038,#1c1c22);border:1px solid #797985;border-radius:17px;padding:19px 20px 16px;box-shadow:0 20px 55px #000a;pointer-events:auto;animation:ddTourIn .26s ease both}
+.dd-tour-top{display:flex;justify-content:space-between;align-items:center;font-size:10px;font-weight:750;letter-spacing:.11em;color:#b6b6c3}
+.dd-tour-popover h3{margin:13px 0 7px;font-size:19px;color:#fafafd;line-height:1.35}
+.dd-tour-popover p{font-size:12px;line-height:1.65;color:#c6c6d2;margin:0;max-width:100%;overflow-wrap:anywhere}
+.dd-tour-progress{display:flex;gap:6px;margin:19px 0}
+.dd-tour-progress span{width:6px;height:6px;border-radius:50%;background:#5a5a64;transition:background .2s,transform .2s}
+.dd-tour-progress span.active{background:#e2e2eb;transform:scale(1.08)}
+.dd-tour-actions,.dd-tour-actions-right{display:flex;justify-content:space-between;align-items:center;gap:9px}
+.dd-tour-actions-right button:not(.primary-btn),.dd-tour-skip{border:1px solid #565660;background:transparent;color:#ceced7;padding:9px 11px;border-radius:9px;font-size:11px}
+.dd-tour-actions .primary-btn{width:auto;padding:10px 14px;font-size:11px;white-space:nowrap}
+.tour-replay-btn{display:flex;gap:6px;align-items:center;border:1px solid #4b4b56;background:#28282f;color:#d6d6de;border-radius:8px;padding:8px 11px;font-size:11px;white-space:nowrap}
+.tour-replay-btn:hover{background:#373742}
+.onboarding-shell{animation:ddOnboardingEnter .45s cubic-bezier(.2,.8,.2,1) both}
+.wizard-root{animation:ddOnboardingEnter .45s .08s ease both}
+@keyframes ddTourIn{from{opacity:.2;transform:translateY(9px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes ddOnboardingEnter{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+.classification-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:13px 0 20px}
+.classification-overview>div{background:#212129;border:1px solid #393942;border-radius:11px;min-width:0;padding:15px;display:flex;flex-direction:column;gap:7px}
+.classification-overview small{color:#a7a7b1;font-size:10px;line-height:1.4}
+.classification-counter{color:#f0f0f5;font-size:23px;font-weight:700}
+.classification-state{font-size:11px;color:#c7c7d3;line-height:1.5}
+.classification-state.on{color:#abd1b8}
+.classification-jobs-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:25px 0 12px;font-size:12px}
+.classification-jobs-header button{font-size:11px}
+.classification-results{max-height:380px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#50505b transparent}
+.classification-results .settings-row{gap:15px}
+.classification-results .settings-row strong,.classification-results .settings-row small{overflow-wrap:anywhere}
+.coach-chat-layout{height:min(670px,max(415px,calc(100vh - 225px)));min-height:0;align-items:stretch}
+.coach-chat-main{min-height:0;height:100%}
+.coach-chat-scroller{max-height:none;min-height:0;flex:1 1 0}
+.coach-chat-settings{min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#555560 transparent}
+.coach-composer-input textarea{min-width:0;width:100%;box-sizing:border-box}
+.coach-chat-suggestions button{min-width:0;overflow-wrap:anywhere}
+.coach-chat-empty{margin:24px auto 14px}
+.coach-glyph{font-size:12px;font-weight:800;letter-spacing:.02em}
+@media(max-width:940px){.coach-chat-layout{display:flex;flex-direction:column;height:auto;min-height:500px}.coach-chat-main{min-height:460px}.coach-chat-settings{overflow:visible}.coach-chat-settings .coach-settings-panel{position:static}}
+@media(max-width:620px){.classification-overview{grid-template-columns:1fr}.dd-tour-popover{padding:15px}.dd-tour-popover h3{font-size:16px}.tour-replay-btn{font-size:0;padding:8px}.tour-replay-btn svg{flex-shrink:0}}
+@media(prefers-reduced-motion:reduce){.dd-tour-spot,.dd-tour-popover,.onboarding-shell,.wizard-root,.dd-tour-progress span{transition:none;animation:none}}
