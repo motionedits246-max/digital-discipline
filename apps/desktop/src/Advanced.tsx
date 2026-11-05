@@ -100,39 +100,72 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
 }
 
 export function CoachPanel({readonly}:{readonly:boolean}) {
- const [provider,setProvider]=useState('openai');const [model,setModel]=useState('gpt-4.1-mini');
- const [key,setKey]=useState('');const [question,setQuestion]=useState("What can I learn from today's activity?");
- const [consent,setConsent]=useState(false);const [answer,setAnswer]=useState('');const [shared,setShared]=useState('');
- const [busy,setBusy]=useState(false);const [status,setStatus]=useState('');
+ const [provider,setProvider]=useState('openai'),[model,setModel]=useState('gpt-4.1-mini');
+ const [key,setKey]=useState(''),[question,setQuestion]=useState("What can I learn from today's activity?");
+ const [consent,setConsent]=useState(false),[answer,setAnswer]=useState(''),[shared,setShared]=useState('');
+ const [busy,setBusy]=useState(false),[status,setStatus]=useState('');
+ const [savedProviders,setSavedProviders]=useState<string[]>([]),[useSaved,setUseSaved]=useState(false),[saving,setSaving]=useState(false);
+ const hasSaved=savedProviders.includes(provider);
+ useEffect(()=>{if(readonly)return;void agent<{providers:string[]}>('GET','/coach/credentials').then(r=>setSavedProviders(r.providers)).catch(()=>{});},[readonly]);
  const prompts=[
   {label:'Find focus patterns',value:'Using the observed aggregates, what focus patterns are visible? Avoid guessing unobserved causes.'},
   {label:'Build a practical plan',value:'Create a simple 30-minute focus plan using only the activity aggregates shown.'},
   {label:'Review today',value:"What can I learn from today's activity, and what does the data not prove?"}
  ];
+ async function saveKey(){
+  if(readonly||provider==='ollama'||key.trim().length<8)return;
+  setSaving(true);setStatus('');
+  try{
+   await agent('POST','/coach/credentials',{provider,api_key:key});
+   setSavedProviders(p=>[...new Set([...p,provider])]);setKey('');setUseSaved(true);
+   setStatus('API key encrypted using Windows DPAPI for this Windows user. It will not be returned to the dashboard.');
+  }catch(e){setStatus('Could not save key: '+String(e));}
+  finally{setSaving(false);}
+ }
+ async function deleteKey(){
+  if(readonly||!hasSaved)return;
+  setSaving(true);setStatus('');
+  try{
+   await agent('DELETE','/coach/credentials/'+provider);
+   setSavedProviders(p=>p.filter(x=>x!==provider));setUseSaved(false);
+   setStatus('Saved encrypted key deleted. You can still use a one-time key.');
+  }catch(e){setStatus('Could not delete key: '+String(e));}
+  finally{setSaving(false);}
+ }
  async function ask(e:FormEvent){e.preventDefault();if(!consent)return;setStatus('');setAnswer('');setBusy(true);
-   const ephemeral=key;setKey('');
-   try{const res=await agent<{answer:string;shared:unknown}>('POST','/coach',{provider,model,api_key:ephemeral,question,share_aggregates:true});setAnswer(res.answer);setShared(JSON.stringify(res.shared,null,2));}
+   const ephemeral=useSaved?null:key;
+   if(!useSaved)setKey('');
+   try{const res=await agent<{answer:string;shared:unknown}>('POST','/coach',{provider,model,api_key:ephemeral,use_saved_key:useSaved,question,share_aggregates:true});setAnswer(res.answer);setShared(JSON.stringify(res.shared,null,2));}
    catch(e){setStatus(String(e));}finally{setBusy(false);}
  }
- const chooseProvider=(p:string)=>{setProvider(p);setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);};
+ const chooseProvider=(p:string)=>{setProvider(p);setUseSaved(false);setKey('');setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);};
  return <div className="coach-studio">
-  <div className="surface padded coach-topline"><span className="coach-orb" aria-hidden="true">✦</span><div><h3 style={{margin:0}}>Your focus studio</h3><p className="coach-subtitle">Ask clear questions about your own aggregate activity. Your API key is used once and not stored.</p></div></div>
+  <div className="surface padded coach-topline"><span className="coach-orb" aria-hidden="true">✦</span><div><h3 style={{margin:0}}>Your focus studio</h3><p className="coach-subtitle">AI insights from your aggregated activity. Credentials stay on your Windows device, never in GitHub or browser storage.</p></div></div>
   <div className="double-grid">
    <Card title="Compose a coaching request">
     <div className="coach-prompts" aria-label="Quick prompts">{prompts.map(p=><button key={p.label} type="button" onClick={()=>setQuestion(p.value)}>{p.label}</button>)}</div>
     <form className="rule-form" onSubmit={ask}>
      <label>Provider<CustomSelect value={provider} onChange={e=>chooseProvider(e.target.value)}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(x=><option key={x} value={x}>{x}</option>)}</CustomSelect></label>
      <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required /></label>
-     {provider!=='ollama'&&<label>One-use API key<input type="password" autoComplete="off" value={key} onChange={e=>setKey(e.target.value)} required minLength={8}/></label>}
+     {provider!=='ollama'&&<div className="coach-vault">
+       <div className="coach-vault-header"><div><strong>API credential vault</strong><small>{hasSaved?'Encrypted key available for '+provider:'No saved key for '+provider}</small></div><span className={hasSaved?'coach-key-ready':'coach-key-empty'}>{hasSaved?'Saved on Windows':'One-time key'}</span></div>
+       {hasSaved&&<label className="check-line coach-key-choice"><input type="checkbox" checked={useSaved} onChange={e=>{setUseSaved(e.target.checked);setKey('');}}/> Use my encrypted saved key</label>}
+       {!useSaved&&<label>{hasSaved?'One-time replacement key':'Enter API key'}<input type="password" autoComplete="off" spellCheck={false} value={key} onChange={e=>setKey(e.target.value)} required={!hasSaved||!useSaved} minLength={8}/></label>}
+       <div className="coach-vault-actions">
+         {!useSaved&&<button className="secondary-btn" type="button" disabled={readonly||saving||key.length<8} onClick={()=>void saveKey()}>Save key encrypted</button>}
+         {hasSaved&&<button className="danger-btn" type="button" disabled={readonly||saving} onClick={()=>void deleteKey()}>Delete saved key</button>}
+       </div>
+       <p className="form-hint">Protected by Windows Data Protection API for the signed-in Windows account. Saving is optional. Keys are not shown again, exported or synced across devices.</p>
+      </div>}
      <label>Question<textarea rows={4} maxLength={1000} required value={question} onChange={e=>setQuestion(e.target.value)}/></label>
      <label className="check-line"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I approve sending today's aggregate totals for this request</label>
-     <p className="form-hint">Only aggregate counters are shared. No app names, video IDs, URLs or browsing history. The model provider may charge or retain submitted data according to its terms.</p>
-     <button className="primary-btn" type="submit" disabled={readonly||busy||!consent}>{busy?'Thinking about your data…':'Ask the coach →'}</button>
+     <p className="form-hint">Only aggregate counters are shared. No app names, video IDs, URLs or browsing history. Model providers may charge or retain data according to their terms.</p>
+     <button className="primary-btn" type="submit" disabled={readonly||busy||!consent||(provider!=='ollama'&&!useSaved&&key.length<8)}>{busy?'Thinking about your data…':'Ask the coach →'}</button>
      <p className="coach-hotkeys">Ctrl+K: navigate · Ctrl+Shift+D: open workspace · Esc: close search</p>
     </form><Feedback text={status}/>
    </Card>
    <Card title="Insights and answer">
-    <div className="coach-response-card" aria-live="polite">{answer?<><p className="coach-answer">{answer}</p><details><summary>Exactly what was shared</summary><pre className="json-preview">{shared}</pre></details></>:<><div className="coach-placeholder-graphic" aria-hidden="true">✧</div><h3>Start with a question</h3><p className="muted-paragraph">Select a suggested prompt or write your own. Your activity remains local until you explicitly approve a request. AI coaching never enforces browser restrictions.</p></>}</div>
+    <div className="coach-response-card" aria-live="polite">{answer?<><p className="coach-answer">{answer}</p><details><summary>Exactly what was shared</summary><pre className="json-preview">{shared}</pre></details></>:<><div className="coach-placeholder-graphic" aria-hidden="true">✧</div><h3>Start with a question</h3><p className="muted-paragraph">Select a suggested prompt or write your own. Your activity stays local until you approve each coaching request. AI never controls your focus restrictions.</p></>}</div>
    </Card>
   </div>
  </div>;
