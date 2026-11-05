@@ -64,12 +64,22 @@ export default function App(){
  const offline=!demo&&!data;
  const read=useCallback(async()=>{try{const r=await snapshot();setData(r);setError('');}catch(e){setData(null);setError(e instanceof Error?e.message:'Agent unavailable');}},[]);
  useEffect(()=>{if(demo)return;void read();const id=window.setInterval(()=>void read(),mode==='pill'?5_000:3_000);return()=>clearInterval(id);},[demo,read,mode]);
- useEffect(()=>{if(!isTauri)return;let alive=true;
-   void getBrowserPairState().then(result=>{
-     if(!alive||result.pairs.length)return;
-     setSetupActive(true);setMode('full');void presentation('full');
-   }).catch(()=>{});
-   return()=>{alive=false;};
+ useEffect(()=>{
+   if(!isTauri)return;
+   let cancelled=false,attempt=0;
+   const openSetup=()=>{if(!cancelled){setSetupActive(true);setMode('full');void presentation('full');}};
+   const check=async()=>{
+     try{
+       const result=await getBrowserPairState();
+       if(!cancelled && result.pairs.length===0)openSetup();
+     }catch{
+       if(cancelled)return;
+       if(attempt++<8)window.setTimeout(()=>{if(!cancelled)void check();},1200);
+       else openSetup();
+     }
+   };
+   void check();
+   return()=>{cancelled=true;};
  },[]);
  useEffect(()=>{if(demo){setHistorySessions(sample.sessions);return;}if(page!=='Activity History')return;
    let alive=true;
