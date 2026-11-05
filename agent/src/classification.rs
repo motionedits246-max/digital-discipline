@@ -36,7 +36,7 @@ fn is_public_domain(domain:&str)->bool{
 fn safe_subject(subject:&str)->bool{
  if let Some(app)=subject.strip_prefix("app:"){
   !app.is_empty() && app.len()<=100 && app.bytes().all(|b|b.is_ascii_alphanumeric()||b"_-.".contains(&b))
- }else if let Some(domain)=subject.strip_prefix("site:"){is_public_domain(domain)}
+ }else if let Some(domain)=subject.strip_prefix("domain:"){is_public_domain(domain)}
  else {false}
 }
 #[derive(Deserialize)]
@@ -87,7 +87,7 @@ pub(super) fn queue_unknowns(db:&Connection)->rusqlite::Result<usize>{
  let domains=stmt.query_map(params![now_ms()-14*86_400_000],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
  for domain in domains{
   if !is_public_domain(&domain) || crate::domain::category("",Some(&domain))!="Unclassified"{continue;}
-  let subject=format!("site:{domain}");
+  let subject=format!("domain:{domain}");
   count+=db.execute("INSERT OR IGNORE INTO classifications(subject,state,category,reason,created_ms,updated_ms) VALUES(?1,'awaiting_consent','Unclassified','Observed public hostname only; research pending authorization',?2,?2)",params![subject,now_ms()])?;
  }
  Ok(count)
@@ -210,12 +210,12 @@ async fn request_batch(provider:&str,model:&str,key:&str,subjects:&[String])->Re
 mod tests{
  use super::*;
  #[test] fn validates_exact_batch_and_does_not_trust_foreign_labels(){
-  let subjects=vec!["app:mystery.exe".to_string(),"site:example.org".to_string()];
-  let text=r#"{"results":[{"subject":"app:mystery.exe","category":"Development","confidence":0.95,"reason":"Name only","evidence_ids":["name_only"]},{"subject":"site:example.org","category":"Education","confidence":0.30,"reason":"No context","evidence_ids":["name_only"]}]}"#;
+  let subjects=vec!["app:mystery.exe".to_string(),"domain:example.org".to_string()];
+  let text=r#"{"results":[{"subject":"app:mystery.exe","category":"Development","confidence":0.95,"reason":"Name only","evidence_ids":["name_only"]},{"subject":"domain:example.org","category":"Education","confidence":0.30,"reason":"No context","evidence_ids":["name_only"]}]}"#;
   let parsed=parse_batch(text,&subjects).unwrap();
   assert_eq!(parsed.len(),2);assert_eq!(parsed[0].confidence,0.72);
   assert!(parse_batch(r#"{"results":[]}"#,&subjects).is_err());
-  assert!(parse_batch(&text.replace("site:example.org","site:other.org"),&subjects).is_err());
+  assert!(parse_batch(&text.replace("domain:example.org","domain:other.org"),&subjects).is_err());
  }
  #[test]fn private_or_invalid_domains_are_excluded(){
   for bad in ["127.0.0.1","localhost","myserver.local","private.internal","https://example.com","my_test.com","foo.test"]{assert!(!is_public_domain(bad));}
