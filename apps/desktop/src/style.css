@@ -270,3 +270,10 @@ label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
 @media(max-width:940px){.coach-chat-layout{display:flex;flex-direction:column;height:auto;min-height:500px}.coach-chat-main{min-height:460px}.coach-chat-settings{overflow:visible}.coach-chat-settings .coach-settings-panel{position:static}}
 @media(max-width:620px){.classification-overview{grid-template-columns:1fr}.dd-tour-popover{padding:15px}.dd-tour-popover h3{font-size:16px}.tour-replay-btn{font-size:0;padding:8px}.tour-replay-btn svg{flex-shrink:0}}
 @media(prefers-reduced-motion:reduce){.dd-tour-spot,.dd-tour-popover,.onboarding-shell,.wizard-root,.dd-tour-progress span{transition:none;animation:none}}
+
+/* v0.3.8: settings draft feedback */
+.privacy-save-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.privacy-save-actions .primary-btn{width:auto;min-width:180px}
+.privacy-save-actions .secondary-btn{padding:10px 14px}
+.privacy-edit-status{margin:10px 0 0;color:#9fa0ad;font-size:11px;line-height:1.5}
+.privacy-edit-status.is-dirty{color:#e4c8a6}
