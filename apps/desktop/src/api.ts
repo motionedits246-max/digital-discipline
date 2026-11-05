@@ -13,6 +13,12 @@ export async function presentation(mode:'pill'|'quick'|'full'|'popout'):Promise<
   if(isTauri) await invoke<void>('set_presentation',{mode});
 }
 
+export async function dragWindow():Promise<void>{
+  if(isTauri)await invoke<void>('drag_window',{});
+}
+export async function hideToTray():Promise<void>{
+  if(isTauri)await invoke<void>('hide_to_tray',{});
+}
 export type BrowserPair={browser:'Brave'|'Chrome'|'Edge';extension_id:string;created_ms:number;last_seen_ms:number};
 export type PendingBrowser={extension_id:string;requested_ms:number};
 export async function getBrowserPairState():Promise<{pairs:BrowserPair[];pending:PendingBrowser[]}>{
