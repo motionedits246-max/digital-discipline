@@ -152,3 +152,78 @@ label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
 @media(prefers-reduced-motion:reduce){
  input[type="checkbox"]:not(.toggle),input[type="checkbox"]:not(.toggle)::before,.window-control,.category-choices label.check-line {transition:none!important}
 }
+
+/* v0.3.6: conversational AI coach, keyboard-first composer, safe Markdown view */
+.coach-chat-layout {display:grid;grid-template-columns:minmax(0,1fr) minmax(265px,325px);gap:16px;min-height:min(690px,calc(100vh - 205px));align-items:stretch}
+.coach-chat-main {display:flex;min-height:530px;min-width:0;flex-direction:column;background:linear-gradient(155deg,#19191d,#131317);overflow:hidden}
+.coach-chat-header {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid #303037}
+.coach-chat-brand {display:flex;align-items:center;gap:11px;min-width:0}
+.coach-chat-mark {width:34px;height:34px;display:grid;place-items:center;border:1px solid #61616d;border-radius:12px;background:#35353e;color:#eaeaf0;font-size:20px}
+.coach-chat-brand>div {display:flex;flex-direction:column;gap:4px}
+.coach-chat-brand strong {font-size:12px}
+.coach-chat-brand small {font-size:10px;color:#8e8e9b}
+.coach-icon-button {border:1px solid #41414a;color:#d5d5de;background:#28282f;border-radius:8px;padding:9px 12px;font-size:11px;white-space:nowrap}
+.coach-icon-button:hover {background:#363640}
+.coach-chat-scroller {flex:1;overflow-y:auto;overflow-x:hidden;max-height:620px;scrollbar-width:thin;scrollbar-color:#52525c transparent;padding:22px 20px}
+.coach-chat-empty {max-width:530px;margin:42px auto 20px;text-align:center}
+.coach-chat-emblem {margin:0 auto 14px;width:58px;height:58px;display:grid;place-items:center;border:1px solid #60606f;border-radius:18px;background:radial-gradient(circle at 25% 20%,#484858,#22222a);font-size:29px;color:#ededf4;animation:coachFloat 4s ease-in-out infinite}
+.coach-chat-empty h2 {margin:0 0 10px;font-size:22px}
+.coach-chat-empty p {font-size:12px;line-height:1.7;color:#a4a4b0}
+.coach-chat-suggestions {display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-top:26px}
+.coach-chat-suggestions button {border:1px solid #42424d;border-radius:12px;padding:13px;text-align:left;background:#24242b;color:#dedee4;font-size:11px;display:flex;gap:12px;justify-content:space-between;transition:background .18s,transform .18s}
+.coach-chat-suggestions button:hover {background:#33333d;transform:translateY(-2px)}
+.coach-chat-suggestions button span {color:#9999a6}
+.coach-chat-messages {max-width:760px;margin:auto;display:flex;flex-direction:column;gap:19px}
+.coach-chat-row {display:flex;gap:11px;align-items:flex-start}
+.coach-chat-user {flex-direction:row-reverse}
+.coach-chat-avatar {width:30px;height:30px;min-width:30px;display:grid;place-items:center;background:#363640;border:1px solid #565662;border-radius:11px;color:#e6e6ed;font-size:10px}
+.coach-chat-assistant .coach-chat-avatar {font-size:17px;background:#25252e}
+.coach-chat-bubble {max-width:calc(100% - 42px);min-width:0;overflow-wrap:anywhere;color:#e5e5ec;padding:15px 17px;border-radius:14px;background:#23232a;border:1px solid #383841;font-size:12px;line-height:1.8}
+.coach-chat-user .coach-chat-bubble {background:#373740;border-color:#555560;border-top-right-radius:4px}
+.coach-chat-assistant .coach-chat-bubble {border-top-left-radius:4px}
+.coach-chat-user .coach-chat-bubble p {white-space:pre-wrap;margin:0}
+.coach-chat-error {border-color:#78454b;background:#312126}
+.coach-markdown p {margin:0 0 13px}
+.coach-markdown p:last-child {margin-bottom:0}
+.coach-markdown h1,.coach-markdown h2,.coach-markdown h3 {color:#fff;line-height:1.3;margin:17px 0 9px;font-weight:700}
+.coach-markdown h1 {font-size:18px}.coach-markdown h2 {font-size:16px}.coach-markdown h3 {font-size:14px}
+.coach-markdown h1:first-child,.coach-markdown h2:first-child,.coach-markdown h3:first-child {margin-top:0}
+.coach-markdown ul,.coach-markdown ol {padding-left:21px;margin:7px 0 15px}
+.coach-markdown li {margin-bottom:4px}
+.coach-markdown blockquote {border-left:3px solid #888894;padding:5px 12px;margin:13px 0;color:#c3c3cb;background:#2d2d35}
+.coach-markdown code {background:#393941;border-radius:5px;padding:2px 5px;font-size:.93em}
+.coach-markdown pre {background:#101015;border:1px solid #3c3c47;border-radius:10px;padding:15px;overflow-x:auto;max-width:100%}
+.coach-markdown pre code {background:none;padding:0}
+.coach-markdown a {color:#b8c8ef;text-decoration:underline;text-underline-offset:3px}
+.coach-markdown table {display:block;max-width:100%;overflow-x:auto;border-collapse:collapse;margin:15px 0}
+.coach-markdown th,.coach-markdown td {border:1px solid #484852;padding:7px 10px;text-align:left}
+.coach-markdown th {background:#393941}
+.coach-chat-thinking {display:flex;align-items:center;gap:7px;min-height:48px}
+.coach-chat-thinking i {width:7px;height:7px;background:#a5a5b4;border-radius:50%;animation:ddThink 1.1s ease-in-out infinite}
+.coach-chat-thinking i:nth-child(2){animation-delay:.14s}.coach-chat-thinking i:nth-child(3){animation-delay:.28s}
+@keyframes ddThink{0%,75%,100%{opacity:.4;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
+.coach-chat-truncated {border-top:1px solid #65616a;margin-top:15px;padding-top:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:#e2cba9}
+.coach-chat-truncated button {padding:7px 12px;border:1px solid #77717b;border-radius:7px;background:#35313b;color:#f1dfe3}
+.coach-composer {background:#17171c;border-top:1px solid #35353e;padding:13px 17px 15px;display:grid;gap:9px}
+.coach-consent-row {display:flex!important;flex-direction:row!important;align-items:center!important;gap:11px!important;color:#b4b4be!important;font-size:10px!important;line-height:1.45!important;font-weight:400!important;cursor:pointer}
+.coach-composer-input {border:1px solid #555560;background:#24242c;border-radius:14px;display:flex;align-items:flex-end;padding:10px 10px 10px 15px;gap:9px;transition:border-color .2s}
+.coach-composer-input:focus-within {border-color:#aaaab5}
+.coach-composer-input textarea {min-height:48px;max-height:125px;resize:vertical;background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important;flex:1;padding:8px 0!important;color:#f0f0f3;font:inherit;font-size:12px;line-height:1.6}
+.coach-send {width:37px;height:37px;flex:none;border-radius:10px;border:0;background:#e3e3e9;color:#16161b;font-size:23px;line-height:1}
+.coach-send:disabled {background:#47474e;color:#91919a}
+.coach-composer-foot {display:flex;justify-content:space-between;gap:10px;color:#898994;font-size:10px}
+.coach-chat-settings {min-width:0}
+.coach-settings-panel {position:sticky;top:10px;margin:0;min-width:0}
+.coach-settings-panel h3 {margin:0 0 17px;font-size:13px}
+.coach-settings-fields {display:grid;gap:15px}
+.coach-settings-fields>label,.coach-vault>label {display:flex;flex-direction:column;gap:8px;color:#bcbcc7;font-size:11px}
+.coach-settings-fields input {width:100%;background:#1a1a20;color:#f1f1f6;border:1px solid #494952;padding:11px;border-radius:9px}
+.coach-key-mode {display:flex;gap:5px;background:#1b1b22;border:1px solid #45454c;border-radius:10px;padding:4px}
+.coach-key-mode button {flex:1;font-size:10px;padding:10px 8px;border-radius:7px;background:none;border:0;color:#9e9eac}
+.coach-key-mode button.active {background:#41414b;color:#fff;box-shadow:0 1px 5px #0004}
+.coach-key-mode button:focus-visible {outline:2px solid #aeaebd;outline-offset:2px}
+.coach-data-status {display:flex;align-items:center;gap:10px;font-size:11px;color:#b5b5c0}
+.coach-privacy-details {border-top:1px solid #393940;padding-top:13px;color:#9999a5;font-size:11px;line-height:1.7}
+.coach-privacy-details summary {cursor:pointer;color:#d1d1d9}
+@media(max-width:1020px){.coach-chat-layout{grid-template-columns:minmax(0,1fr)}.coach-chat-settings{grid-row:1}.coach-settings-panel{position:static}.coach-chat-main{min-height:460px}}
+@media(prefers-reduced-motion:reduce){.coach-chat-emblem,.coach-chat-thinking i,.coach-chat-suggestions button{animation:none;transition:none}}
