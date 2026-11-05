@@ -10,10 +10,13 @@
     <button id="sync" class="action primary" type="button">Connect directly & sync events</button>
     <p class="status" id="status" role="status"></p>
   </section>
+  <section id="recordingHint" class="recording-hint" role="status">Counting is off. Turn on "Record browser activity", then refresh your YouTube tab to start counting Shorts.</section>
   <section class="stats" aria-label="Companion status">
     <div><small>Queued events</small><strong id="queued">—</strong></div>
     <div><small>Active restrictions</small><strong id="count">—</strong></div>
   </section>
+  <section class="observed-stats" aria-label="Local playback diagnostics"><div><small>Shorts observed</small><strong id="localShorts">0</strong></div><div><small>YouTube videos</small><strong id="localWatches">0</strong></div><div><small>Reels observed</small><strong id="localReels">0</strong></div></section>
+  <p class="note" id="lastObserved">Local counts confirm the content script is detecting actual playback; the dashboard shows server-confirmed counts.</p>
   <section class="setting-group">
     <h2>Privacy & recording</h2>
     <label class="switch-row"><input id="enabled" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Record browser activity</strong><small>Local domains, observed Shorts & Reels only.</small></span></label>
