@@ -23,7 +23,7 @@ use rand::RngCore;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread, time::Duration as StdDuration};
+use std::{collections::BTreeMap, fs, path::PathBuf, sync::{atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering}, Arc, Mutex}, thread, time::Duration as StdDuration};
 use uuid::Uuid;
 
 type ApiResult = Result<Json<Value>, (StatusCode, String)>;
@@ -33,7 +33,7 @@ struct Tracker { reconciler: Reconciler, session_id: Option<String> }
 struct BrowserStatus { domain: Option<String>, profile_id:Option<String>, browser: String, focused: bool, last_event_ms: i64, rule_sync_ms: i64, rule_count: u32 }
 struct AppState {
     db: Mutex<Connection>, tracker: Mutex<Tracker>, browser: Mutex<BrowserStatus>,
-    paused: AtomicBool, token: String, shutdown: Arc<tokio::sync::Notify>,
+    paused: AtomicBool, storage_last_error_ms: AtomicI64, storage_error_count:AtomicU64, token: String, shutdown: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Deserialize)]
@@ -119,26 +119,44 @@ fn observe_tick(state: &AppState, mut sample: Observation) {
     let mut tracker = state.tracker.lock().unwrap();
     let (ended, current) = tracker.reconciler.push(sample);
     let db = state.db.lock().unwrap();
+    let mut failed=false;
     if let Some(previous) = ended {
         if let Some(id) = tracker.session_id.take() {
-            let _ = db.execute("UPDATE sessions SET end_ms=?1 WHERE id=?2", params![previous.end_ms, id]);
+            if db.execute("UPDATE sessions SET end_ms=?1 WHERE id=?2",params![previous.end_ms,id]).is_err(){failed=true;}
         }
     }
     if let Some(s) = current {
-        if let Some(id) = &tracker.session_id {
-            let _ = db.execute("UPDATE sessions SET end_ms=?1 WHERE id=?2", params![s.end_ms, id]);
-        } else {
-            let id = Uuid::new_v4().to_string();
-            let _ = db.execute("INSERT INTO sessions(id,start_ms,end_ms,app,idle,domain,profile_id) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![id, s.start_ms, s.end_ms, s.app, s.idle as u8, s.domain, s.profile_id]);
-            tracker.session_id = Some(id);
+        if !failed {
+            if let Some(id) = &tracker.session_id {
+                if db.execute("UPDATE sessions SET end_ms=?1 WHERE id=?2",params![s.end_ms,id]).is_err(){failed=true;}
+            } else {
+                let id=Uuid::new_v4().to_string();
+                match db.execute("INSERT INTO sessions(id,start_ms,end_ms,app,idle,domain,profile_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                     params![id,s.start_ms,s.end_ms,s.app,s.idle as u8,s.domain,s.profile_id]){
+                    Ok(1)=>tracker.session_id=Some(id), _=>failed=true
+                }
+            }
         }
     }
+    if failed {
+        // Drop any unpersisted in-memory interval instead of backfilling a
+        // fabricated gap when the database becomes writable again.
+        tracker.session_id=None;
+        tracker.reconciler.stop();
+        record_storage_failure(state);
+    }
+}
+fn record_storage_failure(state:&AppState){
+    state.storage_last_error_ms.store(now_ms(),Ordering::SeqCst);
+    state.storage_error_count.fetch_add(1,Ordering::SeqCst);
 }
 fn stop_observing(state: &AppState) {
     let mut tracker = state.tracker.lock().unwrap();
     let end = tracker.reconciler.stop();
-    if let (Some(segment), Some(id)) = (end, tracker.session_id.take()) {
-        let _ = state.db.lock().unwrap().execute("UPDATE sessions SET end_ms=?1 WHERE id=?2", params![segment.end_ms, id]);
+    if let (Some(segment),Some(id))=(end,tracker.session_id.take()){
+        if state.db.lock().unwrap().execute("UPDATE sessions SET end_ms=?1 WHERE id=?2",params![segment.end_ms,id]).is_err(){
+            record_storage_failure(state);
+        }
     }
 }
 async fn auth(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
@@ -435,7 +453,7 @@ async fn snapshot(State(state): State<Arc<AppState>>) -> ApiResult {
         "current":current,"sessions":recent,"heatmap":heatmap,"rules":rules,
         "goals":features::read_goals(&db).unwrap_or_default(),
         "focus":focus,"focus_goal_hint":focus_hint,
-        "coverage":{"windows_collector":if cfg!(windows){"running"}else{"unsupported"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true}
+        "coverage":{"windows_collector":if !cfg!(windows){"unsupported"}else if state.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000{"degraded_storage"}else{"running"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true}
     })))
 }
 async fn day_sessions(Path(day): Path<String>, State(state): State<Arc<AppState>>) -> ApiResult {
@@ -485,7 +503,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     let token=ensure_token()?;
     let db=init_db()?;
     let paused=db.query_row("SELECT value FROM settings WHERE key='paused'",[],|r|r.get::<_,String>(0)).unwrap_or_default()=="true";
-    let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),token,shutdown:Arc::new(tokio::sync::Notify::new())});
+    let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),token,shutdown:Arc::new(tokio::sync::Notify::new())});
     let classify_state=Arc::clone(&state);
     tokio::spawn(async move{
         loop {
