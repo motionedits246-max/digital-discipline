@@ -73,6 +73,7 @@ pub(super) async fn remove_config(State(s):State<Arc<AppState>>)->ApiResult{
  Ok(Json(json!({"ok":true,"enabled":false,"removed":true})))
 }
 pub(super) fn queue_unknowns(db:&Connection)->rusqlite::Result<usize>{
+ db.execute_batch("CREATE TABLE IF NOT EXISTS classification_attempts(subject TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0);")?;
  let mut count=0;
  let mut stmt=db.prepare("SELECT DISTINCT app FROM sessions WHERE end_ms>=?1 LIMIT 120")?;
  let apps=stmt.query_map(params![now_ms()-14*86_400_000],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -113,7 +114,7 @@ pub(super) async fn worker(state:Arc<AppState>){
   let provider=read_setting(&db,"classification_provider");
   let model=read_setting(&db,"classification_model");
   if !supported(&provider)||!valid_model(&model){return;}
-  let mut stmt=match db.prepare("SELECT subject FROM classifications WHERE state='awaiting_consent' OR (state='failed_retryable' AND updated_ms<?1) ORDER BY updated_ms ASC LIMIT 10"){Ok(x)=>x,Err(_)=>return};
+  let mut stmt=match db.prepare("SELECT c.subject FROM classifications c LEFT JOIN classification_attempts a ON a.subject=c.subject WHERE COALESCE(a.attempts,0)<3 AND (c.state='awaiting_consent' OR (c.state='failed_retryable' AND c.updated_ms<?1)) ORDER BY c.updated_ms ASC LIMIT 10"){Ok(x)=>x,Err(_)=>return};
   let subjects=match stmt.query_map(params![now_ms()-RETRY_MS],|r|r.get::<_,String>(0)){Ok(rows)=>rows.filter_map(Result::ok).filter(|s|safe_subject(s)).collect::<Vec<_>>(),Err(_)=>return};
   (subjects,provider,model)
  };
@@ -142,7 +143,11 @@ pub(super) async fn worker(state:Arc<AppState>){
   },
   Err(reason)=>{
    for subject in &subjects{
-    let _=db.execute("UPDATE classifications SET state='failed_retryable',reason=?2,updated_ms=?3 WHERE subject=?1 AND state='running'",params![subject,reason,now_ms()]);
+    let _=db.execute("INSERT INTO classification_attempts(subject,attempts) VALUES(?1,1) ON CONFLICT(subject) DO UPDATE SET attempts=attempts+1",params![subject]);
+    let attempt=db.query_row("SELECT attempts FROM classification_attempts WHERE subject=?1",params![subject],|r|r.get::<_,i64>(0)).unwrap_or(1);
+    let state_name=if attempt>=3{"awaiting_review"}else{"failed_retryable"};
+    let explanation=if attempt>=3{format!("Automatic retries exhausted after 3 tries: {reason}. Review manually.")}else{format!("Retry {attempt}/3: {reason}")};
+    let _=db.execute("UPDATE classifications SET state=?2,reason=?3,updated_ms=?4 WHERE subject=?1 AND state='running'",params![subject,state_name,explanation,now_ms()]);
    }
   }
  }
