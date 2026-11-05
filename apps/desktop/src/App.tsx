@@ -1,6 +1,6 @@
 import {CustomSelect} from './CustomSelect';
 import {useCallback,useEffect,useMemo,useState} from 'react';
-import type {FormEvent,ReactNode} from 'react';
+import type {FormEvent,ReactNode,PointerEvent} from 'react';
 import {agent,isTauri,presentation,snapshot,dragWindow,hideToTray,getBrowserPairState} from './api';
 import {BrowserSetupWizard} from './BrowserSetupWizard';
 import {makeDemo} from './demo';
@@ -96,7 +96,7 @@ export default function App(){
    return()=>{disposed=true;unsubscribe?.();};
  },[]);
  const changeMode=async(next:Mode)=>{setMode(next);try{await presentation(next);}catch(e){setMessage(String(e));}};
- const beginDrag=(event:React.PointerEvent<HTMLElement>)=>{
+ const beginDrag=(event:PointerEvent<HTMLElement>)=>{
    const target=event.target as HTMLElement;
    if(target.closest('button,a,input,textarea,select,[role="button"]'))return;
    if(event.button===0)void dragWindow().catch(()=>{});
