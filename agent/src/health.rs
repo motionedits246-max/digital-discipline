@@ -16,7 +16,10 @@ pub async fn details(State(s):State<Arc<AppState>>)->ApiResult{
  };
  let browser=s.browser.lock().unwrap().clone();
  Ok(Json(json!({"ok":true,"sampled_at_ms":now,
-  "agent":{"reachable":true,"tracking_paused":s.paused.load(Ordering::SeqCst)},
+  "agent":{"reachable":true,"tracking_paused":s.paused.load(Ordering::SeqCst),
+    "storage_last_error_at_ms":s.storage_last_error_ms.load(Ordering::SeqCst),
+    "storage_error_count":s.storage_error_count.load(Ordering::SeqCst),
+    "storage_degraded":s.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000},
   "browser":{"last_message_at_ms":browser.last_event_ms,"last_rule_ack_at_ms":browser.rule_sync_ms,
    "recent_signal":browser.last_event_ms>0&&now-browser.last_event_ms<120_000,
    "recent_rule_ack":browser.rule_sync_ms>0&&now-browser.rule_sync_ms<180_000},
