@@ -33,6 +33,14 @@ fn app_name(s:&str)->bool{
  !s.is_empty()&&s.len()<=100&&s.bytes().all(|b|b.is_ascii_alphanumeric()||b"_.-".contains(&b))
 }
 fn valid_status(s:&str)->bool{matches!(s,"draft"|"active"|"paused"|"completed"|"abandoned")}
+fn allowed_transition(old:&str,new:&str)->bool{
+ match old{
+  "draft"=>["active","abandoned"].contains(&new),
+  "active"=>["paused","completed","abandoned"].contains(&new),
+  "paused"=>["active","completed","abandoned"].contains(&new),
+  "completed"|"abandoned"=>false,_=>false
+ }
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewProfile{name:String,apps:Vec<String>,domains:Vec<String>}
@@ -102,13 +110,7 @@ pub async fn transition_task(Path(id):Path<String>,State(s):State<Arc<AppState>>
  let old=tx.query_row("SELECT state FROM workflow_tasks WHERE id=?1",params![id],|r|r.get::<_,String>(0)).optional()
   .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"workflow_storage_failed"))?
   .ok_or_else(||err(StatusCode::NOT_FOUND,"task_not_found"))?;
- let allowed=match old.as_str(){
-  "draft"=>["active","abandoned"].contains(&p.state.as_str()),
-  "active"=>["paused","completed","abandoned"].contains(&p.state.as_str()),
-  "paused"=>["active","completed","abandoned"].contains(&p.state.as_str()),
-  "completed"|"abandoned"=>false,_=>false
- };
- if !allowed{return Err(err(StatusCode::CONFLICT,"invalid_task_transition"));}
+ if !allowed_transition(&old,&p.state){return Err(err(StatusCode::CONFLICT,"invalid_task_transition"));}
  let finished=if matches!(p.state.as_str(),"completed"|"abandoned"){Some(now_ms())}else{None};
  tx.execute("UPDATE workflow_tasks SET state=?2,outcome=COALESCE(?3,outcome),updated_ms=?4,finished_ms=?5 WHERE id=?1",
   params![id,p.state,p.outcome,now_ms(),finished]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"workflow_storage_failed"))?;
@@ -122,6 +124,11 @@ mod tests{
   assert!(valid_status("completed"));assert!(!valid_status("verified"));
   assert!(!app_name("C:\\Users\\private.exe"));
   assert!(app_name("cursor.exe"));
+  assert!(allowed_transition("draft","active"));
+  assert!(allowed_transition("active","paused"));
+  assert!(allowed_transition("paused","completed"));
+  assert!(!allowed_transition("completed","active"));
+  assert!(!allowed_transition("draft","completed"));
  }
  #[test] fn migration_is_safe_on_old_schema(){
   let db=Connection::open_in_memory().unwrap();
