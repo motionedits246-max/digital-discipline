@@ -90,15 +90,56 @@ export function CategoryPanel({sessions,readonly,onUpdate}:{sessions:Session[];r
 }
 
 export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpdate:()=>void}) {
- const {data,refresh,error}=useRemote<{jobs:{subject:string;state:string;category:string;reason:string;updated_ms:number}[]}>('/classifications',!readonly,0);
- const {message,busy,perform}=useAction(()=>{refresh();onUpdate();});
- const [subject,setSubject]=useState('');const [provider,setProvider]=useState('openai');const [model,setModel]=useState('gpt-4.1-mini');const [key,setKey]=useState('');const [consent,setConsent]=useState(false);
- useEffect(()=>{if(readonly)return;const t=setInterval(refresh,15000);return()=>clearInterval(t);},[readonly]);
- function submit(e:FormEvent){e.preventDefault();const secret=key;setKey('');void perform(()=>agent('POST','/classifications/research',{subject,provider,model,api_key:secret,explicit_consent:consent}),'Classification queued outside the tracking loop. Check status below.');}
+ type Job={subject:string;state:string;category:string;reason:string;updated_ms:number};
+ type Response={jobs:Job[];enabled:boolean;provider:string;model:string;key_saved:boolean;batch_size:number;external_requests_automatic:boolean};
+ const {data,refresh,error}=useRemote<Response>('/classifications',!readonly,0);
+ const [provider,setProvider]=useState('gemini'),[model,setModel]=useState('gemini-2.5-flash'),[key,setKey]=useState('');
+ const [authorized,setAuthorized]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ useEffect(()=>{if(readonly)return;const t=setInterval(refresh,12000);return()=>clearInterval(t);},[readonly]);
+ useEffect(()=>{if(!data)return;if(data.provider){setProvider(data.provider);setModel(data.model);}setAuthorized(data.enabled);},[data?.provider,data?.model,data?.enabled]);
+ const models:Record<string,string>={openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini'};
+ async function save(e:FormEvent){
+  e.preventDefault();
+  if(busy||readonly||key.length<8||!authorized)return;
+  setBusy(true);setMessage('');
+  try{
+   await agent('POST','/classifications/config',{provider,model,api_key:key,enabled:true});
+   setKey('');refresh();onUpdate();
+   setMessage('Encrypted classifier key saved. Up to ten unknown app names or public hostnames per background JSON request. Tracking remains independent.');
+  }catch(e){setMessage('Could not enable automatic classification: '+String(e));}
+  finally{setBusy(false);}
+ }
+ async function disable(){
+  if(busy||readonly)return;
+  setBusy(true);setMessage('');
+  try{await agent('DELETE','/classifications/config');setAuthorized(false);setKey('');refresh();setMessage('Automatic classification disabled and encrypted classifier key deleted. Manual categories remain.');}
+  catch(e){setMessage('Could not disable: '+String(e));}
+  finally{setBusy(false);}
+ }
  const jobs=data?.jobs||[];
- return <Card title="Nonblocking app classification · optional BYOK research"><p className="muted-paragraph">Unknown app identities are queued locally every minute. No external service is contacted automatically. You can ask a selected model to classify a single known executable name, or manually override its category above.</p>
- <form className="rule-form" onSubmit={submit}><label>Unknown observed app<CustomSelect value={subject} onChange={e=>setSubject(e.target.value)} required><option value="">Select observed app</option>{jobs.filter(j=>j.state!=='succeeded').map(j=><option key={j.subject} value={j.subject}>{j.subject} · {j.state}</option>)}</CustomSelect></label><div className="form-grid"><label>Provider<CustomSelect value={provider} onChange={e=>{setProvider(e.target.value);setModel(e.target.value==='ollama'?'llama3.2':e.target.value==='anthropic'?'claude-sonnet-4-5':e.target.value==='gemini'?'gemini-2.5-flash':e.target.value==='openrouter'?'openai/gpt-4.1-mini':'gpt-4.1-mini');}}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(x=><option key={x}>{x}</option>)}</CustomSelect></label><label>Model ID<input required value={model} onChange={e=>setModel(e.target.value)}/></label></div>{provider!=='ollama'&&<label>One-use API key<input type="password" autoComplete="off" value={key} onChange={e=>setKey(e.target.value)} required minLength={8}/></label>}<label className="check-line"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Send only this app executable basename to the provider</label><button disabled={readonly||busy||!subject||!consent} className="primary-btn">Classify asynchronously</button></form><Feedback text={message||error}/>
- <div className="advanced-list">{jobs.map(j=><div key={j.subject} className="settings-row"><div><strong>{j.subject.slice(4)}</strong><small>{j.state} · {j.category} · {j.reason}</small></div><span className="tag">{j.state}</span></div>)}</div><p className="form-hint">Model output is strict-schema validated; name-only confidence is capped, low-confidence answers need review, and AI output cannot issue blocking commands. This provider key is discarded after one call.</p></Card>;
+ const pending=jobs.filter(j=>['awaiting_consent','running','failed_retryable'].includes(j.state)).length;
+ const autoEnabled=!!data?.external_requests_automatic;
+ const completed=jobs.filter(j=>j.state==='succeeded').length;
+ return <Card title="Automatic app and website categorization">
+  <div className="classification-overview">
+   <div><span className="classification-counter">{pending}</span><small>Queued or retrying</small></div>
+   <div><span className="classification-counter">{completed}</span><small>Auto-classified</small></div>
+   <div><span className={autoEnabled?'classification-state on':'classification-state'}>{autoEnabled?'Background worker on':'Background worker off'}</span><small>Up to 10 per request</small></div>
+  </div>
+  <p className="muted-paragraph">Unknown applications and public website hostnames are collected locally. When you explicitly enable this optional feature, a background worker groups up to 10 names into one JSON request. It never sends full URLs, browser history, window titles, file contents, local IP addresses or private hostnames.</p>
+  <form onSubmit={e=>void save(e)} className="rule-form">
+   <div className="form-grid"><label>AI provider<CustomSelect value={provider} onChange={e=>{const p=e.target.value;setProvider(p);setModel(models[p]);}}>{Object.keys(models).map(p=><option key={p} value={p}>{p}</option>)}</CustomSelect></label>
+   <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required maxLength={100}/></label></div>
+   <label>Classifier API key<input type="password" autoComplete="off" spellCheck={false} placeholder={data?.key_saved?'Enter a new key to replace the saved classifier key':'Enter key to encrypt on this Windows user'} value={key} minLength={8} maxLength={512} onChange={e=>setKey(e.target.value)} required/></label>
+   <label className="check-line"><input type="checkbox" checked={authorized} onChange={e=>setAuthorized(e.target.checked)}/> Enable automatic external AI classification of observed public site names and app basenames</label>
+   <p className="form-hint">AI requests may incur charges from your chosen provider. Your approval continues until you disable it. Results are validated and cannot control blocking rules. App identity is only a weak clue, so uncertain results require review.</p>
+   <div className="coach-vault-actions"><button className="primary-btn" disabled={readonly||busy||!authorized||key.length<8}>Save encrypted key &amp; enable</button>
+    {data?.key_saved&&<button type="button" className="danger-btn" onClick={()=>void disable()} disabled={readonly||busy}>Disable and delete key</button>}</div>
+  </form>
+  <Feedback text={message||error}/>
+  <div className="classification-jobs-header"><strong>Observed items</strong><button type="button" className="secondary-btn" onClick={refresh}>Refresh status</button></div>
+  <div className="advanced-list classification-results">{jobs.length?jobs.map(j=><div key={j.subject} className="settings-row"><div><strong>{j.subject.replace(/^(app:|site:)/,'')}</strong><small>{j.subject.startsWith('app:')?'Application':'Website hostname'} · {j.category} · {j.reason}</small></div><span className="tag">{j.state.replaceAll('_',' ')}</span></div>):<p className="muted-paragraph">No unknown app or public site has been observed yet.</p>}</div>
+ </Card>;
 }
 
 type CoachMessage={role:'user'|'assistant';content:string;truncated?:boolean;error?:boolean};
