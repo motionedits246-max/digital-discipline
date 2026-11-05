@@ -277,3 +277,9 @@ label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
 .privacy-save-actions .secondary-btn{padding:10px 14px}
 .privacy-edit-status{margin:10px 0 0;color:#9fa0ad;font-size:11px;line-height:1.5}
 .privacy-edit-status.is-dirty{color:#e4c8a6}
+
+/* Master specification: local workflow and redacted resource health. */
+.health-metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:11px;margin:16px 0}
+.health-metric-grid>div{display:flex;flex-direction:column;gap:7px;padding:14px;border-radius:11px;border:1px solid #40404b;background:#23232a;min-width:0}
+.health-metric-grid strong{font-size:13px;color:#e5e5ea;overflow-wrap:anywhere}
+.health-metric-grid small{font-size:10px;color:#a5a5b2;line-height:1.4}
