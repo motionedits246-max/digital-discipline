@@ -1,10 +1,12 @@
 import {FileDropzone} from './FileDropzone';
 import {CustomSelect} from './CustomSelect';
 import {sealBundle,openBundle} from "./secureBundle.mjs";
-import {useEffect,useMemo,useState} from 'react';
-import type {FormEvent,ReactNode} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
+import type {FormEvent,KeyboardEvent,ReactNode} from 'react';
 import {agent,autostartStatus,setAutostart,isTauri} from './api';
 import {BrowserSetupWizard} from './BrowserSetupWizard';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type {Focus,Goal,Insights,PrivacySettings,Rule,Session,Video} from './types';
 
 const cats=['Development','Design','Productivity','Communication','Education','Entertainment','Gaming','Social','News','Utility','System','Browser','Unclassified'];
@@ -99,76 +101,140 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
  <div className="advanced-list">{jobs.map(j=><div key={j.subject} className="settings-row"><div><strong>{j.subject.slice(4)}</strong><small>{j.state} · {j.category} · {j.reason}</small></div><span className="tag">{j.state}</span></div>)}</div><p className="form-hint">Model output is strict-schema validated; name-only confidence is capped, low-confidence answers need review, and AI output cannot issue blocking commands. This provider key is discarded after one call.</p></Card>;
 }
 
+type CoachMessage={role:'user'|'assistant';content:string;truncated?:boolean;error?:boolean};
+
 export function CoachPanel({readonly}:{readonly:boolean}) {
  const [provider,setProvider]=useState('openai'),[model,setModel]=useState('gpt-4.1-mini');
- const [key,setKey]=useState(''),[question,setQuestion]=useState("What can I learn from today's activity?");
- const [consent,setConsent]=useState(false),[answer,setAnswer]=useState(''),[shared,setShared]=useState('');
- const [busy,setBusy]=useState(false),[status,setStatus]=useState('');
- const [savedProviders,setSavedProviders]=useState<string[]>([]),[useSaved,setUseSaved]=useState(false),[saving,setSaving]=useState(false);
- const hasSaved=savedProviders.includes(provider);
- useEffect(()=>{if(readonly)return;void agent<{providers:string[]}>('GET','/coach/credentials').then(r=>{setSavedProviders(r.providers);setUseSaved(r.providers.includes('openai'));}).catch(()=>{});},[readonly]);
+ const [key,setKey]=useState(''),[question,setQuestion]=useState('');
+ const [consent,setConsent]=useState(false),[messages,setMessages]=useState<CoachMessage[]>([]);
+ const [busy,setBusy]=useState(false),[status,setStatus]=useState(''),[shared,setShared]=useState('');
+ const [savedProviders,setSavedProviders]=useState<string[]>([]),[credentialMode,setCredentialMode]=useState<'saved'|'one-time'>('one-time');
+ const [saving,setSaving]=useState(false),[vaultLoading,setVaultLoading]=useState(true);
+ const endOfChat=useRef<HTMLDivElement|null>(null),textareaRef=useRef<HTMLTextAreaElement|null>(null);
+ const modelDefaults:Record<string,string>={openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'};
+ const hasSaved=savedProviders.includes(provider),useSaved=provider!=='ollama'&&hasSaved&&credentialMode==='saved';
+ useEffect(()=>{if(readonly){setVaultLoading(false);return;}let active=true;
+   void agent<{providers:string[]}>('GET','/coach/credentials').then(r=>{
+     if(!active)return;
+     const providers=r.providers.filter(p=>p in modelDefaults);
+     setSavedProviders(providers);
+     if(providers.length){
+       const chosen=providers.includes(provider)?provider:providers[0];
+       setProvider(chosen);setModel(modelDefaults[chosen]);setCredentialMode('saved');
+     }else setCredentialMode('one-time');
+   }).catch(e=>{if(active)setStatus('Could not load encrypted keys: '+String(e));}).finally(()=>{if(active)setVaultLoading(false);});
+   return()=>{active=false;};
+ // Initial vault lookup only. Changing provider is handled explicitly by chooseProvider.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[readonly]);
+ useEffect(()=>{endOfChat.current?.scrollIntoView({behavior:'smooth',block:'end'});},[messages,busy]);
  const prompts=[
-  {label:'Find focus patterns',value:'Using the observed aggregates, what focus patterns are visible? Avoid guessing unobserved causes.'},
-  {label:'Build a practical plan',value:'Create a simple 30-minute focus plan using only the activity aggregates shown.'},
-  {label:'Review today',value:"What can I learn from today's activity, and what does the data not prove?"}
+  {label:'📊 Find focus patterns',value:'Based on what is actually observed today, what focus patterns stand out?'},
+  {label:'🎯 Make a focus plan',value:'Build a realistic 30-minute focus plan from my activity data.'},
+  {label:'💡 Review my day',value:'What can I learn from my activity today, and what can’t this data tell me?'}
  ];
+ function chooseProvider(p:string){setProvider(p);setModel(modelDefaults[p]||'');setCredentialMode(savedProviders.includes(p)?'saved':'one-time');setKey('');setStatus('');setMessages([]);setShared('');}
  async function saveKey(){
-  if(readonly||provider==='ollama'||key.trim().length<8)return;
-  setSaving(true);setStatus('');
-  try{
-   await agent('POST','/coach/credentials',{provider,api_key:key});
-   setSavedProviders(p=>[...new Set([...p,provider])]);setKey('');setUseSaved(true);
-   setStatus('API key encrypted using Windows DPAPI for this Windows user. It will not be returned to the dashboard.');
-  }catch(e){setStatus('Could not save key: '+String(e));}
-  finally{setSaving(false);}
+   if(readonly||provider==='ollama'||key.length<8)return;
+   setSaving(true);setStatus('');
+   try{
+     await agent('POST','/coach/credentials',{provider,api_key:key});
+     setSavedProviders(previous=>[...new Set([...previous,provider])]);setKey('');setCredentialMode('saved');
+     setStatus('Key encrypted for the current Windows account. Saved-key mode is now active.');
+   }catch(e){setStatus('Could not save key: '+String(e));}
+   finally{setSaving(false);}
  }
  async function deleteKey(){
-  if(readonly||!hasSaved)return;
-  setSaving(true);setStatus('');
-  try{
-   await agent('DELETE','/coach/credentials/'+provider);
-   setSavedProviders(p=>p.filter(x=>x!==provider));setUseSaved(false);
-   setStatus('Saved encrypted key deleted. You can still use a one-time key.');
-  }catch(e){setStatus('Could not delete key: '+String(e));}
-  finally{setSaving(false);}
+   if(readonly||!hasSaved)return;
+   setSaving(true);setStatus('');
+   try{
+     await agent('DELETE','/coach/credentials/'+provider);
+     setSavedProviders(previous=>previous.filter(p=>p!==provider));setCredentialMode('one-time');
+     setStatus('Encrypted key deleted. A one-time key can still be used.');
+   }catch(e){setStatus('Could not delete key: '+String(e));}
+   finally{setSaving(false);}
  }
- async function ask(e:FormEvent){e.preventDefault();if(!consent)return;setStatus('');setAnswer('');setBusy(true);
-   const ephemeral=useSaved?null:key;
-   if(!useSaved)setKey('');
-   try{const res=await agent<{answer:string;shared:unknown}>('POST','/coach',{provider,model,api_key:ephemeral,use_saved_key:useSaved,question,share_aggregates:true});setAnswer(res.answer);setShared(JSON.stringify(res.shared,null,2));}
-   catch(e){setStatus(String(e));}finally{setBusy(false);}
+ async function sendMessage(text:string){
+   const prompt=text.trim();
+   if(!prompt||busy||readonly||!consent||prompt.length>1000||(provider!=='ollama'&&!useSaved&&key.length<8))return;
+   const history=messages.filter(m=>!m.error).slice(-10).map(m=>({role:m.role,content:m.content.slice(-1800)}));
+   const oneTimeKey=useSaved?null:key;
+   setBusy(true);setStatus('');setQuestion('');setMessages(previous=>[...previous,{role:'user',content:prompt}]);
+   try{
+     const reply=await agent<{answer:string;shared:unknown;truncated?:boolean}>('POST','/coach',{
+       provider,model,api_key:oneTimeKey,use_saved_key:useSaved,question:prompt,history,share_aggregates:true
+     });
+     setShared(JSON.stringify(reply.shared,null,2));
+     setMessages(previous=>[...previous,{role:'assistant',content:reply.answer,truncated:!!reply.truncated}]);
+   }catch(e){
+     const error=String(e);
+     setMessages(previous=>[...previous,{role:'assistant',content:'The request failed. '+error,error:true}]);
+     if(error.includes('saved_key_missing_or_unavailable'))setStatus('Saved key could not be read. Check that the encrypted key belongs to this Windows user or save it again.');
+   }finally{setBusy(false);}
  }
- const chooseProvider=(p:string)=>{setProvider(p);setUseSaved(savedProviders.includes(p));setKey('');setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);};
- return <div className="coach-studio">
-  <div className="surface padded coach-topline"><span className="coach-orb" aria-hidden="true">✦</span><div><h3 style={{margin:0}}>Your focus studio</h3><p className="coach-subtitle">AI insights from your aggregated activity. Credentials stay on your Windows device, never in GitHub or browser storage.</p></div></div>
-  <div className="double-grid">
-   <Card title="Compose a coaching request">
-    <div className="coach-prompts" aria-label="Quick prompts">{prompts.map(p=><button key={p.label} type="button" onClick={()=>setQuestion(p.value)}>{p.label}</button>)}</div>
-    <form className="rule-form" onSubmit={ask}>
-     <label>Provider<CustomSelect value={provider} onChange={e=>chooseProvider(e.target.value)}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(x=><option key={x} value={x}>{x}</option>)}</CustomSelect></label>
-     <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required /></label>
-     {provider!=='ollama'&&<div className="coach-vault">
-       <div className="coach-vault-header"><div><strong>API credential vault</strong><small>{hasSaved?'Encrypted key available for '+provider:'No saved key for '+provider}</small></div><span className={hasSaved?'coach-key-ready':'coach-key-empty'}>{hasSaved?'Saved on Windows':'One-time key'}</span></div>
-       {hasSaved&&<label className="check-line coach-key-choice"><input type="checkbox" checked={useSaved} onChange={e=>{setUseSaved(e.target.checked);setKey('');}}/> Use my encrypted saved key</label>}
-       {!useSaved&&<label>{hasSaved?'One-time replacement key':'Enter API key'}<input type="password" autoComplete="off" spellCheck={false} value={key} onChange={e=>setKey(e.target.value)} required={!hasSaved||!useSaved} minLength={8}/></label>}
-       <div className="coach-vault-actions">
-         {!useSaved&&<button className="secondary-btn" type="button" disabled={readonly||saving||key.length<8} onClick={()=>void saveKey()}>Save key encrypted</button>}
-         {hasSaved&&<button className="danger-btn" type="button" disabled={readonly||saving} onClick={()=>void deleteKey()}>Delete saved key</button>}
+ function submit(e:FormEvent){e.preventDefault();void sendMessage(question);}
+ function composerKeys(e:KeyboardEvent<HTMLTextAreaElement>){
+   if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){
+     e.preventDefault();void sendMessage(question);
+   }
+ }
+ function continueReply(){void sendMessage('Continue your last response from the point it stopped. Avoid repeating text already provided.');}
+ function clearConversation(){setMessages([]);setShared('');setQuestion('');setStatus('');textareaRef.current?.focus();}
+ return <section className="coach-chat-layout">
+  <div className="coach-chat-main surface">
+    <header className="coach-chat-header">
+     <div className="coach-chat-brand"><span className="coach-chat-mark" aria-hidden="true">✦</span><div><strong>Digital Discipline Coach</strong><small>Private-by-default • Chat about your activity</small></div></div>
+     <button type="button" className="coach-icon-button" title="New conversation" onClick={clearConversation} disabled={busy}>＋ <span>New chat</span></button>
+    </header>
+    <div className="coach-chat-scroller" role="log" aria-live="polite" aria-label="AI coaching conversation">
+     {messages.length===0&&<div className="coach-chat-empty">
+      <div className="coach-chat-emblem">✧</div><h2>What would you like to explore?</h2>
+      <p>Ask about your tracked activity, focus goals, or how to plan your day. The coach only receives aggregate totals when you approve a request.</p>
+      <div className="coach-chat-suggestions">{prompts.map(p=><button type="button" key={p.label} onClick={()=>{setQuestion(p.value);textareaRef.current?.focus();}}>{p.label} <span>↗</span></button>)}</div>
+     </div>}
+     <div className="coach-chat-messages">
+     {messages.map((m,index)=><div key={index} className={'coach-chat-row '+(m.role==='user'?'coach-chat-user':'coach-chat-assistant')}>
+       <div className="coach-chat-avatar" aria-hidden="true">{m.role==='assistant'?'✦':'You'}</div>
+       <div className={'coach-chat-bubble '+(m.error?'coach-chat-error':'')}>
+        {m.role==='assistant'?<div className="coach-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{m.content}</ReactMarkdown></div>:<p>{m.content}</p>}
+        {m.truncated&&<div className="coach-chat-truncated"><span>Response reached the model's output limit.</span><button type="button" disabled={busy} onClick={continueReply}>Continue response →</button></div>}
        </div>
-       <p className="form-hint">Protected by Windows Data Protection API for the signed-in Windows account. Saving is optional. Keys are not shown again, exported or synced across devices.</p>
-      </div>}
-     <label>Question<textarea rows={4} maxLength={1000} required value={question} onChange={e=>setQuestion(e.target.value)}/></label>
-     <label className="check-line"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I approve sending today's aggregate totals for this request</label>
-     <p className="form-hint">Only aggregate counters are shared. No app names, video IDs, URLs or browsing history. Model providers may charge or retain data according to their terms.</p>
-     <button className="primary-btn" type="submit" disabled={readonly||busy||!consent||(provider!=='ollama'&&!useSaved&&key.length<8)}>{busy?'Thinking about your data…':'Ask the coach →'}</button>
-     <p className="coach-hotkeys">Ctrl+K: navigate · Ctrl+Shift+D: open workspace · Esc: close search</p>
-    </form><Feedback text={status}/>
-   </Card>
-   <Card title="Insights and answer">
-    <div className="coach-response-card" aria-live="polite">{answer?<><p className="coach-answer">{answer}</p><details><summary>Exactly what was shared</summary><pre className="json-preview">{shared}</pre></details></>:<><div className="coach-placeholder-graphic" aria-hidden="true">✧</div><h3>Start with a question</h3><p className="muted-paragraph">Select a suggested prompt or write your own. Your activity stays local until you approve each coaching request. AI never controls your focus restrictions.</p></>}</div>
-   </Card>
+      </div>)}
+     {busy&&<div className="coach-chat-row coach-chat-assistant"><div className="coach-chat-avatar" aria-hidden="true">✦</div><div className="coach-chat-bubble coach-chat-thinking" aria-label="AI is generating"><i/><i/><i/></div></div>}
+     <div ref={endOfChat}/>
+     </div>
+    </div>
+    <form className="coach-composer" onSubmit={submit}>
+     <label className="coach-consent-row"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Share today's aggregate activity totals with the selected AI model for each message</label>
+     <div className="coach-composer-input"><textarea ref={textareaRef} aria-label="Message Digital Discipline Coach" placeholder={consent?'Message Digital Discipline Coach…':'Enable aggregate-data consent to send a message'} rows={2} maxLength={1000} value={question} onChange={e=>setQuestion(e.target.value)} onKeyDown={composerKeys} disabled={busy||readonly}/><button className="coach-send" aria-label="Send message" title="Send message" type="submit" disabled={busy||readonly||!consent||!question.trim()||(provider!=='ollama'&&!useSaved&&key.length<8)}>↑</button></div>
+     <div className="coach-composer-foot"><small>Enter to send · Shift+Enter for newline</small><small>{question.length}/1000</small></div>
+    </form>
   </div>
- </div>;
+  <aside className="coach-chat-settings">
+   <div className="surface padded coach-settings-panel"><h3>Model &amp; credentials</h3>
+    <div className="coach-settings-fields">
+     <label>AI provider<CustomSelect value={provider} onChange={e=>chooseProvider(e.target.value)}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(p=><option key={p} value={p}>{p}</option>)}</CustomSelect></label>
+     <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} maxLength={100}/></label>
+     {provider!=='ollama'&&<div className="coach-vault">
+      <div className="coach-vault-header"><div><strong>🔐 API key vault</strong><small>{vaultLoading?'Checking saved credentials…':hasSaved?'Encrypted key is available':'No saved key for this provider'}</small></div><span className={hasSaved?'coach-key-ready':'coach-key-empty'}>{hasSaved?'Saved':'One-time'}</span></div>
+      {hasSaved&&<div className="coach-key-mode" role="group" aria-label="API key selection">
+       <button type="button" aria-pressed={credentialMode==='saved'} className={credentialMode==='saved'?'active':''} onClick={()=>{setCredentialMode('saved');setKey('');}}>Use saved key</button>
+       <button type="button" aria-pressed={credentialMode==='one-time'} className={credentialMode==='one-time'?'active':''} onClick={()=>setCredentialMode('one-time')}>One-time key</button>
+      </div>}
+      {!useSaved&&<label>API key<input type="password" autoComplete="off" spellCheck={false} value={key} onChange={e=>setKey(e.target.value)} placeholder="Paste API key" maxLength={512}/></label>}
+      <div className="coach-vault-actions">
+       {!useSaved&&<button className="secondary-btn" type="button" disabled={readonly||saving||key.length<8} onClick={()=>void saveKey()}>Save encrypted</button>}
+       {hasSaved&&<button className="danger-btn" type="button" disabled={readonly||saving} onClick={()=>void deleteKey()}>Delete key</button>}
+      </div>
+      <p className="form-hint">Encrypted by Windows DPAPI for this user. Never shown again or saved to browser storage. An RDP machine with a temporary profile may lose the encrypted key.</p>
+     </div>}
+     <div className="coach-data-status"><span className="health-dot on"/> {provider==='ollama'?'Local model selected':useSaved?'Encrypted saved key selected':provider==='ollama'||key.length>=8?'One-time key ready':'Enter your API key to chat'}</div>
+     <details className="coach-privacy-details"><summary>What is shared with AI?</summary><p>Today's aggregate activity totals and the message history shown in this chat. No individual browsing URLs, video IDs or window titles are sent by the coach.</p>{shared&&<pre className="json-preview">{shared}</pre>}</details>
+     <Feedback text={status}/>
+    </div>
+   </div>
+  </aside>
+ </section>;
 }
 
 export function PrivacyPanel({readonly,refreshKey,onUpdate}:{readonly:boolean;refreshKey:number;onUpdate:()=>void}) {
