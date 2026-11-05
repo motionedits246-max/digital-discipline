@@ -11,6 +11,11 @@ async function refresh() {
  $('errorDetail').textContent=error;
  $('count').textContent=r.blocks.length;
  $('queued').textContent=r.queued;
+ $('recordingHint').hidden=r.collectionEnabled===true;
+ $('localShorts').textContent=r.videoObserved?.shorts||0;
+ $('localWatches').textContent=r.videoObserved?.watches||0;
+ $('localReels').textContent=r.videoObserved?.reels||0;
+ $('lastObserved').textContent=r.videoObserved?.lastAt?('Last observed video: '+new Date(r.videoObserved.lastAt).toLocaleTimeString()+' · Local counts are separate from acknowledged dashboard metrics.'):'No qualifying playback detected yet. Enable recording, refresh the YouTube tab, then play for at least 3 seconds.';
  const {browserKind='brave',collectionEnabled=false,notificationsEnabled=false,dndEnabled=false,quietStart='',quietEnd=''}=await chrome.storage.local.get(['browserKind','collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd']);
  for(const b of browsers){const el=document.querySelector(`[data-browser="${b}"]`);el.classList.toggle('selected',b===browserKind);el.setAttribute('aria-pressed',String(b===browserKind));}
  $('enabled').checked=collectionEnabled;
@@ -20,7 +25,7 @@ async function refresh() {
  $('quietEnd').value=quietEnd;
  if(r.emergencyUntil>Date.now()) $('status').textContent='Recovery active until '+new Date(r.emergencyUntil).toLocaleTimeString();
 }
-$('enabled').addEventListener('change',async e=>{await chrome.runtime.sendMessage({op:'collectionEnable',value:e.target.checked});refresh();});
+$('enabled').addEventListener('change',async e=>{await chrome.runtime.sendMessage({op:'collectionEnable',value:e.target.checked});refresh();$('status').textContent=e.target.checked?'Recording enabled. Refresh open YouTube/Instagram tabs, then play a video for 3–5 seconds.':'Recording disabled. No browser playback will be counted.';});
 $('notifications').addEventListener('change',async e=>{await chrome.runtime.sendMessage({op:'notificationsEnable',value:e.target.checked});refresh();});
 async function notifyPrefs(){
  await chrome.runtime.sendMessage({op:'notificationPreferences',dndEnabled:$('dnd').checked,quietStart:$('quietStart').value,quietEnd:$('quietEnd').value});refresh();
