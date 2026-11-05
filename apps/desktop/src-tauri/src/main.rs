@@ -54,15 +54,33 @@ fn set_presentation(app:tauri::AppHandle,mode:String)->Result<(),String> {
     w.set_always_on_top(!popout).map_err(|e|e.to_string())?;
     w.set_skip_taskbar(!popout).map_err(|e|e.to_string())?;
     w.set_decorations(popout).map_err(|e|e.to_string())?;
-    if mode=="pill" || mode=="quick" {
-        if let Some(monitor)=w.current_monitor().map_err(|e|e.to_string())? {
-            let scale=w.scale_factor().map_err(|e|e.to_string())?;
-            let x=monitor.position().x + (monitor.size().width as i32 - (width*scale) as i32)/2;
-            let y=monitor.position().y + (32.0*scale) as i32;
+    // Keep the user's chosen position when switching between pill, panel, and workspace.
+    // Clamp after resizing so a larger panel cannot disappear beyond a monitor edge.
+    if let Some(monitor)=w.current_monitor().map_err(|e|e.to_string())? {
+        let current=w.outer_position().map_err(|e|e.to_string())?;
+        let size=w.outer_size().map_err(|e|e.to_string())?;
+        let bounds=monitor.size();
+        let left=monitor.position().x+8;
+        let top=monitor.position().y+8;
+        let right=(monitor.position().x+bounds.width as i32-size.width as i32-8).max(left);
+        let bottom=(monitor.position().y+bounds.height as i32-size.height as i32-8).max(top);
+        let x=current.x.clamp(left,right);
+        let y=current.y.clamp(top,bottom);
+        if x!=current.x||y!=current.y {
             w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x,y))).map_err(|e|e.to_string())?;
         }
-    } else {w.center().map_err(|e|e.to_string())?;}
+    }
     Ok(())
+}
+#[tauri::command]
+fn drag_window(app:tauri::AppHandle)->Result<(),String>{
+    let w=app.get_webview_window("main").ok_or("Window unavailable")?;
+    w.start_dragging().map_err(|e|e.to_string())
+}
+#[tauri::command]
+fn hide_to_tray(app:tauri::AppHandle)->Result<(),String>{
+    let w=app.get_webview_window("main").ok_or("Window unavailable")?;
+    w.hide().map_err(|e|e.to_string())
 }
 
 #[cfg(windows)]
@@ -208,8 +226,9 @@ fn main() {
               app.handle().plugin(tauri_plugin_global_shortcut::Builder::new()
                   .with_handler(|app,_shortcut,event|{
                       if event.state()==ShortcutState::Pressed {
+                          if let Some(window)=app.get_webview_window("main") {let _=window.show();}
                           let _=set_presentation(app.clone(),"full".into());
-                          if let Some(window)=app.get_webview_window("main") {let _=window.show();let _=window.set_focus();}
+                          if let Some(window)=app.get_webview_window("main") {let _=window.set_focus();}
                           let _=app.emit("dd:global-command",());
                       }
                   }).build())?;
@@ -228,14 +247,14 @@ fn main() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app,event|match event.id().as_ref(){
-                   "open"=>{let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}},
+                   "open"=>{if let Some(w)=app.get_webview_window("main"){let _=w.show();}let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.set_focus();}let _=app.emit("dd:open-dashboard",());},
                    "pause"=>send_agent_command("/tracking/pause",r#"{"paused":true}"#),
                    "resume"=>send_agent_command("/tracking/pause",r#"{"paused":false}"#),
                    "quit"=>{send_agent_command("/shutdown","{}");app.exit(0)},
                    _=>{},
                 })
                 .on_tray_icon_event(|tray,event|{if let TrayIconEvent::Click{button:MouseButton::Left,button_state:MouseButtonState::Up,..}=event{
-                    let app=tray.app_handle();let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}
+                    let app=tray.app_handle();if let Some(w)=app.get_webview_window("main"){let _=w.show();}let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.set_focus();}let _=app.emit("dd:open-dashboard",());
                 }})
                 .build(app)?;
 
@@ -247,7 +266,7 @@ fn main() {
           #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {api.prevent_close();let _=window.hide();}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,open_extension_folder,autostart_status,set_autostart])
+      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }
