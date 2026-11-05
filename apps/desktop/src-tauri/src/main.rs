@@ -16,8 +16,9 @@ async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<V
     let allowed=match (method.as_str(),path.as_str()) {
         ("GET","/state"|"/export"|"/videos"|"/insights"|"/categories"|"/goals"|"/settings"|"/classifications"|"/devices"|"/devices/export"|"/rules/audit"|"/browser-pairs"|"/coach/credentials") => true,
         ("GET",p) if p.starts_with("/sessions/") && p.len()==20 && p[10..].bytes().all(|c|c.is_ascii_digit()||c==b'-') => true,
-        ("POST","/tracking/pause"|"/rules"|"/categories/override"|"/goals"|"/focus/start"|"/focus/end"|"/focus/hint/choice"|"/settings"|"/coach"|"/coach/credentials"|"/classifications/research"|"/devices/import"|"/rules/preview"|"/browser-pairs") => true,
+        ("POST","/tracking/pause"|"/rules"|"/categories/override"|"/goals"|"/focus/start"|"/focus/end"|"/focus/hint/choice"|"/settings"|"/coach"|"/coach/credentials"|"/classifications/config"|"/devices/import"|"/rules/preview"|"/browser-pairs") => true,
         ("DELETE","/data") => true,
+        ("DELETE","/classifications/config") => true,
         ("DELETE",p) if matches!(p,"/coach/credentials/openai"|"/coach/credentials/gemini"|"/coach/credentials/anthropic"|"/coach/credentials/groq"|"/coach/credentials/openrouter") => true,
         ("DELETE",p) if p.starts_with("/browser-pairs/") && p.len()==47 && p[15..].bytes().all(|b|(b'a'..=b'p').contains(&b)) => true,
         ("DELETE",p) if (p.starts_with("/rules/") || p.starts_with("/goals/") || p.starts_with("/devices/")) &&
