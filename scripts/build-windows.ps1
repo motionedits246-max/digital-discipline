@@ -45,7 +45,15 @@ try {
  New-Item -ItemType Directory -Force $dest | Out-Null
  Copy-Item (Join-Path $root 'target/release/digital-discipline-agent.exe') $dest -Force
  $desktopExe=Join-Path $root 'target/release/digital-discipline-desktop.exe'
- if(Test-Path $desktopExe){Copy-Item $desktopExe $dest -Force}
+ if(Test-Path $desktopExe){
+   if($env:DD_DEV_CERT_THUMBPRINT){
+     $cert=Get-Item ("Cert:\CurrentUser\My\" + $env:DD_DEV_CERT_THUMBPRINT)
+     $desktopSignature=Set-AuthenticodeSignature -FilePath $desktopExe -Certificate $cert -HashAlgorithm SHA256
+     if(-not $desktopSignature.SignerCertificate -or $desktopSignature.SignerCertificate.Thumbprint -ne $env:DD_DEV_CERT_THUMBPRINT){throw 'Desktop executable signing failed'}
+     Write-Host "Desktop application executable signed with development certificate"
+   }
+   Copy-Item $desktopExe $dest -Force
+ }
  $installers=Get-ChildItem (Join-Path $root 'target/release/bundle/nsis') -Filter '*.exe' -ErrorAction SilentlyContinue
  if(-not $installers){throw 'No NSIS installer generated'}
  $installers | Copy-Item -Destination $dest -Force
