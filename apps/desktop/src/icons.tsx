@@ -14,6 +14,8 @@ const icons:Record<string,ReactNode>={
   plus:<><path d="M12 5v14M5 12h14"/></>,close:<><path d="M5 5 19 19M19 5 5 19"/></>,
   expand:<><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></>,
   window:<><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></>,
+  maximize:<><rect x="4" y="4" width="16" height="16" rx="2"/></>,
+  restore:<><rect x="7" y="3" width="13" height="13" rx="2"/><path d="M16 18v2H4V7h2"/></>,
   arrow:<><path d="M5 12h14m-6-6 6 6-6 6"/></>,download:<><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></>,
   clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></>,check:<><path d="m4 12 5 5L20 6"/></>,
   search:<><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></>, dot:<><circle cx="12" cy="12" r="3"/></>,
