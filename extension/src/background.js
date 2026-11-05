@@ -14,7 +14,7 @@ let lastNativeReplyAt = 0; // kept for backward-compatible status consumers
 let lastConnectAttemptAt = 0;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
-async function storage() { return chrome.storage.local.get(['eventQueue', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','lastNotifications']); }
+async function storage() { return chrome.storage.local.get(['eventQueue', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','lastNotifications','videoObserved']); }
 async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
@@ -193,11 +193,24 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     const plat=watch?'youtube_watch':host==='www.youtube.com'?'youtube_shorts':'instagram_reels';
     const id=watch ? url.searchParams.get('v')?.match(/^[a-zA-Z0-9_-]{5,128}$/)?.[0] : host==='www.youtube.com' ? url.pathname.match(/^\/shorts\/([a-zA-Z0-9_-]+)/)?.[1] : url.pathname.match(/^\/reels?\/([a-zA-Z0-9_-]+)/)?.[1];
     if (!id) {sendResponse({ok:false,error:'unrecognized_video_route'});return;}
-    pushEvent(msg.kind,{platform:plat,video_id:id,instance_id:msg.instance_id,watched_ms:Math.floor(msg.watched_ms)}).then(()=>sendResponse({ok:true})).catch(()=>sendResponse({ok:false}));
+    (async()=>{
+      const opts=await chrome.storage.local.get(['collectionEnabled','videoObserved']);
+      if(opts.collectionEnabled!==true){sendResponse({ok:false,error:'recording_off'});return;}
+      if(msg.kind==='video.qualified_play'){
+        const observed=opts.videoObserved||{shorts:0,watches:0,reels:0,lastAt:0};
+        if(plat==='youtube_shorts')observed.shorts=(observed.shorts||0)+1;
+        else if(plat==='youtube_watch')observed.watches=(observed.watches||0)+1;
+        else observed.reels=(observed.reels||0)+1;
+        observed.lastAt=Date.now();
+        await chrome.storage.local.set({videoObserved:observed});
+      }
+      await pushEvent(msg.kind,{platform:plat,video_id:id,instance_id:msg.instance_id,watched_ms:Math.floor(msg.watched_ms)});
+      sendResponse({ok:true});
+    })().catch(()=>sendResponse({ok:false,error:'queue_write_failed'}));
     return true;
   }
   if (msg?.op==='getStatus') {
-    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[]})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"}));return true;
+    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],collectionEnabled=false,videoObserved={}})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,collectionEnabled,videoObserved,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"}));return true;
   }
   if (msg?.op==='checkBlocked') {
     storage().then(({blocks=[],emergencyUntil=0})=>sendResponse({blocked:Date.now()>=emergencyUntil&&blocks.some(b=>b.action==='block' && b.expires_at_ms>Date.now() && ruleMatches(sender.tab?.url || '',b)),blocks:Date.now()>=emergencyUntil?blocks.filter(b=>b.expires_at_ms>Date.now()):[]}));return true;
