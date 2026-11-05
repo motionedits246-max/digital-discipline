@@ -23,7 +23,7 @@ pub async fn details(State(s):State<Arc<AppState>>)->ApiResult{
   "browser":{"last_message_at_ms":browser.last_event_ms,"last_rule_ack_at_ms":browser.rule_sync_ms,
    "recent_signal":browser.last_event_ms>0&&now-browser.last_event_ms<120_000,
    "recent_rule_ack":browser.rule_sync_ms>0&&now-browser.rule_sync_ms<180_000},
-  "storage":{"db_bytes":size,"persisted_event_count":event_count,"session_rows":session_count,"last_accepted_event_at_ms":last},
+  "storage":{"db_bytes":size,"persisted_event_count":event_count,"session_rows":session_count,"last_accepted_event_at_ms":last_event},
   "optional_workers":{"auto_classification_enabled":auto},
   "redacted":true
  })))
