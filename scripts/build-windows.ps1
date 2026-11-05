@@ -15,6 +15,8 @@ try {
  if($LASTEXITCODE -ne 0){throw 'SQL schema tests failed'}
  python 'tests/browser-pair-migration.py'
  if($LASTEXITCODE -ne 0){throw 'Browser pairing migration test failed'}
+ python 'tests/workflow-migration.py'
+ if($LASTEXITCODE -ne 0){throw 'Workflow migration test failed'}
  Write-Host '[2/6] Rust unit tests'
  cargo test -p digital-discipline-agent
  if($LASTEXITCODE -ne 0){throw 'Agent tests failed'}
