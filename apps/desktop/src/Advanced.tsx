@@ -100,11 +100,42 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
 }
 
 export function CoachPanel({readonly}:{readonly:boolean}) {
- const [provider,setProvider]=useState('openai');const [model,setModel]=useState('gpt-4.1-mini');const [key,setKey]=useState('');const [question,setQuestion]=useState('What can I learn from today\'s activity?');
- const [consent,setConsent]=useState(false);const [answer,setAnswer]=useState('');const [shared,setShared]=useState('');const [busy,setBusy]=useState(false);const [status,setStatus]=useState('');
+ const [provider,setProvider]=useState('openai');const [model,setModel]=useState('gpt-4.1-mini');
+ const [key,setKey]=useState('');const [question,setQuestion]=useState("What can I learn from today's activity?");
+ const [consent,setConsent]=useState(false);const [answer,setAnswer]=useState('');const [shared,setShared]=useState('');
+ const [busy,setBusy]=useState(false);const [status,setStatus]=useState('');
+ const prompts=[
+  {label:'Find focus patterns',value:'Using the observed aggregates, what focus patterns are visible? Avoid guessing unobserved causes.'},
+  {label:'Build a practical plan',value:'Create a simple 30-minute focus plan using only the activity aggregates shown.'},
+  {label:'Review today',value:"What can I learn from today's activity, and what does the data not prove?"}
+ ];
  async function ask(e:FormEvent){e.preventDefault();if(!consent)return;setStatus('');setAnswer('');setBusy(true);
-   const ephemeral=key;setKey('');try{const res=await agent<{answer:string;shared:unknown}>('POST','/coach',{provider,model,api_key:ephemeral,question,share_aggregates:true});setAnswer(res.answer);setShared(JSON.stringify(res.shared,null,2));}catch(e){setStatus(String(e));}finally{setBusy(false);}}
- return <div className="double-grid"><Card title="Optional model · bring your own key"><form className="rule-form" onSubmit={ask}><label>Provider<CustomSelect value={provider} onChange={e=>{const p=e.target.value;setProvider(p);setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);}}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(x=><option key={x} value={x}>{x}</option>)}</CustomSelect></label><label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required/></label>{provider!=='ollama'&&<label>API key (used once, never saved)<input type="password" autoComplete="off" value={key} onChange={e=>setKey(e.target.value)} required minLength={8}/></label>}<label>Ask the Coach<textarea rows={4} maxLength={1000} required value={question} onChange={e=>setQuestion(e.target.value)}/></label><label className="check-line"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I approve sending aggregate totals for this request</label><p className="form-hint">Only today's active/development/entertainment milliseconds and qualified short-play count are sent; no app names, URLs or video IDs. Key is discarded after each request. Model provider may charge and store content under its terms.</p><button className="primary-btn" disabled={readonly||busy||!consent}>{busy?'Requesting…':'Ask with consent'}</button></form><Feedback text={status}/></Card><Card title="Coach response · source data preview">{answer?<><p className="coach-answer">{answer}</p><details><summary>Exact aggregates shared with provider</summary><pre className="json-preview">{shared}</pre></details></>:<p className="muted-paragraph">No question has been sent in this session. This application works without a model, and this feature never controls restrictions.</p>}</Card></div>;
+   const ephemeral=key;setKey('');
+   try{const res=await agent<{answer:string;shared:unknown}>('POST','/coach',{provider,model,api_key:ephemeral,question,share_aggregates:true});setAnswer(res.answer);setShared(JSON.stringify(res.shared,null,2));}
+   catch(e){setStatus(String(e));}finally{setBusy(false);}
+ }
+ const chooseProvider=(p:string)=>{setProvider(p);setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);};
+ return <div className="coach-studio">
+  <div className="surface padded coach-topline"><span className="coach-orb" aria-hidden="true">✦</span><div><h3 style={{margin:0}}>Your focus studio</h3><p className="coach-subtitle">Ask clear questions about your own aggregate activity. Your API key is used once and not stored.</p></div></div>
+  <div className="double-grid">
+   <Card title="Compose a coaching request">
+    <div className="coach-prompts" aria-label="Quick prompts">{prompts.map(p=><button key={p.label} type="button" onClick={()=>setQuestion(p.value)}>{p.label}</button>)}</div>
+    <form className="rule-form" onSubmit={ask}>
+     <label>Provider<CustomSelect value={provider} onChange={e=>chooseProvider(e.target.value)}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(x=><option key={x} value={x}>{x}</option>)}</CustomSelect></label>
+     <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required /></label>
+     {provider!=='ollama'&&<label>One-use API key<input type="password" autoComplete="off" value={key} onChange={e=>setKey(e.target.value)} required minLength={8}/></label>}
+     <label>Question<textarea rows={4} maxLength={1000} required value={question} onChange={e=>setQuestion(e.target.value)}/></label>
+     <label className="check-line"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I approve sending today's aggregate totals for this request</label>
+     <p className="form-hint">Only aggregate counters are shared. No app names, video IDs, URLs or browsing history. The model provider may charge or retain submitted data according to its terms.</p>
+     <button className="primary-btn" type="submit" disabled={readonly||busy||!consent}>{busy?'Thinking about your data…':'Ask the coach →'}</button>
+     <p className="coach-hotkeys">Ctrl+K: navigate · Ctrl+Shift+D: open workspace · Esc: close search</p>
+    </form><Feedback text={status}/>
+   </Card>
+   <Card title="Insights and answer">
+    <div className="coach-response-card" aria-live="polite">{answer?<><p className="coach-answer">{answer}</p><details><summary>Exactly what was shared</summary><pre className="json-preview">{shared}</pre></details></>:<><div className="coach-placeholder-graphic" aria-hidden="true">✧</div><h3>Start with a question</h3><p className="muted-paragraph">Select a suggested prompt or write your own. Your activity remains local until you explicitly approve a request. AI coaching never enforces browser restrictions.</p></>}</div>
+   </Card>
+  </div>
+ </div>;
 }
 
 export function PrivacyPanel({readonly,refreshKey,onUpdate}:{readonly:boolean;refreshKey:number;onUpdate:()=>void}) {
