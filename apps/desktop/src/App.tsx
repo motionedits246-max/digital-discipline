@@ -5,6 +5,7 @@ import {agent,isTauri,presentation,snapshot,dragWindow,getBrowserPairState} from
 import {BrowserSetupWizard} from './BrowserSetupWizard';
 import {GuidedTour} from './GuidedTour';
 import {NetworkPrivacyStatus} from './NetworkPrivacyStatus';
+import {TaskWorkspacePanel} from './TaskWorkspacePanel';
 import {makeDemo} from './demo';
 import {Icon} from './icons';
 import {GoalsPanel,AutomationsPanel,InsightsPanel,VideoHistoryPanel,CategoryPanel,CoachPanel,PrivacyPanel,ClassificationsPanel,BrowserPairPanel,StartupPanel,DevicesPanel} from './Advanced';
@@ -158,7 +159,7 @@ export default function App(){
 
   {page==='Blocking Center'&&<><SectionTitle overline="USER-OWNED CONTROLS" title="Blocking Center" subtitle="Create time-limited domain or path restrictions. All enforcement is reversible."/><div className="double-grid"><div className="surface padded"><div className="panel-header"><h3>Create a restriction</h3><Tag kind="neutral">Browser only</Tag></div><FormRule readonly={demo||offline} onSubmit={createRule}/></div><div className="surface padded"><div className="panel-header"><h3>Your restrictions</h3><span className="muted">{shown?.rules.length||0} configured</span></div><RuleList rules={shown?.rules||[]} onDisable={disableRule} readonly={demo||offline}/></div></div><div className="hint-row"><Icon name="shield" size={19}/><p>Safety: restrictions are synced by the extension and expire locally even if the agent disconnects. The extension offers a 30-minute emergency unblock. This is not OS-wide or tamper-proof blocking.</p></div></>}
 
-  {page==='Focus & Goals'&&<><SectionTitle overline="PLAN · COMMIT · RECOVER" title="Focus & Goals" subtitle="Define goals for any IDE, set a timebox, and choose reversible browser-only focus restrictions."/><GoalsPanel goals={shown?.goals||[]} focus={shown?.focus} readonly={demo||offline} onUpdate={()=>void read()}/></>}
+  {page==='Focus & Goals'&&<><SectionTitle overline="PLAN · COMMIT · RECOVER" title="Focus & Goals" subtitle="Define goals for any IDE, set a timebox, and choose reversible browser-only focus restrictions."/><GoalsPanel goals={shown?.goals||[]} focus={shown?.focus} readonly={demo||offline} onUpdate={()=>void read()}/><TaskWorkspacePanel readonly={demo||offline}/></>}
 
   {page==='Automations'&&<><SectionTitle overline="DETERMINISTIC RULES" title="Automations" subtitle="IF → AND → THEN policies with schedules, short-video caps, shared site budgets and reversible actions."/><AutomationsPanel readonly={demo||offline} rules={shown?.rules||[]} onUpdate={()=>void read()}/></>}
 
