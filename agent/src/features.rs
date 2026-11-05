@@ -343,17 +343,17 @@ pub(super) async fn coach(State(s):State<Arc<AppState>>,Json(p):Json<CoachInput>
         "openai"|"groq"|"openrouter"=>{
             let url=match p.provider.as_str(){"openai"=>"https://api.openai.com/v1/chat/completions","groq"=>"https://api.groq.com/openai/v1/chat/completions",_=>"https://openrouter.ai/api/v1/chat/completions"};
             let body=json!({"model":p.model,"messages":[{"role":"system","content":system},{"role":"user","content":prompt}],"max_tokens":500});
-            (url.to_string(),client.post(url).bearer_auth(&key).json(&body))
+            (url.to_string(),client.post(url).bearer_auth(key.as_str()).json(&body))
         },
         "anthropic"=>{
             let url="https://api.anthropic.com/v1/messages";
             let body=json!({"model":p.model,"system":system,"messages":[{"role":"user","content":prompt}],"max_tokens":500});
-            (url.to_string(),client.post(url).header("x-api-key",&key).header("anthropic-version","2023-06-01").json(&body))
+            (url.to_string(),client.post(url).header("x-api-key",key.as_str()).header("anthropic-version","2023-06-01").json(&body))
         },
         "gemini"=>{
             let url=format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",p.model);
             let body=json!({"contents":[{"parts":[{"text":format!("{}\n{}",system,prompt)}]}],"generationConfig":{"maxOutputTokens":500}});
-            (url.clone(),client.post(url).header("x-goog-api-key",&key).json(&body))
+            (url.clone(),client.post(url).header("x-goog-api-key",key.as_str()).json(&body))
         },
         "ollama"=>{
             let url="http://127.0.0.1:11434/api/chat";
