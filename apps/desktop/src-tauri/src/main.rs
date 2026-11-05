@@ -28,7 +28,7 @@ async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<V
     };
     if !allowed { return Err("Command or route not allowed".into()); }
     let token=fs::read_to_string(token_path()?).map_err(|_|"Agent not started; token unavailable".to_owned())?;
-    let client=reqwest::Client::builder().timeout(Duration::from_secs(if path=="/coach" {26}else{6})).build().map_err(|e|e.to_string())?;
+    let client=reqwest::Client::builder().timeout(Duration::from_secs(if path=="/coach" {58}else{6})).build().map_err(|e|e.to_string())?;
     let mut request=client.request(method.parse().map_err(|_|"Invalid HTTP method")?,format!("http://127.0.0.1:48761{}",path)).bearer_auth(token.trim());
     if method=="POST" {request=request.json(&body.unwrap_or(Value::Null));}
     let response=request.send().await.map_err(|_|"Local agent unavailable".to_owned())?;
