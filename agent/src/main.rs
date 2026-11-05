@@ -4,6 +4,7 @@ mod domain;
 mod native;
 mod bridge;
 mod credentials;
+mod workflow;
 mod windows;
 mod policy;
 mod insights;
@@ -92,6 +93,7 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
         INSERT OR IGNORE INTO settings(key,value) VALUES('paused','false');
         ")?;
     features::migrate(&db)?;
+    workflow::migrate(&db)?;
     devices::migrate(&db)?;
     bridge::migrate(&db)?;
     Ok(db)
@@ -516,6 +518,11 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/videos",get(features::video_history)).route("/insights",get(features::insights))
         .route("/categories",get(features::list_categories)).route("/categories/override",post(features::override_category))
         .route("/categories/override/{subject}",delete(features::delete_override))
+        .route("/workflows",get(workflow::list))
+        .route("/workflows/profiles",post(workflow::add_profile))
+        .route("/workflows/profiles/{id}",delete(workflow::archive_profile))
+        .route("/workflows/tasks",post(workflow::add_task))
+        .route("/workflows/tasks/{id}",post(workflow::transition_task))
         .route("/goals",get(features::goals).post(features::create_goal)).route("/goals/{id}",delete(features::delete_goal))
         .route("/focus/start",post(features::start_focus)).route("/focus/end",post(features::end_focus)).route("/focus/hint/choice",post(features::choose_focus_hint))
         .route("/settings",get(features::get_settings).post(features::set_settings))
