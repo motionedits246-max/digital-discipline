@@ -110,6 +110,12 @@ pub(super) async fn list(State(s):State<Arc<AppState>>)->ApiResult{
 pub(super) async fn worker(state:Arc<AppState>){
  let (subjects,provider,model)={
   let db=match state.db.lock(){Ok(d)=>d,Err(_)=>return};
+  // A process terminated mid-request must not strand jobs in Running forever.
+  // Recover only expired work; the existing attempt cap still applies.
+  let stale_before=now_ms()-120_000;
+  let _=db.execute("UPDATE classifications SET state=CASE WHEN COALESCE((SELECT attempts FROM classification_attempts WHERE subject=classifications.subject),0)>=3 THEN 'awaiting_review' ELSE 'failed_retryable' END,
+    reason='Previous classification attempt was interrupted; retry bounded by attempts',
+    updated_ms=?1 WHERE state='running' AND updated_ms<?2",params![now_ms()-RETRY_MS-1,stale_before]);
   if read_setting(&db,"classification_auto")!="true"{return;}
   let provider=read_setting(&db,"classification_provider");
   let model=read_setting(&db,"classification_model");
