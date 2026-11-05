@@ -1,4 +1,5 @@
 import {shouldNotify} from "./notifications.js";
+import {classifyDelivery,pruneQueue,withQuarantine,nextRetryDelay} from './queue-policy.js';
 // MV3 module worker; pure policy helpers share the same code as unit tests.
 import {isValidDomain,safePrefix,matchesRule,regexFor} from "./rules.js";
 // Browser service worker talks directly to a restricted loopback API.
@@ -7,6 +8,8 @@ import {isValidDomain,safePrefix,matchesRule,regexFor} from "./rules.js";
 const BRIDGE = 'http://127.0.0.1:48761';
 const RULE_ID_START = 800000;
 const MAX_EVENTS = 2000;
+let retryAttempt = 0;
+let retryAfter = 0;
 let connected = false;
 let syncInFlight = null;
 let lastConnectionError = '';
@@ -14,7 +17,7 @@ let lastNativeReplyAt = 0; // kept for backward-compatible status consumers
 let lastConnectAttemptAt = 0;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
-async function storage() { return chrome.storage.local.get(['eventQueue', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','lastNotifications','videoObserved']); }
+async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','lastNotifications','videoObserved']); }
 async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
@@ -28,7 +31,7 @@ async function request(message) {
     if(!response.ok || reply?.ok!==true){
       connected=false;
       lastConnectionError=String(reply?.error||`agent_http_${response.status}`);
-      return {ok:false,error:lastConnectionError};
+      return {ok:false,error:lastConnectionError,http_status:response.status,delivery:classifyDelivery(response.status,lastConnectionError)};
     }
     connected=true;
     lastConnectionError='';
@@ -51,29 +54,54 @@ async function pushEvent(kind, payload) {
   if (!collectionEnabled) return;
   const item = {schema_version:'1.0', source:'extension',event_id:crypto.randomUUID(),occurred_at_ms:Date.now(),kind,payload};
   await withQueueLock(async () => {
-    const {eventQueue=[]} = await storage();
-    const fresh = eventQueue.filter(e => e.occurred_at_ms > Date.now()-86_400_000);
-    await chrome.storage.local.set({eventQueue:[...fresh,item].slice(-MAX_EVENTS)});
+    const {eventQueue=[],queueDiagnostics={}} = await storage();
+    const cleaned=pruneQueue([...eventQueue,item]);
+    await chrome.storage.local.set({eventQueue:cleaned.queue,queueDiagnostics:{
+      ...queueDiagnostics,
+      expired:(queueDiagnostics.expired||0)+cleaned.expired,
+      overflow:(queueDiagnostics.overflow||0)+cleaned.overflow,
+      invalid:(queueDiagnostics.invalid||0)+cleaned.invalid
+    }});
   });
   await drainQueue();
 }
 let draining = false;
 async function drainQueue() {
-  if (draining) return;
+  if (draining || Date.now()<retryAfter) return;
   draining = true;
   try {
+    // Expired entries are explicitly counted and quarantined, never silently ignored.
+    await withQueueLock(async()=>{
+      const {eventQueue=[],queueDiagnostics={},eventQuarantine=[]}=await storage();
+      const cleaned=pruneQueue(eventQueue);
+      const remaining=new Set(cleaned.queue.map(e=>e.event_id));
+      const expiredItems=eventQueue.filter(e=>e && !remaining.has(e.event_id));
+      const quarantine=expiredItems.reduce((acc,e)=>withQuarantine(acc,e,'expired_or_invalid'),eventQuarantine);
+      await chrome.storage.local.set({eventQueue:cleaned.queue,eventQuarantine:quarantine,
+        queueDiagnostics:{...queueDiagnostics,expired:(queueDiagnostics.expired||0)+cleaned.expired,
+        overflow:(queueDiagnostics.overflow||0)+cleaned.overflow,invalid:(queueDiagnostics.invalid||0)+cleaned.invalid}});
+    });
     while (true) {
       const item = await withQueueLock(async()=> (await storage()).eventQueue?.[0]);
       if (!item) break;
       const reply = await request({op:'event',event:item});
-      if (!reply.ok) break;
-      // Preserve newly arrived events; remove only this acknowledged, stable event ID.
+      if (!reply.ok && reply.delivery!=='terminal'){
+        retryAfter=Date.now()+nextRetryDelay(retryAttempt++);
+        break;
+      }
+      // Remove accepted/duplicate acknowledgements, or quarantine terminal schema errors.
       await withQueueLock(async () => {
-        const {eventQueue=[]}=await storage();
-        await chrome.storage.local.set({eventQueue:eventQueue.filter(e=>e.event_id!==item.event_id)});
+        const {eventQueue=[],eventQuarantine=[],queueDiagnostics={}}=await storage();
+        const update={eventQueue:eventQueue.filter(e=>e.event_id!==item.event_id)};
+        if (!reply.ok) {
+          update.eventQuarantine=withQuarantine(eventQuarantine,item,reply.error||'terminal_rejection');
+          update.queueDiagnostics={...queueDiagnostics,rejected:(queueDiagnostics.rejected||0)+1};
+        }
+        await chrome.storage.local.set(update);
       });
+      retryAttempt=0;retryAfter=0;
     }
-  } finally { draining=false; }
+  } finally {draining=false;}
 }
 async function profileId() {
   const existing=(await chrome.storage.local.get(['profileId'])).profileId;
@@ -210,7 +238,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     return true;
   }
   if (msg?.op==='getStatus') {
-    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],collectionEnabled=false,videoObserved={}})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,collectionEnabled,videoObserved,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"}));return true;
+    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],eventQuarantine=[],queueDiagnostics={},collectionEnabled=false,videoObserved={}})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,quarantined:eventQuarantine.length,queueDiagnostics,retryAfter,collectionEnabled,videoObserved,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"}));return true;
   }
   if (msg?.op==='checkBlocked') {
     storage().then(({blocks=[],emergencyUntil=0})=>sendResponse({blocked:Date.now()>=emergencyUntil&&blocks.some(b=>b.action==='block' && b.expires_at_ms>Date.now() && ruleMatches(sender.tab?.url || '',b)),blocks:Date.now()>=emergencyUntil?blocks.filter(b=>b.expires_at_ms>Date.now()):[]}));return true;
@@ -230,7 +258,8 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     const enable = msg.value === true;
     (async () => {
       if(!enable) await pushEvent('browser.window_blurred',{browser:await browserInfo(),domain:null,focused:false,profile_id:await profileId()});
-      await chrome.storage.local.set({collectionEnabled:enable,eventQueue:enable?(await storage()).eventQueue||[]:[]});
+      // Collection consent changes never silently delete already queued observations.
+       await chrome.storage.local.set({collectionEnabled:enable});
       if(enable) await tabChanged();
       sendResponse({ok:true,enabled:enable});
     })();
