@@ -128,10 +128,20 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[readonly]);
  useEffect(()=>{endOfChat.current?.scrollIntoView({behavior:'smooth',block:'end'});},[messages,busy]);
+ useEffect(()=>{if(readonly)return;let active=true;
+  void agent<{settings:{coach_share_opt_in?:boolean}}>('GET','/settings')
+    .then(r=>{if(active)setConsent(r.settings.coach_share_opt_in===true);}).catch(()=>{});
+  return()=>{active=false;};
+ },[readonly]);
+ async function changeConsent(enabled:boolean){
+   setConsent(enabled);
+   try{await agent('POST','/settings',{coach_share_opt_in:enabled});}
+   catch(e){setConsent(!enabled);setStatus('Could not save sharing preference: '+String(e));}
+ }
  const prompts=[
-  {label:'📊 Find focus patterns',value:'Based on what is actually observed today, what focus patterns stand out?'},
-  {label:'🎯 Make a focus plan',value:'Build a realistic 30-minute focus plan from my activity data.'},
-  {label:'💡 Review my day',value:'What can I learn from my activity today, and what can’t this data tell me?'}
+  {label:'Find focus patterns',value:'Based on what is actually observed today, what focus patterns stand out?'},
+  {label:'Make a focus plan',value:'Build a realistic 30-minute focus plan from my activity data.'},
+  {label:'Review my day',value:'What can I learn from my activity today, and what can’t this data tell me?'}
  ];
  function chooseProvider(p:string){setProvider(p);setModel(modelDefaults[p]||'');setCredentialMode(savedProviders.includes(p)?'saved':'one-time');setKey('');setStatus('');setMessages([]);setShared('');}
  async function saveKey(){
@@ -183,29 +193,29 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
  return <section className="coach-chat-layout">
   <div className="coach-chat-main surface">
     <header className="coach-chat-header">
-     <div className="coach-chat-brand"><span className="coach-chat-mark" aria-hidden="true">✦</span><div><strong>Digital Discipline Coach</strong><small>Private-by-default • Chat about your activity</small></div></div>
+     <div className="coach-chat-brand"><span className="coach-chat-mark" aria-hidden="true">AI</span><div><strong>Digital Discipline Coach</strong><small>Private-by-default • Chat about your activity</small></div></div>
      <button type="button" className="coach-icon-button" title="New conversation" onClick={clearConversation} disabled={busy}>＋ <span>New chat</span></button>
     </header>
     <div className="coach-chat-scroller" role="log" aria-live="polite" aria-label="AI coaching conversation">
      {messages.length===0&&<div className="coach-chat-empty">
-      <div className="coach-chat-emblem">✧</div><h2>What would you like to explore?</h2>
+      <div className="coach-chat-emblem"><span className="coach-glyph" aria-hidden="true">DD</span></div><h2>What would you like to explore?</h2>
       <p>Ask about your tracked activity, focus goals, or how to plan your day. The coach only receives aggregate totals when you approve a request.</p>
       <div className="coach-chat-suggestions">{prompts.map(p=><button type="button" key={p.label} onClick={()=>{setQuestion(p.value);textareaRef.current?.focus();}}>{p.label} <span>↗</span></button>)}</div>
      </div>}
      <div className="coach-chat-messages">
      {messages.map((m,index)=><div key={index} className={'coach-chat-row '+(m.role==='user'?'coach-chat-user':'coach-chat-assistant')}>
-       <div className="coach-chat-avatar" aria-hidden="true">{m.role==='assistant'?'✦':'You'}</div>
+       <div className="coach-chat-avatar" aria-hidden="true">{m.role==='assistant'?'AI':'You'}</div>
        <div className={'coach-chat-bubble '+(m.error?'coach-chat-error':'')}>
         {m.role==='assistant'?<div className="coach-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{m.content}</ReactMarkdown></div>:<p>{m.content}</p>}
         {m.truncated&&<div className="coach-chat-truncated"><span>Response reached the model's output limit.</span><button type="button" disabled={busy} onClick={continueReply}>Continue response →</button></div>}
        </div>
       </div>)}
-     {busy&&<div className="coach-chat-row coach-chat-assistant"><div className="coach-chat-avatar" aria-hidden="true">✦</div><div className="coach-chat-bubble coach-chat-thinking" aria-label="AI is generating"><i/><i/><i/></div></div>}
+     {busy&&<div className="coach-chat-row coach-chat-assistant"><div className="coach-chat-avatar" aria-hidden="true">AI</div><div className="coach-chat-bubble coach-chat-thinking" aria-label="AI is generating"><i/><i/><i/></div></div>}
      <div ref={endOfChat}/>
      </div>
     </div>
     <form className="coach-composer" onSubmit={submit}>
-     <label className="coach-consent-row"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Share today's aggregate activity totals with the selected AI model for each message</label>
+     <label className="coach-consent-row"><input type="checkbox" checked={consent} onChange={e=>void changeConsent(e.target.checked)}/> Share today's aggregate activity totals with the selected AI model for each message</label>
      <div className="coach-composer-input"><textarea ref={textareaRef} aria-label="Message Digital Discipline Coach" placeholder={consent?'Message Digital Discipline Coach…':'Enable aggregate-data consent to send a message'} rows={2} maxLength={1000} value={question} onChange={e=>setQuestion(e.target.value)} onKeyDown={composerKeys} disabled={busy||readonly}/><button className="coach-send" aria-label="Send message" title="Send message" type="submit" disabled={busy||readonly||!consent||!question.trim()||(provider!=='ollama'&&!useSaved&&key.length<8)}>↑</button></div>
      <div className="coach-composer-foot"><small>Enter to send · Shift+Enter for newline</small><small>{question.length}/1000</small></div>
     </form>
@@ -216,7 +226,7 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
      <label>AI provider<CustomSelect value={provider} onChange={e=>chooseProvider(e.target.value)}>{['openai','anthropic','gemini','groq','openrouter','ollama'].map(p=><option key={p} value={p}>{p}</option>)}</CustomSelect></label>
      <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} maxLength={100}/></label>
      {provider!=='ollama'&&<div className="coach-vault">
-      <div className="coach-vault-header"><div><strong>🔐 API key vault</strong><small>{vaultLoading?'Checking saved credentials…':hasSaved?'Encrypted key is available':'No saved key for this provider'}</small></div><span className={hasSaved?'coach-key-ready':'coach-key-empty'}>{hasSaved?'Saved':'One-time'}</span></div>
+      <div className="coach-vault-header"><div><strong>API key vault</strong><small>{vaultLoading?'Checking saved credentials…':hasSaved?'Encrypted key is available':'No saved key for this provider'}</small></div><span className={hasSaved?'coach-key-ready':'coach-key-empty'}>{hasSaved?'Saved':'One-time'}</span></div>
       {hasSaved&&<div className="coach-key-mode" role="group" aria-label="API key selection">
        <button type="button" aria-pressed={credentialMode==='saved'} className={credentialMode==='saved'?'active':''} onClick={()=>{setCredentialMode('saved');setKey('');}}>Use saved key</button>
        <button type="button" aria-pressed={credentialMode==='one-time'} className={credentialMode==='one-time'?'active':''} onClick={()=>setCredentialMode('one-time')}>One-time key</button>
