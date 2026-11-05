@@ -106,7 +106,7 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
  const [busy,setBusy]=useState(false),[status,setStatus]=useState('');
  const [savedProviders,setSavedProviders]=useState<string[]>([]),[useSaved,setUseSaved]=useState(false),[saving,setSaving]=useState(false);
  const hasSaved=savedProviders.includes(provider);
- useEffect(()=>{if(readonly)return;void agent<{providers:string[]}>('GET','/coach/credentials').then(r=>setSavedProviders(r.providers)).catch(()=>{});},[readonly]);
+ useEffect(()=>{if(readonly)return;void agent<{providers:string[]}>('GET','/coach/credentials').then(r=>{setSavedProviders(r.providers);setUseSaved(r.providers.includes('openai'));}).catch(()=>{});},[readonly]);
  const prompts=[
   {label:'Find focus patterns',value:'Using the observed aggregates, what focus patterns are visible? Avoid guessing unobserved causes.'},
   {label:'Build a practical plan',value:'Create a simple 30-minute focus plan using only the activity aggregates shown.'},
@@ -138,7 +138,7 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
    try{const res=await agent<{answer:string;shared:unknown}>('POST','/coach',{provider,model,api_key:ephemeral,use_saved_key:useSaved,question,share_aggregates:true});setAnswer(res.answer);setShared(JSON.stringify(res.shared,null,2));}
    catch(e){setStatus(String(e));}finally{setBusy(false);}
  }
- const chooseProvider=(p:string)=>{setProvider(p);setUseSaved(false);setKey('');setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);};
+ const chooseProvider=(p:string)=>{setProvider(p);setUseSaved(savedProviders.includes(p));setKey('');setModel(({openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',ollama:'llama3.2'} as Record<string,string>)[p]);};
  return <div className="coach-studio">
   <div className="surface padded coach-topline"><span className="coach-orb" aria-hidden="true">✦</span><div><h3 style={{margin:0}}>Your focus studio</h3><p className="coach-subtitle">AI insights from your aggregated activity. Credentials stay on your Windows device, never in GitHub or browser storage.</p></div></div>
   <div className="double-grid">
