@@ -484,9 +484,12 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     let paused=db.query_row("SELECT value FROM settings WHERE key='paused'",[],|r|r.get::<_,String>(0)).unwrap_or_default()=="true";
     let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),token,shutdown:Arc::new(tokio::sync::Notify::new())});
     let classify_state=Arc::clone(&state);
-    thread::spawn(move||loop {
-        if let Ok(db)=classify_state.db.lock(){let _=classification::queue_unknowns(&db);}
-        thread::sleep(StdDuration::from_secs(60));
+    tokio::spawn(async move{
+        loop {
+            if let Ok(db)=classify_state.db.lock(){let _=classification::queue_unknowns(&db);}
+            classification::worker(Arc::clone(&classify_state)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(75)).await;
+        }
     });
     let prune_state=Arc::clone(&state);
     thread::spawn(move||loop {
@@ -521,7 +524,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/coach/credentials/{provider}",delete(credentials::remove))
         .route("/devices",get(devices::list)).route("/devices/export",get(devices::export))
         .route("/devices/import",post(devices::import)).route("/devices/{id}",delete(devices::forget))
-        .route("/classifications",get(classification::list)).route("/classifications/research",post(classification::submit))
+        .route("/classifications",get(classification::list)).route("/classifications/config",post(classification::configure).delete(classification::remove_config))
         .route("/browser-pairs",get(bridge::list).post(bridge::enroll))
         .route("/browser-pairs/{id}",delete(bridge::revoke))
         .layer(middleware::from_fn_with_state(Arc::clone(&state),auth));
