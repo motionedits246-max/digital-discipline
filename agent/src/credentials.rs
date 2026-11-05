@@ -3,6 +3,7 @@
 //! Encrypted blobs are only recoverable by the same Windows user profile (subject
 //! to the normal Windows DPAPI roaming/recovery behavior). No plaintext disk writes.
 use std::{fs,path::PathBuf};
+use zeroize::{Zeroize,Zeroizing};
 use axum::{extract::{Path,State},http::StatusCode,Json};
 use serde::Deserialize;
 use serde_json::json;
@@ -27,7 +28,6 @@ pub async fn list(State(_state):State<Arc<AppState>>)->ApiResult {
     Ok(Json(json!({"ok":true,"providers":providers,"storage":"Windows DPAPI current-user"})))
 }
 pub async fn save(State(_state):State<Arc<AppState>>,Json(mut p):Json<SaveCredential>)->ApiResult{
-    use zeroize::Zeroize;
     let result=(||{
         if p.api_key.len()<8||p.api_key.len()>512||p.api_key.bytes().any(|c|c==b'\n'||c==b'\r'||c==0){
             return Err(err(StatusCode::BAD_REQUEST,"invalid_provider_key"));
@@ -50,12 +50,12 @@ pub async fn remove(Path(provider):Path<String>,State(_state):State<Arc<AppState
     }else{false};
     Ok(Json(json!({"ok":true,"provider":provider,"removed":removed})))
 }
-pub fn load(provider:&str)->Result<String,String>{
+pub fn load(provider:&str)->Result<Zeroizing<String>,String>{
     let path=location(provider)?;
     let encrypted=fs::read(path).map_err(|_|"credential_missing".to_string())?;
     if encrypted.len()>8192{return Err("credential_corrupt".to_string());}
     let raw=unprotect_secret(&encrypted).map_err(|_|"credential_decryption_failed".to_string())?;
-    let key=String::from_utf8(raw).map_err(|_|"credential_corrupt".to_string())?;
+    let key=Zeroizing::new(String::from_utf8(raw).map_err(|_|"credential_corrupt".to_string())?);
     if key.len()<8||key.len()>512{return Err("credential_corrupt".to_string());}
     Ok(key)
 }
@@ -111,7 +111,7 @@ fn unprotect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".int
         let ciphertext=protect_secret(text).unwrap();
         assert!(!ciphertext.windows(text.len()).any(|x|x==text));
         assert_eq!(unprotect_secret(&ciphertext).unwrap(),text);
-        let mut corrupted=ciphertext;corrupted[corrupted.len()/2]^=0x0f;
+        let mut corrupted=ciphertext;let midpoint=corrupted.len()/2;corrupted[midpoint]^=0x0f;
         assert!(unprotect_secret(&corrupted).is_err());
     }
 }
