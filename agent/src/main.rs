@@ -5,6 +5,7 @@ mod native;
 mod bridge;
 mod credentials;
 mod workflow;
+mod health;
 mod windows;
 mod policy;
 mod insights;
@@ -511,6 +512,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     let shutdown_signal=Arc::clone(&state.shutdown);
     let authenticated=Router::new()
         .route("/shutdown",post(shutdown_agent)).route("/health",get(health)).route("/state",get(snapshot)).route("/sessions/{day}",get(day_sessions)).route("/events",post(event_ingest))
+        .route("/health/details",get(health::details))
         .route("/tracking/pause",post(pause)).route("/rules",get(rules).post(create_rule))
         .route("/rules/{id}",delete(remove_rule)).route("/extension/rules",get(extension_rules))
         .route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
