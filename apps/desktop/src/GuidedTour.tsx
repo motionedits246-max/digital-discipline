@@ -27,7 +27,7 @@ export function GuidedTour({active,onFinish,onNavigate}:{active:boolean;onFinish
   let frame=0;
   const place=()=>{
    const el=document.querySelector(current.selector) as HTMLElement|null;
-   if(el){el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});}
+   if(el){el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'auto'});}
    const rect=el?.getBoundingClientRect();
    if(!rect||!rect.width||!rect.height){setSpot(null);setPosition({top:Math.max(16,(window.innerHeight-280)/2),left:Math.max(16,(window.innerWidth-350)/2)});return;}
    const pad=5,dialogW=Math.min(350,window.innerWidth-28),dialogH=252,spacing=19;
