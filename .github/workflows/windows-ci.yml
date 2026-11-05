@@ -74,7 +74,7 @@ jobs:
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-Windows-x64-v0.3.7-DEV-SIGNED
+          name: DigitalDiscipline-Windows-x64-v0.3.8-DEV-SIGNED
           path: release-output/*
           if-no-files-found: error
           retention-days: 30
