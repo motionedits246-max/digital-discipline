@@ -138,7 +138,7 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
   </form>
   <Feedback text={message||error}/>
   <div className="classification-jobs-header"><strong>Observed items</strong><button type="button" className="secondary-btn" onClick={refresh}>Refresh status</button></div>
-  <div className="advanced-list classification-results">{jobs.length?jobs.map(j=><div key={j.subject} className="settings-row"><div><strong>{j.subject.replace(/^(app:|site:)/,'')}</strong><small>{j.subject.startsWith('app:')?'Application':'Website hostname'} · {j.category} · {j.reason}</small></div><span className="tag">{j.state.replaceAll('_',' ')}</span></div>):<p className="muted-paragraph">No unknown app or public site has been observed yet.</p>}</div>
+  <div className="advanced-list classification-results">{jobs.length?jobs.map(j=><div key={j.subject} className="settings-row"><div><strong>{j.subject.replace(/^(app:|domain:)/,'')}</strong><small>{j.subject.startsWith('app:')?'Application':'Website hostname'} · {j.category} · {j.reason}</small></div><span className="tag">{j.state.replaceAll('_',' ')}</span></div>):<p className="muted-paragraph">No unknown app or public site has been observed yet.</p>}</div>
  </Card>;
 }
 
