@@ -3,6 +3,7 @@
 mod domain;
 mod native;
 mod bridge;
+mod credentials;
 mod windows;
 mod policy;
 mod insights;
@@ -516,6 +517,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/focus/start",post(features::start_focus)).route("/focus/end",post(features::end_focus)).route("/focus/hint/choice",post(features::choose_focus_hint))
         .route("/settings",get(features::get_settings).post(features::set_settings))
         .route("/coach",post(features::coach))
+        .route("/coach/credentials",get(credentials::list).post(credentials::save))
+        .route("/coach/credentials/{provider}",delete(credentials::remove))
         .route("/devices",get(devices::list)).route("/devices/export",get(devices::export))
         .route("/devices/import",post(devices::import)).route("/devices/{id}",delete(devices::forget))
         .route("/classifications",get(classification::list)).route("/classifications/research",post(classification::submit))
