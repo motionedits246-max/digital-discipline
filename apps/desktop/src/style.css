@@ -55,3 +55,53 @@
 .dd-file-wrap{margin-top:14px}.dd-upload-title{display:block;margin-bottom:8px;font-size:12px;color:#c3c3cc}.dd-file-hidden{display:none!important}.dd-upload{display:flex;align-items:center;gap:13px;width:100%;padding:17px 19px;text-align:left;color:#ececef;background:#242429;border:1px dashed #6b6b76;border-radius:12px}.dd-upload:hover,.dd-upload.dragging{background:#303037;border-color:#b2b2bf}.dd-upload-mark{display:grid;place-items:center;width:39px;height:39px;border:1px solid #757580;background:#38383e;border-radius:10px;font-size:23px}.dd-upload strong,.dd-upload small{display:block;overflow-wrap:anywhere}.dd-upload small{color:#aaaab6;font-size:11px;line-height:1.5;margin-top:4px}
 /* Keep normal focus behavior on a separate clipped command-palette content container. */
 .command-dialog{padding:16px;gap:10px}.command-dialog>input{margin:0!important;position:static!important;flex-shrink:0}.command-results{margin:0;max-height:min(54vh,330px);border-top:1px solid #3c3c45;overflow-y:auto;overscroll-behavior:contain}.command-dialog small{padding:0 6px;margin:0}
+
+/* v0.3.4: Window surfaces and positioning polish. Keep scroll functionality,
+   but do not show the stark Windows scrollbar inside the sidebar. */
+body { background:transparent; }
+.pill-surface { border-color:#505059; background:linear-gradient(135deg,#27272d,#1d1d22); box-shadow:0 5px 16px #0005; cursor:grab; }
+.pill-surface:active,.quick-head:active { cursor:grabbing; }
+.quick-surface { background:linear-gradient(140deg,#202026,#17171b 70%); border-color:#494950; box-shadow:0 9px 25px #0006; }
+.workspace { border:1px solid #303039; box-shadow:0 9px 28px #0005; }
+.sidebar { background:#141419; }
+.sidebar nav { overflow-y:auto; scrollbar-width:none; padding-right:2px; }
+.sidebar nav::-webkit-scrollbar { display:none; }
+.sidebar { min-height:0; }
+.quick-head,.side-brand { cursor:grab; }
+.quick-window-controls,.onboarding-controls { display:flex; gap:4px; align-items:center; }
+.quick-head .icon-btn { width:32px; flex:none; }
+.topbar { cursor:grab; user-select:none; }
+.topbar button,.topbar input { cursor:pointer; }
+.topbar .breadcrumbs { cursor:grab; }
+.command-results { scrollbar-width:thin; scrollbar-color:#575760 transparent; }
+.command-dialog > input { position:relative; z-index:1; margin-bottom:6px; }
+.range-input { appearance:none; -webkit-appearance:none; height:6px!important; background:#34343c!important; border:1px solid #565660!important; border-radius:100px; outline:0; padding:0; }
+.range-input::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:17px;height:17px;border-radius:50%;background:#d0d0d5;border:3px solid #3b3b41;box-shadow:0 0 0 2px #c9c9cf; }
+.range-input::-moz-range-thumb { width:13px;height:13px;border-radius:50%;background:#d0d0d5;border:3px solid #3b3b41; }
+.onboarding-shell { width:100%; height:100vh; overflow:auto; background:linear-gradient(135deg,#17171c,#0d0d10); border:1px solid #393941; border-radius:14px; scrollbar-width:thin; }
+.onboarding-top { display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:24px 30px 18px;border-bottom:1px solid #33333a;cursor:grab; }
+.onboarding-top h1 { font-size:27px;margin:3px 0 7px; }
+.onboarding-top p { color:#aeb0bd;font-size:12px;max-width:630px;margin:0; }
+.onboarding-main { padding:12px 30px 28px;max-width:1220px;margin:auto; }
+.onboarding-bottom { display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:15px 3px; }
+.onboarding-bottom p { color:#999aa8;font-size:12px;max-width:570px;margin:0; }
+.onboarding-bottom [role="status"] { flex-basis:100%;font-size:12px;color:#eab7b4; }
+.wizard-root { background:linear-gradient(145deg,#202026,#17171c); }
+.wizard-diagnostics { background:#1f1f25; }
+.wizard-diagnostics .panel-header { margin:7px 0; }
+.coach-studio { display:grid;gap:15px; }
+.coach-topline { display:flex;align-items:center;gap:12px;margin-bottom:3px; }
+.coach-orb { width:49px;height:49px;display:grid;place-items:center;border-radius:16px;border:1px solid #5f5f70;background:radial-gradient(circle at 25% 20%,#545461,#282830 75%);color:#f0f0f5;font-size:24px;animation:coachFloat 4s ease-in-out infinite; }
+.coach-subtitle { font-size:12px;color:#a8a8b0;margin:4px 0 0; }
+.coach-prompts { display:flex;flex-wrap:wrap;gap:8px; }
+.coach-prompts button { border:1px solid #474750;color:#ccc;background:#24242b;border-radius:10px;font-size:11px;padding:10px 12px;transition:background .18s,transform .18s; }
+.coach-prompts button:hover { background:#363641;transform:translateY(-2px); }
+.coach-response-card { position:relative;background:linear-gradient(150deg,#22222a,#16161b);border:1px solid #34343e;border-radius:13px;padding:21px;min-height:260px; }
+.coach-response-card::before { content:"";position:absolute;top:0;left:0;width:64px;height:2px;background:#a3a3b2; }
+.coach-placeholder-graphic { display:grid;place-items:center;width:58px;height:58px;border:1px solid #494951;border-radius:18px;background:#292931;margin:18px 0; }
+.coach-response-card .coach-answer { line-height:1.85;animation:coachReveal .3s ease; }
+.coach-hotkeys { color:#858593;font-size:10px;margin:3px 0 0; }
+@keyframes coachFloat {50%{transform:translateY(-4px)}}
+@keyframes coachReveal {from{opacity:.25;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:860px){.onboarding-top{flex-wrap:wrap;padding:18px}.onboarding-main{padding:8px 14px}.onboarding-controls{width:100%;justify-content:space-between}}
+@media(prefers-reduced-motion:reduce){.coach-orb{animation:none}.coach-response-card .coach-answer{animation:none}}
