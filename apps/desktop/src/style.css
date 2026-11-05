@@ -283,3 +283,11 @@ label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
 .health-metric-grid>div{display:flex;flex-direction:column;gap:7px;padding:14px;border-radius:11px;border:1px solid #40404b;background:#23232a;min-width:0}
 .health-metric-grid strong{font-size:13px;color:#e5e5ea;overflow-wrap:anywhere}
 .health-metric-grid small{font-size:10px;color:#a5a5b2;line-height:1.4}
+
+/* Optional low-power UI and non-collecting screen-share privacy. */
+.dd-lite-mode *, .dd-lite-mode *::before, .dd-lite-mode *::after {animation:none!important;transition:none!important;scroll-behavior:auto!important}
+.dd-presentation-mode .workspace .scroll-content {visibility:hidden}
+.dd-presentation-mode .workspace .sidebar-footer .agent-health small {visibility:hidden}
+.dd-presentation-mode .quick-current strong,.dd-presentation-mode .quick-current small,.dd-presentation-mode .dd-privacy-quick{visibility:hidden}
+.dd-presentation-mode .pill-count{opacity:.7}
+.dd-privacy-active{border-color:#9c9ca9!important;color:#e5e5ed!important}
