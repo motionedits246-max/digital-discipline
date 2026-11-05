@@ -288,13 +288,91 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
  </section>;
 }
 
-export function PrivacyPanel({readonly,refreshKey,onUpdate}:{readonly:boolean;refreshKey:number;onUpdate:()=>void}) {
- const {data,error,refresh}=useRemote<{settings:PrivacySettings}>('/settings',!readonly,refreshKey);const {message,busy,perform}=useAction(()=>{refresh();onUpdate();});const setting=data?.settings;
+export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:number;onUpdate:()=>void}) {
+ // Privacy preferences are NOT tied to the live snapshot refresh cadence.
+ // A fresh GET must not overwrite unsaved choices while the user is editing.
+ const {data,error,refresh}=useRemote<{settings:PrivacySettings}>('/settings',!readonly,0);
+ const {message,busy,perform}=useAction(()=>{refresh();onUpdate();});
+ const setting=data?.settings;
+ const dirtyRef=useRef(false);
+ const [dirty,setDirty]=useState(false);
+ const [ready,setReady]=useState(false);
  const [predictionEnabled,setPredictionEnabled]=useState(false);
- const [retention,setRetention]=useState(90);const [idle,setIdle]=useState(300000);const [excludedApps,setApps]=useState('');const [excludedDomains,setDomains]=useState('');const [video,setVideo]=useState(true);const [distractors,setDistractors]=useState<string[]>([]);
- useEffect(()=>{if(!setting)return;setRetention(setting.retention_days);setIdle(setting.idle_threshold_ms);setApps(setting.excluded_apps.join(', '));setDomains(setting.excluded_domains.join(', '));setVideo(setting.video_history_visible);setDistractors(setting.distraction_categories||[]);setPredictionEnabled(setting.prediction_opt_in===true);},[setting]);
- function save(e:FormEvent){e.preventDefault();void perform(()=>agent('POST','/settings',{retention_days:retention,idle_threshold_ms:idle,excluded_apps:split(excludedApps),excluded_domains:split(excludedDomains),video_history_visible:video,distraction_categories:distractors,prediction_opt_in:predictionEnabled}),'Privacy preferences saved. Retention cleanup runs at least hourly.');}
- return <Card title="Data minimization & retention"><form className="rule-form" onSubmit={save}><div className="form-grid"><label>History retention<CustomSelect value={retention} onChange={e=>setRetention(+e.target.value)}><option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option><option value={3650}>10 years</option></CustomSelect></label><label>Idle threshold<CustomSelect value={idle} onChange={e=>setIdle(+e.target.value)}><option value={60000}>1 minute</option><option value={180000}>3 minutes</option><option value={300000}>5 minutes</option><option value={600000}>10 minutes</option><option value={900000}>15 minutes</option></CustomSelect></label></div><label>Excluded application executable names<input value={excludedApps} placeholder="privateapp.exe, banking.exe" onChange={e=>setApps(e.target.value)}/></label><label>Excluded domains<input value={excludedDomains} placeholder="bank.example.com" onChange={e=>setDomains(e.target.value)}/></label><fieldset className="category-choices"><legend>Categories YOU choose to label as distraction</legend><p className="form-hint">Optional. Never automatically equate entertainment or social time with wasted time.</p>{cats.filter(c=>!['Unclassified','System'].includes(c)).map(c=><label className="check-line" key={c}><input type="checkbox" checked={distractors.includes(c)} onChange={e=>setDistractors(prev=>e.target.checked?[...prev,c]:prev.filter(x=>x!==c))}/>{c}</label>)}</fieldset><label className="check-line"><input type="checkbox" checked={video} onChange={e=>setVideo(e.target.checked)}/> Show saved video IDs in history gallery</label><label className="check-line"><input type="checkbox" checked={predictionEnabled} onChange={e=>setPredictionEnabled(e.target.checked)}/> Opt in to local-only, historical risk forecasting</label><p className="form-hint">Prediction requires ≥21 observed days, enough coverage for the same hour, at least one category you choose, and a held-out calibration check. Unreliable forecasts stay hidden. No cloud or AI provider is used.</p><p className="form-hint">Exclusions stop new agent-side storage for matching foreground applications/domains. Previously collected data must be deleted separately. The extension still collects only where you enable it in each browser.</p><button className="primary-btn" disabled={readonly||busy}>Save privacy settings</button></form>{error&&<Feedback text={error}/>}<Feedback text={message}/></Card>;
+ const [retention,setRetention]=useState(90);
+ const [idle,setIdle]=useState(300000);
+ const [excludedApps,setApps]=useState('');
+ const [excludedDomains,setDomains]=useState('');
+ const [video,setVideo]=useState(true);
+ const [distractors,setDistractors]=useState<string[]>([]);
+ function applySettings(saved:PrivacySettings){
+   setRetention(saved.retention_days);
+   setIdle(saved.idle_threshold_ms);
+   setApps(saved.excluded_apps.join(', '));
+   setDomains(saved.excluded_domains.join(', '));
+   setVideo(saved.video_history_visible);
+   setDistractors(saved.distraction_categories||[]);
+   setPredictionEnabled(saved.prediction_opt_in===true);
+ }
+ useEffect(()=>{
+   if(!setting || dirtyRef.current)return;
+   applySettings(setting);
+   setReady(true);
+ },[setting]);
+ function markEdited(){dirtyRef.current=true;setDirty(true);}
+ function discard(){
+   if(!setting || busy)return;
+   dirtyRef.current=false;setDirty(false);
+   applySettings(setting);
+ }
+ function save(e:FormEvent){
+   e.preventDefault();
+   if(!ready||readonly||busy)return;
+   const payload={
+     retention_days:retention,
+     idle_threshold_ms:idle,
+     excluded_apps:split(excludedApps),
+     excluded_domains:split(excludedDomains),
+     video_history_visible:video,
+     distraction_categories:[...distractors],
+     prediction_opt_in:predictionEnabled,
+   };
+   void perform(async()=>{
+     await agent('POST','/settings',payload);
+     // Only accept remote preferences again once the write is acknowledged.
+     dirtyRef.current=false;setDirty(false);
+   },'Privacy preferences saved. Retention cleanup runs at least hourly.');
+ }
+ return <Card title="Data minimization & retention">
+  <form className="rule-form" onSubmit={save}>
+   <div className="form-grid">
+    <label>History retention<CustomSelect value={retention} onChange={e=>{setRetention(+e.target.value);markEdited();}}><option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option><option value={3650}>10 years</option></CustomSelect></label>
+    <label>Idle threshold<CustomSelect value={idle} onChange={e=>{setIdle(+e.target.value);markEdited();}}><option value={60000}>1 minute</option><option value={180000}>3 minutes</option><option value={300000}>5 minutes</option><option value={600000}>10 minutes</option><option value={900000}>15 minutes</option></CustomSelect></label>
+   </div>
+   <label>Excluded application executable names<input value={excludedApps} placeholder="privateapp.exe, banking.exe" onChange={e=>{setApps(e.target.value);markEdited();}}/></label>
+   <label>Excluded domains<input value={excludedDomains} placeholder="bank.example.com" onChange={e=>{setDomains(e.target.value);markEdited();}}/></label>
+   <fieldset className="category-choices"><legend>Categories YOU choose to label as distraction</legend>
+    <p className="form-hint">Optional. Never automatically equate entertainment or social time with wasted time.</p>
+    {cats.filter(c=>!['Unclassified','System'].includes(c)).map(c=><label className="check-line" key={c}>
+     <input type="checkbox" checked={distractors.includes(c)} onChange={e=>{
+       const checked=e.currentTarget.checked;
+       markEdited();
+       setDistractors(previous=>checked
+         ?previous.includes(c)?previous:[...previous,c]
+         :previous.filter(x=>x!==c));
+     }}/>{c}
+    </label>)}
+   </fieldset>
+   <label className="check-line"><input type="checkbox" checked={video} onChange={e=>{setVideo(e.currentTarget.checked);markEdited();}}/> Show saved video IDs in history gallery</label>
+   <label className="check-line"><input type="checkbox" checked={predictionEnabled} onChange={e=>{setPredictionEnabled(e.currentTarget.checked);markEdited();}}/> Opt in to local-only, historical risk forecasting</label>
+   <p className="form-hint">Prediction requires ≥21 observed days, enough coverage for the same hour, at least one category you choose, and a held-out calibration check. Unreliable forecasts stay hidden. No cloud or AI provider is used.</p>
+   <p className="form-hint">Exclusions stop new agent-side storage for matching foreground applications/domains. Previously collected data must be deleted separately. The extension still collects only where you enable it in each browser.</p>
+   <div className="privacy-save-actions"><button className="primary-btn" disabled={readonly||busy||!ready} type="submit">{busy?'Saving preferences…':'Save privacy settings'}</button>
+    {dirty&&<button className="secondary-btn" type="button" disabled={readonly||busy} onClick={discard}>Discard changes</button>}
+   </div>
+   <p className={dirty?'privacy-edit-status is-dirty':'privacy-edit-status'} role="status">{!ready?'Loading saved preferences…':dirty?`Unsaved changes — ${distractors.length} distraction categories selected. Selections stay until you save or discard.`:'All changes saved.'}</p>
+  </form>
+  {error&&<Feedback text={error}/>}<Feedback text={message}/>
+ </Card>;
 }
 
 export function BrowserPairPanel(){return <BrowserSetupWizard/>;}
