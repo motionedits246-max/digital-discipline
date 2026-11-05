@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {agent} from './api';
-type Report={sampled_at_ms:number;agent:{reachable:boolean;tracking_paused:boolean};
+type Report={sampled_at_ms:number;agent:{reachable:boolean;tracking_paused:boolean;storage_degraded?:boolean;storage_last_error_at_ms?:number;storage_error_count?:number};
  browser:{last_message_at_ms:number;last_rule_ack_at_ms:number;recent_signal:boolean;recent_rule_ack:boolean};
  storage:{db_bytes:number|null;persisted_event_count:number;session_rows:number;last_accepted_event_at_ms:number|null};
  optional_workers:{auto_classification_enabled:boolean};redacted:boolean};
@@ -13,7 +13,8 @@ export function ResourceHealthPanel({readonly}:{readonly:boolean}){
   <div className="panel-header"><div><h3>Resource &amp; connection health</h3>
    <p>Local observation freshness and storage diagnostics</p></div><button className="secondary-btn" onClick={refresh} disabled={readonly}>Refresh</button></div>
   {report?<div className="health-metric-grid">
-   <div><small>Windows collection</small><strong>{report.agent.tracking_paused?'Paused':'Agent reachable'}</strong></div>
+   <div><small>Windows collection</small><strong>{report.agent.storage_degraded?'Storage degraded':report.agent.tracking_paused?'Paused':'Agent reachable'}</strong>
+    {report.agent.storage_degraded&&<small>Recent SQLite write failed. Review disk space and file permissions; missing time will not be backfilled.</small>}</div>
    <div><small>Browser transport</small><strong>{report.browser.recent_signal?'Recent signal':'Not confirmed'}</strong><small>Last event: {at(report.browser.last_message_at_ms)}</small></div>
    <div><small>Browser restrictions</small><strong>{report.browser.recent_rule_ack?'Recent acknowledgment':'Not confirmed'}</strong><small>Last rule response: {at(report.browser.last_rule_ack_at_ms)}</small></div>
    <div><small>Event persistence</small><strong>{report.storage.persisted_event_count.toLocaleString()} events</strong><small>Latest: {at(report.storage.last_accepted_event_at_ms)}</small></div>
