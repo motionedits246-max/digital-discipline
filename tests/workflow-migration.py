@@ -26,6 +26,6 @@ class TaskMigrationTests(unittest.TestCase):
         self.assertEqual(db.execute("SELECT state FROM workflow_tasks WHERE id='task'").fetchone()[0],"draft")
     def test_task_state_is_not_observed_time(self):
         db=self.new_db();db.executescript(MIGRATION.group(1))
-        self.assertFalse([col[1] for col in db.execute("PRAGMA table_info(workflow_tasks)")] .__contains__("measured_ms"))
+        self.assertNotIn("measured_ms",[col[1] for col in db.execute("PRAGMA table_info(workflow_tasks)")])
 if __name__=="__main__":
     unittest.main()
