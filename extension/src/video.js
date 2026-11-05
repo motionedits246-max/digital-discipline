@@ -92,7 +92,12 @@
         : '[role="feed"], article {display:none!important}';
       document.documentElement.appendChild(contentStyle);
     }
-    if(stop) for(const player of document.querySelectorAll('video')) {player.autoplay=false;player.removeAttribute('autoplay');if(!player.paused)player.pause();}
+    if(stop) for(const player of document.querySelectorAll('video')) {
+      // Stop automatic playback permission without interrupting deliberate user
+      // playback. Pausing every playing video made the control unusable.
+      player.autoplay=false;
+      player.removeAttribute('autoplay');
+    }
   }
   function checkBlock() {
     chrome.runtime.sendMessage({op:'checkBlocked'}).then(x=>{applyBlock(!!x?.blocked);applySoftControls(x?.blocks||[]);}).catch(()=>{applyBlock(false);applySoftControls([]);});
