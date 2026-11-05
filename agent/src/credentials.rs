@@ -60,7 +60,7 @@ pub fn load(provider:&str)->Result<Zeroizing<String>,String>{
     Ok(key)
 }
 #[cfg(windows)]
-fn protect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
+pub(super) fn protect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
     use std::ptr::{null,null_mut};
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB,CryptProtectData,CRYPTPROTECT_UI_FORBIDDEN};
@@ -75,7 +75,7 @@ fn protect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
     Ok(encrypted)
 }
 #[cfg(windows)]
-fn unprotect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
+pub(super) fn unprotect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
     use std::ptr::null_mut;
     use std::sync::atomic::{compiler_fence,Ordering};
     use windows_sys::Win32::Foundation::LocalFree;
