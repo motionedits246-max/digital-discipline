@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: digital-discipline-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
