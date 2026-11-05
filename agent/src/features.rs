@@ -312,13 +312,18 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
 // The BYOK secret lives only in a single request; never write it to SQLite, logs or browser storage.
 // Every endpoint is a hardcoded vendor origin (no user-supplied URL / SSRF).
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct CoachInput {provider:String,model:String,api_key:Option<String>,question:String,share_aggregates:bool}
+pub(super) struct CoachInput {provider:String,model:String,api_key:Option<String>,#[serde(default)] use_saved_key:bool,question:String,share_aggregates:bool}
 pub(super) async fn coach(State(s):State<Arc<AppState>>,Json(p):Json<CoachInput>)->ApiResult{
     if !p.share_aggregates {return Err(err(StatusCode::BAD_REQUEST,"explicit_aggregate_consent_required"));}
     if p.question.is_empty()||p.question.len()>1000||p.model.is_empty()||p.model.len()>100||!p.model.bytes().all(|x|x.is_ascii_alphanumeric()||b"._/-".contains(&x)){
         return Err(err(StatusCode::BAD_REQUEST,"invalid_coach_input"));
     }
-    let key=p.api_key.unwrap_or_default();
+    let key=if p.use_saved_key {
+        if p.api_key.as_ref().is_some_and(|k|!k.is_empty()){return Err(err(StatusCode::BAD_REQUEST,"choose_saved_or_one_time_key"));}
+        crate::credentials::load(&p.provider).map_err(|_|err(StatusCode::BAD_REQUEST,"saved_key_missing_or_unavailable"))?
+    }else{
+        zeroize::Zeroizing::new(p.api_key.unwrap_or_default())
+    };
     if (p.provider!="ollama"&&(key.len()<8||key.len()>512))||key.contains('\n')||key.contains('\r') {return Err(err(StatusCode::BAD_REQUEST,"invalid_provider_key"));}
     // Collect only aggregate numbers, not any browsing/app identity or video ID.
     let (active,development,entertainment,plays)={
