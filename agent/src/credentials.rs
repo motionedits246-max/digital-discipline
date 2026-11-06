@@ -95,9 +95,9 @@ pub(super) fn unprotect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
     Ok(secret)
 }
 #[cfg(not(windows))]
-fn protect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".into())}
+pub(super) fn protect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".into())}
 #[cfg(not(windows))]
-fn unprotect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".into())}
+pub(super) fn unprotect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".into())}
 
 #[cfg(test)] mod tests{
     use super::*;

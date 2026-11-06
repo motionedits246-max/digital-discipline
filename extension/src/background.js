@@ -1,46 +1,40 @@
 import {shouldNotify} from "./notifications.js";
-import {classifyDelivery,pruneQueue,withQuarantine,nextRetryDelay} from './queue-policy.js';
-// MV3 module worker; pure policy helpers share the same code as unit tests.
+import {classifyDelivery, acknowledgement, safeDeliveryReason, pruneQueue, pruneQuarantine, withQuarantine, nextRetryDelay} from './queue-policy.js';
 import {isValidDomain,safePrefix,matchesRule,regexFor} from "./rules.js";
-// Browser service worker talks directly to a restricted loopback API.
-// No nativeMessaging permission, registry edits, master agent token or extra EXE.
-// The desktop authorizes this specific extension ID. Other origins are denied.
+// The master agent token never enters extension storage or browser pages.
 const BRIDGE = 'http://127.0.0.1:48761';
 const RULE_ID_START = 800000;
-const MAX_EVENTS = 2000;
-let retryAttempt = 0;
-let retryAfter = 0;
+const RETRY_ALARM = 'queue-retry';
 let connected = false;
 let syncInFlight = null;
 let lastConnectionError = '';
-let lastNativeReplyAt = 0; // kept for backward-compatible status consumers
+let lastQueueError = '';
+let lastNativeReplyAt = 0;
 let lastConnectAttemptAt = 0;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
-async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','lastNotifications','videoObserved']); }
+async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved']); }
 async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
-  const url=BRIDGE+(sync?'/bridge/sync':'/bridge/event');
   try {
-    const response=await fetch(url,{method:'POST',headers:{'X-DD-Bridge':'1','Content-Type':'application/json'},
-      body:sync?'{}':JSON.stringify(message.event),cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(6000)});
+    const response=await fetch(BRIDGE+(sync?'/bridge/sync':'/bridge/event'),{
+      method:'POST',headers:{'X-DD-Bridge':'1','Content-Type':'application/json'},
+      body:sync?'{}':JSON.stringify(message.event),cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(6000)
+    });
     const raw=await response.text();
     let reply;
-    try{reply=JSON.parse(raw);}catch{reply={ok:false,error:raw.slice(0,160)||`agent_http_${response.status}`};}
+    try{reply=JSON.parse(raw);}catch{reply={ok:false,error:raw.trim()};}
     if(!response.ok || reply?.ok!==true){
-      connected=false;
-      lastConnectionError=String(reply?.error||`agent_http_${response.status}`);
-      return {ok:false,error:lastConnectionError,http_status:response.status,delivery:classifyDelivery(response.status,lastConnectionError)};
+      connected=[400,413,422].includes(response.status);
+      lastConnectionError=safeDeliveryReason(response.status,reply?.error);
+      return {ok:false,error:lastConnectionError,http_status:response.status,delivery:classifyDelivery(response.status)};
     }
-    connected=true;
-    lastConnectionError='';
-    lastNativeReplyAt=Date.now();
+    connected=true;lastConnectionError='';lastNativeReplyAt=Date.now();
     return reply;
-  } catch(err){
-    connected=false;
-    lastConnectionError=String(err?.message||err||'Local agent is not running');
-    return {ok:false,error:lastConnectionError};
+  } catch {
+    connected=false;lastConnectionError='agent_unreachable';
+    return {ok:false,error:lastConnectionError,delivery:'retry'};
   }
 }
 let queueOps = Promise.resolve();
@@ -49,59 +43,105 @@ function withQueueLock(fn) {
   queueOps = next.catch(() => {});
   return next;
 }
-async function pushEvent(kind, payload) {
-  const {collectionEnabled=false}=await storage();
-  if (!collectionEnabled) return;
-  const item = {schema_version:'1.0', source:'extension',event_id:crypto.randomUUID(),occurred_at_ms:Date.now(),kind,payload};
-  await withQueueLock(async () => {
-    const {eventQueue=[],queueDiagnostics={}} = await storage();
-    const cleaned=pruneQueue([...eventQueue,item]);
-    await chrome.storage.local.set({eventQueue:cleaned.queue,queueDiagnostics:{
-      ...queueDiagnostics,
-      expired:(queueDiagnostics.expired||0)+cleaned.expired,
-      overflow:(queueDiagnostics.overflow||0)+cleaned.overflow,
-      invalid:(queueDiagnostics.invalid||0)+cleaned.invalid
-    }});
-  });
-  await drainQueue();
+const count = value => Number.isSafeInteger(value) && value>=0 ? value : 0;
+function queueUpdate(state, input) {
+  const cleaned=pruneQueue(input), previous=state.queueDiagnostics||{};
+  return {
+    eventQueue:cleaned.queue,
+    eventQuarantine:cleaned.dropped.reduce((q,x)=>withQuarantine(q,x.item,x.reason),pruneQuarantine(state.eventQuarantine)),
+    queueDiagnostics:{...previous,
+      expired:count(previous.expired)+cleaned.expired,
+      overflow:count(previous.overflow)+cleaned.overflow,
+      invalid:count(previous.invalid)+cleaned.invalid,
+      bytes:cleaned.bytes}
+  };
 }
-let draining = false;
-async function drainQueue() {
-  if (draining || Date.now()<retryAfter) return;
-  draining = true;
-  try {
-    // Expired entries are explicitly counted and quarantined, never silently ignored.
+function newEvent(kind,payload) {
+  return {schema_version:'1.0',source:'extension',event_id:crypto.randomUUID(),occurred_at_ms:Date.now(),kind,payload};
+}
+async function pushEvent(kind, payload) {
+  const saved=await withQueueLock(async () => {
+    const state=await storage();
+    // Check consent in the same serialized operation as the queue write.
+    if(state.collectionEnabled!==true)return false;
+    await chrome.storage.local.set(queueUpdate(state,[...(state.eventQueue||[]),newEvent(kind,payload)]));
+    return true;
+  });
+  if(saved)await drainQueue();
+}
+function wakeQueue(when=Date.now()+30_000) {
+  // Browser alarms can be delayed, including across sleep. Retention is rechecked on wake.
+  return chrome.alarms.create(RETRY_ALARM,{when:Math.max(Date.now()+30_000,when)});
+}
+async function restoreRetryAlarm() {
+  const {eventQueue=[],queueDiagnostics={}}=await storage();
+  if(eventQueue.length)await wakeQueue(queueDiagnostics.retry_at_ms||0);
+}
+let drainInFlight = null;
+function drainQueue({force=false}={}) {
+  if(drainInFlight)return drainInFlight;
+  drainInFlight=(async()=>{
     await withQueueLock(async()=>{
-      const {eventQueue=[],queueDiagnostics={},eventQuarantine=[]}=await storage();
-      const cleaned=pruneQueue(eventQueue);
-      const remaining=new Set(cleaned.queue.map(e=>e.event_id));
-      const expiredItems=eventQueue.filter(e=>e && !remaining.has(e.event_id));
-      const quarantine=expiredItems.reduce((acc,e)=>withQuarantine(acc,e,'expired_or_invalid'),eventQuarantine);
-      await chrome.storage.local.set({eventQueue:cleaned.queue,eventQuarantine:quarantine,
-        queueDiagnostics:{...queueDiagnostics,expired:(queueDiagnostics.expired||0)+cleaned.expired,
-        overflow:(queueDiagnostics.overflow||0)+cleaned.overflow,invalid:(queueDiagnostics.invalid||0)+cleaned.invalid}});
+      const state=await storage();
+      await chrome.storage.local.set(queueUpdate(state,state.eventQueue||[]));
     });
-    while (true) {
-      const item = await withQueueLock(async()=> (await storage()).eventQueue?.[0]);
-      if (!item) break;
-      const reply = await request({op:'event',event:item});
-      if (!reply.ok && reply.delivery!=='terminal'){
-        retryAfter=Date.now()+nextRetryDelay(retryAttempt++);
-        break;
+    const initial=await storage();
+    if(!force && initial.queueDiagnostics?.retry_at_ms>Date.now()){
+      if(initial.eventQueue?.length)await wakeQueue(initial.queueDiagnostics.retry_at_ms);
+      return;
+    }
+    const started=Date.now();
+    let processed=0;
+    while(processed<50 && Date.now()-started<10_000) {
+      const item=await withQueueLock(async()=> (await storage()).eventQueue?.[0]);
+      if(!item)break;
+      const reply=await request({op:'event',event:item});
+      const disposition=acknowledgement(reply,item.event_id);
+      if(!disposition && reply.delivery!=='terminal'){
+        await withQueueLock(async()=>{
+          const {queueDiagnostics={}}=await storage();
+          const attempt=count(queueDiagnostics.retry_attempt);
+          const retryAt=Date.now()+nextRetryDelay(attempt);
+          await chrome.storage.local.set({queueDiagnostics:{...queueDiagnostics,
+            retry_attempt:Math.min(8,attempt+1),retry_at_ms:retryAt,
+            last_error:reply.ok?'invalid_acknowledgement':reply.error||'agent_unreachable'}});
+          await wakeQueue(retryAt);
+        });
+        return;
       }
-      // Remove accepted/duplicate acknowledgements, or quarantine terminal schema errors.
-      await withQueueLock(async () => {
-        const {eventQueue=[],eventQuarantine=[],queueDiagnostics={}}=await storage();
-        const update={eventQueue:eventQueue.filter(e=>e.event_id!==item.event_id)};
-        if (!reply.ok) {
-          update.eventQuarantine=withQuarantine(eventQuarantine,item,reply.error||'terminal_rejection');
-          update.queueDiagnostics={...queueDiagnostics,rejected:(queueDiagnostics.rejected||0)+1};
-        }
+      // Queue removal and its diagnostics are one durable local write. If this write
+      // fails after the agent committed, replay the SAME ID and accept its duplicate ACK.
+      await withQueueLock(async()=>{
+        const state=await storage(), diagnostics=state.queueDiagnostics||{};
+        // A user may have purged this observation while it was in flight.
+        if(!(state.eventQueue||[]).some(e=>e?.event_id===item.event_id))return;
+        const field=disposition||'rejected';
+        const next={...diagnostics,[field]:count(diagnostics[field])+1,
+          retry_attempt:0,retry_at_ms:0,last_error:disposition?'':reply.error,
+          last_delivery_at_ms:Date.now()};
+        if(disposition==='accepted'||disposition==='duplicate')next.last_accepted_at_ms=Date.now();
+        const eventQueue=state.eventQueue.filter(e=>e?.event_id!==item.event_id);
+        const update={eventQueue,queueDiagnostics:{...next,bytes:pruneQueue(eventQueue).bytes}};
+        if(!disposition)update.eventQuarantine=withQuarantine(state.eventQuarantine,item,reply.error);
         await chrome.storage.local.set(update);
       });
-      retryAttempt=0;retryAfter=0;
+      processed++;
     }
-  } finally {draining=false;}
+    lastQueueError='';
+    const remaining=(await storage()).eventQueue||[];
+    if(remaining.length)await wakeQueue();
+    else await chrome.alarms.clear(RETRY_ALARM);
+  })().catch(error=>{lastQueueError='queue_storage_failed';throw error;}).finally(()=>{drainInFlight=null;});
+  return drainInFlight;
+}
+async function purgePending() {
+  return withQueueLock(async()=>{
+    const {eventQueue=[],queueDiagnostics={}}=await storage();
+    await chrome.storage.local.set({eventQueue:[],queueDiagnostics:{...queueDiagnostics,
+      purged:count(queueDiagnostics.purged)+eventQueue.length,retry_attempt:0,retry_at_ms:0,bytes:2}});
+    await chrome.alarms.clear(RETRY_ALARM);
+    return eventQueue.length;
+  });
 }
 async function profileId() {
   const existing=(await chrome.storage.local.get(['profileId'])).profileId;
@@ -175,7 +215,7 @@ async function applyBlocks(blocks) {
   const tabs=await chrome.tabs.query({url:['https://www.youtube.com/*','https://www.instagram.com/*']});
   for (const tab of tabs) if (tab.id) chrome.tabs.sendMessage(tab.id,{op:'blocksUpdated',blocks:safe}).catch(()=>{});
 }
-function syncRules() {
+function syncRules({force=false}={}) {
   if (syncInFlight) return syncInFlight;
   syncInFlight=(async()=>{
     const {emergencyUntil=0,blocks=[]}=await storage();
@@ -184,7 +224,7 @@ function syncRules() {
     const reply=await request({op:'sync'});
     if (!reply.ok) return reply;
     if (reply.schema_version==='1.0' && Array.isArray(reply.blocks) && Date.now()>=emergencyUntil) await applyBlocks(reply.blocks);
-    await drainQueue();
+    await drainQueue({force});
     return reply;
   })().finally(()=>{syncInFlight=null;});
   return syncInFlight;
@@ -202,7 +242,12 @@ chrome.runtime.onInstalled.addListener(async()=>{
   await tabChanged();await syncRules();
 });
 chrome.runtime.onStartup.addListener(()=>{chrome.alarms.create('heartbeat',{periodInMinutes:1});tabChanged();syncRules();});
-chrome.alarms.onAlarm.addListener(async alarm=>{if(alarm.name==='heartbeat'){await tabChanged();await drainQueue();await syncRules();}});
+chrome.alarms.onAlarm.addListener(async alarm=>{
+  try {
+    if(alarm.name===RETRY_ALARM)await drainQueue();
+    if(alarm.name==='heartbeat'){await tabChanged();await drainQueue();await syncRules();}
+  }catch{lastQueueError='queue_storage_failed';}
+});
 chrome.tabs.onActivated.addListener(tabChanged);
 chrome.tabs.onUpdated.addListener((id, info, tab)=>{if(info.url || info.status==='complete') tabChanged();});
 chrome.windows.onFocusChanged.addListener(tabChanged);
@@ -238,13 +283,14 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     return true;
   }
   if (msg?.op==='getStatus') {
-    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],eventQuarantine=[],queueDiagnostics={},collectionEnabled=false,videoObserved={}})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,quarantined:eventQuarantine.length,queueDiagnostics,retryAfter,collectionEnabled,videoObserved,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"}));return true;
+    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],eventQuarantine=[],queueDiagnostics={},collectionEnabled=false,videoObserved={}})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,quarantined:eventQuarantine.length,queueDiagnostics,retryAfter:queueDiagnostics.retry_at_ms||0,collectionEnabled,videoObserved,lastQueueError,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"})).catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));return true;
   }
   if (msg?.op==='checkBlocked') {
     storage().then(({blocks=[],emergencyUntil=0})=>sendResponse({blocked:Date.now()>=emergencyUntil&&blocks.some(b=>b.action==='block' && b.expires_at_ms>Date.now() && ruleMatches(sender.tab?.url || '',b)),blocks:Date.now()>=emergencyUntil?blocks.filter(b=>b.expires_at_ms>Date.now()):[]}));return true;
   }
   if (msg?.op==='emergencyUnblock') {emergencyUnblock().then(until=>sendResponse({ok:true,until}));return true;}
-  if (msg?.op==='resync') {syncRules().then(reply=>sendResponse({ok:reply?.ok===true,error:reply?.error||'',queuedUnknown:!connected})).catch(err=>sendResponse({ok:false,error:String(err)}));return true;}
+  if (msg?.op==='resync') {syncRules({force:true}).then(reply=>sendResponse({ok:reply?.ok===true,error:reply?.error||'',queuedUnknown:!connected})).catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));return true;}
+  if (msg?.op==='purgePending') {purgePending().then(removed=>sendResponse({ok:true,removed})).catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));return true;}
   if (msg?.op==='notificationsEnable') {
     chrome.storage.local.set({notificationsEnabled:msg.value===true}).then(()=>sendResponse({ok:true}));return true;
   }
@@ -257,12 +303,17 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
   if (msg?.op==='collectionEnable') {
     const enable = msg.value === true;
     (async () => {
-      if(!enable) await pushEvent('browser.window_blurred',{browser:await browserInfo(),domain:null,focused:false,profile_id:await profileId()});
-      // Collection consent changes never silently delete already queued observations.
-       await chrome.storage.local.set({collectionEnabled:enable});
+      const profile=await profileId(),browser=await browserInfo();
+      await withQueueLock(async()=>{
+        const state=await storage(),pending=[...(state.eventQueue||[])];
+        if(!enable&&state.collectionEnabled===true)pending.push(newEvent('browser.window_blurred',{browser,domain:null,focused:false,profile_id:profile}));
+        // Stop new collection atomically while retaining the existing queue for sync.
+        await chrome.storage.local.set({...queueUpdate(state,pending),collectionEnabled:enable});
+      });
       if(enable) await tabChanged();
+      else await drainQueue();
       sendResponse({ok:true,enabled:enable});
-    })();
+    })().catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));
     return true;
   }
   if (msg?.op==='browserKind') {
@@ -271,3 +322,4 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
   }
 });
 chrome.alarms.create('heartbeat',{periodInMinutes:1});
+void restoreRetryAlarm().catch(()=>{lastQueueError='queue_storage_failed';});

@@ -15,6 +15,8 @@ mod classification;
 mod prediction;
 mod devices;
 mod hourly;
+#[cfg(test)]
+mod ingestion_tests;
 
 use axum::{extract::{Path, State, Request, DefaultBodyLimit}, http::{header::AUTHORIZATION, StatusCode}, middleware::{self, Next}, response::{IntoResponse, Response}, routing::{delete, get, post}, Json, Router};
 use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
@@ -175,6 +177,11 @@ async fn pause(State(state): State<Arc<AppState>>, Json(cmd): Json<PauseCommand>
     Ok(Json(json!({"ok":true,"paused":cmd.paused,"blocking_unchanged":true})))
 }
 
+fn event_receipt(event_id:&str,disposition:&str)->Json<Value> {
+    Json(json!({"ok":true,"event_id":event_id,"disposition":disposition,
+        "duplicate":disposition=="duplicate","ignored_due_to_pause":disposition=="ignored_paused",
+        "ignored_due_to_exclusion":disposition=="ignored_excluded"}))
+}
 async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Event>) -> ApiResult {
     if event.schema_version != domain::SCHEMA_VERSION || event.source != "extension" ||
         event.event_id.len() > 80 || event.event_id.len() < 8 ||
@@ -211,21 +218,21 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Even
         _ => return Err(err(StatusCode::BAD_REQUEST,"unsupported_kind")),
     };
     if state.paused.load(Ordering::SeqCst) && event.kind!="block.ack" {
-        return Ok(Json(json!({"ok":true,"ignored_due_to_pause":true})));
+        return Ok(event_receipt(&event.event_id,"ignored_paused"));
     }
     // Commit the raw event ID and its derived video update atomically.
     // A retry after a failed derived write must never be discarded as a duplicate.
     let mut db = state.db.lock().unwrap();
     let tx = db.transaction().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     let inserted = tx.execute("INSERT OR IGNORE INTO raw_events(event_id,kind,occurred_ms) VALUES(?1,?2,?3)", params![event.event_id,event.kind,event.occurred_at_ms]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    if inserted == 0 { return Ok(Json(json!({"ok":true,"duplicate":true}))); }
+    if inserted == 0 { return Ok(event_receipt(&event.event_id,"duplicate")); }
     let mut pending_browser: Option<BrowserPayload> = None;
     let mut pending_ack: Option<BlockAck> = None;
     match parsed {
         Parsed::Tab(p) => pending_browser = Some(p),
         Parsed::Video(p) => {
             let host=if p.platform=="youtube_shorts" || p.platform=="youtube_watch"{"www.youtube.com"}else{"www.instagram.com"};
-            if features::excluded(&tx,"",Some(host)){return Ok(Json(json!({"ok":true,"ignored_due_to_exclusion":true})));}
+            if features::excluded(&tx,"",Some(host)){return Ok(event_receipt(&event.event_id,"ignored_excluded"));}
             tx.execute("INSERT INTO videos(instance_id,platform,video_id,watched_ms,qualified,occurred_ms) VALUES(?1,?2,?3,?4,?5,?6)
                 ON CONFLICT(instance_id) DO UPDATE SET watched_ms=max(watched_ms,excluded.watched_ms), qualified=max(qualified,excluded.qualified)",
                 params![p.instance_id,p.platform,p.video_id,p.watched_ms, (event.kind == "video.qualified_play") as u8,event.occurred_at_ms])
@@ -244,7 +251,7 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Even
     if let Some(ack)=pending_ack {
         let mut b=state.browser.lock().unwrap();b.rule_sync_ms=event.occurred_at_ms;b.rule_count=ack.applied_count;
     }
-    Ok(Json(json!({"ok":true})))
+    Ok(event_receipt(&event.event_id,"accepted"))
 }
 fn midnight_local_ms(day: NaiveDate) -> i64 {
     let local = Local.from_local_datetime(&day.and_hms_opt(0,0,0).unwrap());

@@ -18,7 +18,7 @@ globalThis.fetch=async (url,options)=>{
 globalThis.chrome={
  runtime:{id:'diakokddlmicacfakghilkajnojloick',onInstalled:simpleEvent(),onStartup:simpleEvent(),onMessage:{addListener(fn){listeners.onMessage=fn;}}},
  storage:{local:{async get(keys){return Object.fromEntries(keys.map(k=>[k,state[k]]));},async set(changes){Object.assign(state,changes);}}},
- alarms:{create(){},onAlarm:simpleEvent()},tabs:{onActivated:simpleEvent(),onUpdated:simpleEvent(),async query(){return [];}},
+ alarms:{create(){},async clear(){},onAlarm:simpleEvent()},tabs:{onActivated:simpleEvent(),onUpdated:simpleEvent(),async query(){return [];}},
  windows:{onFocusChanged:simpleEvent()},webNavigation:{onHistoryStateUpdated:simpleEvent()},
  declarativeNetRequest:{async updateDynamicRules(){}},notifications:{async create(){}},
 };
@@ -36,7 +36,7 @@ test('extension not authorized: direct localhost reply is not mistaken for succe
 test('agent offline: error remains visible and queued events are preserved',async()=>{
  reachable=false;
  const result=await msg('resync');assert.equal(result.ok,false);
- assert.match(result.error,/failed to fetch/i);
+ assert.equal(result.error,'agent_unreachable');
  state.eventQueue=[{schema_version:'1.0',source:'extension',event_id:crypto.randomUUID(),occurred_at_ms:Date.now(),kind:'video.progress',payload:{platform:'youtube_shorts',video_id:'abc123',instance_id:crypto.randomUUID(),watched_ms:4300}}];
  const result2=await msg('resync');assert.equal(result2.ok,false);
  assert.equal(state.eventQueue.length,1);

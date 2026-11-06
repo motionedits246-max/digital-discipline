@@ -20,3 +20,8 @@
 .observed-stats strong{display:block;font-size:19px;margin-top:5px}
 .popup{scrollbar-width:none}
 .popup::-webkit-scrollbar{display:none}
+.delivery-panel{margin:14px 0;border:1px solid var(--line);border-radius:11px;padding:12px;background:var(--panel)}
+.delivery-panel summary{cursor:pointer;font-weight:650;font-size:12px}
+.delivery-counts{margin:12px 0;font-size:11px}.delivery-counts>div{display:flex;justify-content:space-between;gap:12px;padding:4px 0}
+.delivery-counts dt{color:var(--muted)}.delivery-counts dd{margin:0;font-variant-numeric:tabular-nums}
+.action:disabled{opacity:.5;cursor:default}

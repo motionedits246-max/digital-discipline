@@ -17,10 +17,24 @@
   </section>
   <section class="observed-stats" aria-label="Local playback diagnostics"><div><small>Shorts observed</small><strong id="localShorts">0</strong></div><div><small>YouTube videos</small><strong id="localWatches">0</strong></div><div><small>Reels observed</small><strong id="localReels">0</strong></div></section>
   <p class="note" id="lastObserved">Local counts confirm the content script is detecting actual playback; the dashboard shows server-confirmed counts.</p>
+  <details class="delivery-panel">
+    <summary>Delivery &amp; recovery</summary>
+    <p class="note" id="deliveryState" role="status">Checking pending observations…</p>
+    <dl class="delivery-counts">
+      <div><dt>Acknowledged events</dt><dd id="delivered">—</dd></div>
+      <div><dt>Paused or excluded</dt><dd id="ignored">—</dd></div>
+      <div><dt>Rejected or invalid</dt><dd id="rejected">—</dd></div>
+      <div><dt>Expired after 24 hours</dt><dd id="expired">—</dd></div>
+      <div><dt>Queue capacity losses</dt><dd id="overflow">—</dd></div>
+      <div><dt>Deleted by you</dt><dd id="purged">—</dd></div>
+    </dl>
+    <p class="note">These are event deliveries for this profile, not video totals. The queue holds up to 2,000 events or 2 MB for 24 hours. Recovery history retains only rejection codes and event IDs, up to 100 entries for 7 days.</p>
+    <button id="purgePending" type="button" class="action secondary" disabled>Delete pending observations</button>
+  </details>
   <section class="setting-group">
     <h2>Privacy & recording</h2>
     <label class="switch-row"><input id="enabled" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Record browser activity</strong><small>Local domains, observed Shorts & Reels only.</small></span></label>
-    <p class="note">Disabled by default. Your data stays on this computer. Without a connection, events are queued for later delivery.</p>
+    <p class="note">Disabled by default. Turning recording off stops new collection; pending observations keep syncing locally. Use Delete pending observations to remove them instead.</p>
   </section>
   <section class="setting-group">
     <h2>Notifications</h2>

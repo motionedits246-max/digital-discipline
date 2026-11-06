@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Digital Discipline — Brave Companion",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Opt-in local browser counting and restrictions via direct localhost; no native messaging registration required.",
   "permissions": [
     "tabs",
