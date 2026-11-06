@@ -3,13 +3,7 @@ use super::*;
 
 fn state()->Arc<AppState>{
  let db=Connection::open_in_memory().unwrap();
- db.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-  CREATE TABLE raw_events(event_id TEXT PRIMARY KEY,kind TEXT NOT NULL,occurred_ms INTEGER NOT NULL);
-  CREATE TABLE videos(instance_id TEXT PRIMARY KEY,platform TEXT NOT NULL,video_id TEXT NOT NULL,watched_ms INTEGER NOT NULL,qualified INTEGER NOT NULL,occurred_ms INTEGER NOT NULL);
-  CREATE TABLE sessions(id TEXT PRIMARY KEY,start_ms INTEGER,end_ms INTEGER,app TEXT,idle INTEGER,domain TEXT);
-  CREATE TABLE rules(id TEXT PRIMARY KEY);").unwrap();
- features::migrate(&db).unwrap();
- crate::tracking::migrate(&db).unwrap();
+ initialize_schema(&db).unwrap();
  Arc::new(AppState{db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),
   browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(false),stopping:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),
   token:"runtime-test-token".into(),shutdown:Arc::new(tokio::sync::Notify::new())})
@@ -59,7 +53,7 @@ async fn graceful_shutdown_flushes_and_rejects_later_events_without_changing_pau
  let s=state();observe_tick(&s,Observation{app:"code.exe".into(),domain:None,profile_id:None,idle:false,at_ms:1000});
  let _=shutdown_agent(State(s.clone())).await;assert!(s.stopping.load(Ordering::SeqCst));assert!(s.tracker.lock().unwrap().session_id.is_none());
  assert_eq!(event_ingest(State(s.clone()),Json(playback(&Uuid::new_v4().to_string(),&Uuid::new_v4().to_string()))).await.unwrap_err().0,StatusCode::SERVICE_UNAVAILABLE);
- assert_eq!(features::read_setting(&s.db.lock().unwrap(),"paused"),"");
+ assert_eq!(features::read_setting(&s.db.lock().unwrap(),"paused"),"false");
 }
 #[tokio::test]
 async fn desktop_boundary_rejects_web_origins_and_foreign_hosts_even_with_token(){
@@ -71,4 +65,13 @@ async fn desktop_boundary_rejects_web_origins_and_foreign_hosts_even_with_token(
   assert_eq!(req.send().await.unwrap().status().as_u16(),expected);
  }
  task.abort();
+}
+
+#[tokio::test]
+async fn route_visit_and_duplicate_are_not_qualified_playback(){
+ let s=state();let id=Uuid::new_v4().to_string();
+ let event=||Event{schema_version:"1.0".into(),event_id:id.clone(),source:"extension".into(),occurred_at_ms:now_ms(),kind:"video.navigation".into(),profile_id:None,extension_id:None,payload:json!({"platform":"youtube_shorts","video_id":"Example123"})};
+ assert_eq!(event_ingest(State(s.clone()),Json(event())).await.unwrap().0["disposition"],"accepted");
+ assert_eq!(event_ingest(State(s.clone()),Json(event())).await.unwrap().0["disposition"],"duplicate");assert_eq!(rows(&s,"videos"),0);
+ assert_eq!(s.db.lock().unwrap().query_row("SELECT COUNT(*) FROM video_visits",[],|r|r.get::<_,i64>(0)).unwrap(),1);
 }

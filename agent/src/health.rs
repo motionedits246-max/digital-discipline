@@ -3,6 +3,13 @@ use axum::{extract::State,http::StatusCode,Json};
 use serde_json::json;
 use std::{sync::{Arc,atomic::Ordering},fs};
 
+static RESOURCE_SAMPLE:std::sync::Mutex<Option<(std::time::Instant,u64)>>=std::sync::Mutex::new(None);
+fn resources()->serde_json::Value{
+ let Some((cpu,memory))=crate::windows::process_resources()else{return json!({"available":false,"reason":"unsupported_platform"});};
+ let now=std::time::Instant::now();let mut sample=RESOURCE_SAMPLE.lock().unwrap();
+ let percent=sample.as_ref().and_then(|(at,prior)|{let elapsed=now.duration_since(*at).as_secs_f64();(elapsed>=0.1&&cpu>=*prior).then(||(cpu-*prior) as f64/100000.0/elapsed)});*sample=Some((now,cpu));
+ json!({"available":true,"working_set_bytes":memory,"cpu_percent_one_core_basis":percent,"sampled_at_ms":now_ms(),"scope":"agent_process_only"})
+}
 pub async fn details(State(s):State<Arc<AppState>>)->ApiResult{
  let now=now_ms();
  let (last_event,event_count,session_count,auto,size)={
@@ -24,8 +31,8 @@ pub async fn details(State(s):State<Arc<AppState>>)->ApiResult{
   "browser":{"last_message_at_ms":browser.last_event_ms,"last_rule_ack_at_ms":browser.rule_sync_ms,
    "recent_signal":browser.last_event_ms>0&&now-browser.last_event_ms<120_000,
    "recent_rule_ack":browser.rule_sync_ms>0&&now-browser.rule_sync_ms<180_000},
-  "storage":{"db_bytes":size,"persisted_event_count":event_count,"session_rows":session_count,"last_accepted_event_at_ms":last_event},
-  "optional_workers":{"auto_classification_enabled":auto},
+  "resources":resources(),"storage":{"db_bytes":size,"persisted_event_count":event_count,"session_rows":session_count,"last_accepted_event_at_ms":last_event},
+  "optional_workers":{"auto_classification_enabled":auto,"lite_mode":crate::features::read_setting(&s.db.lock().unwrap(),"lite_mode")=="true"},
   "redacted":true
  })))
 }

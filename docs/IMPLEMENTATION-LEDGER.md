@@ -179,3 +179,10 @@ Windows CI is not installed Windows/Brave acceptance. F01/F04/F15/F18/F19/F20/F2
 The user requested one combined handoff, including a custom date selector, a visible Presentation Mode privacy screen, automatic bounded AI review and saved classifications. This continuation also adds profile-scoped Tracking Doctor stages, compact live refreshes, independent streaming history reads, conservative browser foreground attribution, agent version negotiation, bounded recovery and clock rollback protection.
 
 Local evidence before the Windows run: 40 JavaScript tests, 40 Linux Rust tests, 8 SQLite smoke tests, one pure IPC route test, and TypeScript/Vite build. New renderer interaction and isolated Windows agent lifecycle tests are now required in CI. This entry is not installed Windows/Brave acceptance or completion of the full roadmap. Later changes will update this evidence and the remaining work.
+
+
+### Integrated Windows checkpoint verified
+
+Source `d4f5944bbd306b55d2296f78a8573709d7421c28`, run [42223016774](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42223016774), succeeded. Evidence: 40 JavaScript tests, 41 Windows agent tests (including DPAPI), 8 SQLite tests, 1 privileged IPC route test, 3 renderer interaction tests in Edge, real agent version/duplicate/pause/restart/shutdown checks, frontend and Windows installer build. This is automated Windows evidence, not owner-installed Brave acceptance. Installer SHA-256: `e6b7278615528b44e4090380cc09ae42a88ed5b4c2790b9f74fe9b6b02b24f7d`. Development signatures remain self-signed and untrusted.
+
+The next source checkpoint adds tested player adapter/replay/speed/seek/autoplay behavior, separately labeled route visits, schema-11 private intervals and deletion tombstones, AI data-epoch guards, scoped erasure, complete streamed local snapshots (provider credentials excluded; not an encrypted restore system), measured agent resources and persisted Lite scheduling. Further workflow implementation and final combined validation are in progress.

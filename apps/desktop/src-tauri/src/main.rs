@@ -199,6 +199,28 @@ fn set_autostart(app:tauri::AppHandle,enabled:bool)->Result<String,String>{
 }
 
 #[tauri::command]
+async fn export_activity()->Result<Value,String>{
+ #[cfg(not(windows))] {return Err("Windows desktop export unavailable".into());}
+ #[cfg(windows)] {
+  let token=fs::read_to_string(token_path()?).map_err(|_|"Agent token unavailable")?;
+  let client=reqwest::Client::builder().timeout(Duration::from_secs(180)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Local export client unavailable")?;
+  let response=client.post("http://127.0.0.1:48761/export/snapshot").bearer_auth(token.trim()).json(&serde_json::json!({})).send().await.map_err(|_|"Export could not reach the agent")?;
+  if !response.status().is_success(){return Err(format!("Export failed: {}",response.status()));}
+  let mut result=response.json::<Value>().await.map_err(|_|"Invalid export result")?;
+  let id=result["snapshot_id"].as_str().filter(|id|id.len()==36&&id.bytes().all(|c|c.is_ascii_hexdigit()||c==b'-')).ok_or("Invalid snapshot identifier")?;
+  let source=token_path()?.parent().ok_or("Agent directory unavailable")?.join("exports").join(format!("{id}.jsonl"));
+  let downloads=PathBuf::from(std::env::var_os("USERPROFILE").ok_or("Windows profile unavailable")?).join("Downloads");
+  if !downloads.is_dir(){return Err("Downloads folder unavailable; snapshot remains in DigitalDiscipline/exports".into());}
+  let target=downloads.join(format!("Digital-Discipline-Export-{id}.jsonl"));
+  fs::copy(&source,&target).map_err(|_|"Could not save export to Downloads")?;
+  result["saved_path"]=serde_json::json!(target.to_string_lossy());
+  let _=fs::remove_file(source);
+  let _=Command::new("explorer.exe").arg("/select,").arg(&target).spawn();
+  Ok(result)
+ }
+}
+
+#[tauri::command]
 fn lifecycle_status(app:tauri::AppHandle)->Value{
  #[cfg(windows)] {return app.state::<lifecycle::Supervisor>().status();}
  #[cfg(not(windows))] {let _=app;serde_json::json!({"state":"unsupported","note":"Windows desktop supervisor"})}
@@ -258,7 +280,7 @@ fn main() {
           #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {api.prevent_close();let _=window.hide();}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status])
+      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

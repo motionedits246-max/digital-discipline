@@ -5,7 +5,7 @@ export const MAX_EVENT_BYTES = 8192;
 export const MAX_QUEUE_AGE_MS = 86_400_000;
 export const MAX_QUARANTINE = 100;
 export const MAX_QUARANTINE_AGE_MS = 7 * 86_400_000;
-const kinds = new Set(['browser.active_tab', 'browser.window_blurred', 'browser.health', 'block.ack', 'video.progress', 'video.qualified_play']);
+const kinds = new Set(['browser.active_tab', 'browser.window_blurred', 'browser.health', 'block.ack', 'video.progress', 'video.qualified_play', 'video.navigation']);
 const reasons = new Set(['invalid_envelope', 'invalid_browser_payload', 'invalid_browser_domain', 'invalid_video_payload', 'invalid_video_data', 'invalid_block_ack', 'invalid_rule_count', 'unsupported_kind', 'extension_not_authorized_open_desktop_setup', 'extension_origin_required', 'loopback_host_required', 'invalid_origin', 'storage_failed', 'profile_revoked_authorize_in_desktop','invalid_profile_status','profile_identity_mismatch','event_identity_conflict','playback_identity_conflict']);
 const encoder = new TextEncoder();
 
@@ -28,7 +28,7 @@ export function acknowledgement(reply, eventId) {
   if (reply.event_id != null && reply.event_id !== eventId) return null;
   const disposition = reply.disposition || (reply.duplicate ? 'duplicate' : reply.ignored_due_to_pause ? 'ignored_paused' : reply.ignored_due_to_exclusion ? 'ignored_excluded' : 'accepted');
   // Older 1.0 agents return ok plus legacy flags; keep in-place upgrades working.
-  return ['accepted', 'duplicate', 'ignored_paused', 'ignored_excluded'].includes(disposition) ? disposition : null;
+  return ['accepted', 'duplicate', 'ignored_paused', 'ignored_excluded', 'ignored_private', 'ignored_deleted'].includes(disposition) ? disposition : null;
 }
 export function pruneQueue(input, now = Date.now()) {
   const queue = [], dropped = [];

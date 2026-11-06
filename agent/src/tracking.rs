@@ -31,6 +31,8 @@ pub struct SyncInfo {
 }
 pub fn valid_profile(id:&str)->bool{uuid::Uuid::parse_str(id).is_ok()&&id.len()==36}
 fn ensure_instance(db:&Connection,ext:&str,profile:&str,browser:&str,at:i64)->rusqlite::Result<bool>{
+ let exists=db.query_row("SELECT EXISTS(SELECT 1 FROM browser_instances WHERE extension_id=?1 AND profile_id=?2)",params![ext,profile],|r|r.get::<_,bool>(0))?;
+ if !exists&&db.query_row("SELECT COUNT(*) FROM browser_instances WHERE extension_id=?1",params![ext],|r|r.get::<_,i64>(0))?>=50{return Err(rusqlite::Error::InvalidQuery);}
  db.execute("INSERT OR IGNORE INTO browser_instances(extension_id,profile_id,browser,first_seen_ms,last_seen_ms) VALUES(?1,?2,?3,?4,?4)",params![ext,profile,browser,at])?;
  Ok(db.query_row("SELECT revoked=0 FROM browser_instances WHERE extension_id=?1 AND profile_id=?2",params![ext,profile],|r|r.get(0))?)
 }

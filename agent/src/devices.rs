@@ -71,7 +71,7 @@ pub async fn import(State(s):State<Arc<AppState>>,Json(p):Json<Import>)->ApiResu
     let tx=db.transaction().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     let mut inserted=0;
     for r in &p.records {
-        if super::features::excluded(&tx,&r.app,r.domain.as_deref()){continue;}
+        if super::features::excluded(&tx,&r.app,r.domain.as_deref())||crate::data_lifecycle::rejection(&tx,r.start_ms,Some(&format!("app:{}",r.app.to_ascii_lowercase()))).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?.is_some()||r.domain.as_ref().is_some_and(|host|crate::data_lifecycle::rejection(&tx,r.start_ms,Some(&format!("domain:{host}"))).map_or(true,|r|r.is_some())){continue;}
         inserted+=tx.execute("INSERT OR IGNORE INTO device_sessions(device_id,session_id,start_ms,end_ms,app,idle,domain) VALUES(?1,?2,?3,?4,?5,?6,?7)",
             params![p.source_device_id,r.session_id,r.start_ms,r.end_ms,r.app,r.idle as u8,r.domain])
             .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;

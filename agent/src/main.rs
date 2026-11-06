@@ -16,6 +16,8 @@ mod classification_store;
 mod schema;
 mod tracking;
 mod reporting;
+mod data_lifecycle;
+mod export_snapshot;
 mod prediction;
 mod devices;
 mod hourly;
@@ -51,6 +53,9 @@ struct VideoPayload { platform: String, video_id: String, instance_id: String, w
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BlockAck { applied_count: u32 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VisitPayload {platform:String,video_id:String}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Event {
@@ -91,6 +96,12 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
     let path = data_dir()?.join("discipline.sqlite3");
     let db = Connection::open(path)?;
     db.busy_timeout(StdDuration::from_secs(3))?;
+    initialize_schema(&db)?;
+    Ok(db)
+}
+
+fn initialize_schema(db:&Connection)->rusqlite::Result<()>{
+    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>11{return Err(rusqlite::Error::InvalidQuery);}
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, idle INTEGER NOT NULL, domain TEXT);
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_ms);
@@ -101,12 +112,12 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         INSERT OR IGNORE INTO settings(key,value) VALUES('paused','false');
         ")?;
-    features::migrate(&db)?;
-    workflow::migrate(&db)?;
-    devices::migrate(&db)?;
-    bridge::migrate(&db)?;
-    schema::migrate(&db)?;
-    Ok(db)
+    features::migrate(db)?;
+    workflow::migrate(db)?;
+    devices::migrate(db)?;
+    bridge::migrate(db)?;
+    schema::migrate(db)?;
+    Ok(())
 }
 
 fn observe_tick(state: &AppState, mut sample: Observation) {
@@ -117,12 +128,13 @@ fn observe_tick(state: &AppState, mut sample: Observation) {
     // Keep privacy exclusions ahead of storage; skipping closes the current observation.
     {
         let db=state.db.lock().unwrap();
-        if features::excluded(&db,&sample.app,sample.domain.as_deref()) {drop(db);stop_observing(state);return;}
+        if data_lifecycle::is_private(&db,sample.at_ms)||features::excluded(&db,&sample.app,sample.domain.as_deref()) {drop(db);stop_observing(state);return;}
     }
     let mut tracker = state.tracker.lock().unwrap();
     if state.stopping.load(Ordering::SeqCst) { return; }
-    let (ended, current) = tracker.reconciler.push(sample);
     let db = state.db.lock().unwrap();
+    if state.paused.load(Ordering::SeqCst)||data_lifecycle::is_private(&db,now_ms())||features::excluded(&db,&sample.app,sample.domain.as_deref()){tracker.reconciler.stop();tracker.session_id=None;return;}
+    let (ended, current) = tracker.reconciler.push(sample);
     let mut failed=false;
     if let Some(previous) = ended {
         if let Some(id) = tracker.session_id.take() {
@@ -203,7 +215,7 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(mut event): Json<
         event.occurred_at_ms > now_ms() + 300_000 || event.occurred_at_ms < now_ms() - 86_400_000 {
         return Err(err(StatusCode::BAD_REQUEST,"invalid_envelope"));
     }
-    enum Parsed { Tab(BrowserPayload), Video(VideoPayload), Health, Ack(BlockAck) }
+    enum Parsed { Tab(BrowserPayload), Video(VideoPayload), Visit(VisitPayload), Health, Ack(BlockAck) }
     let parsed = match event.kind.as_str() {
         "browser.active_tab" | "browser.window_blurred" => {
             let p: BrowserPayload = serde_json::from_value(event.payload).map_err(|_|err(StatusCode::BAD_REQUEST,"invalid_browser_payload"))?;
@@ -224,6 +236,11 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(mut event): Json<
             }
             Parsed::Video(p)
         }
+        "video.navigation" => {
+            let p:VisitPayload=serde_json::from_value(event.payload).map_err(|_|err(StatusCode::BAD_REQUEST,"invalid_video_payload"))?;
+            if !["youtube_shorts","youtube_watch","instagram_reels"].contains(&p.platform.as_str())||p.video_id.is_empty()||p.video_id.len()>128||!p.video_id.bytes().all(|c|c.is_ascii_alphanumeric()||b"-_".contains(&c)){return Err(err(StatusCode::BAD_REQUEST,"invalid_video_data"));}
+            Parsed::Visit(p)
+        },
         "browser.health" => Parsed::Health,
         "block.ack" => {
             let p:BlockAck=serde_json::from_value(event.payload).map_err(|_|err(StatusCode::BAD_REQUEST,"invalid_block_ack"))?;
@@ -243,6 +260,10 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(mut event): Json<
     // A retry after a failed derived write must never be discarded as a duplicate.
     let mut db = state.db.lock().unwrap();
     let tx = db.transaction().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    if event.kind!="block.ack" {
+        let subject=match &parsed{Parsed::Tab(p)=>p.domain.as_ref().map(|d|format!("domain:{d}")),Parsed::Video(p)=>Some(format!("domain:{}",if p.platform.starts_with("youtube_"){"www.youtube.com"}else{"www.instagram.com"})),Parsed::Visit(p)=>Some(format!("domain:{}",if p.platform.starts_with("youtube_"){"www.youtube.com"}else{"www.instagram.com"})),_=>None};
+        if let Some(reason)=data_lifecycle::rejection(&tx,event.occurred_at_ms,subject.as_deref()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?{return Ok(event_receipt(&event.event_id,reason));}
+    }
     let inserted = tx.execute("INSERT OR IGNORE INTO raw_events(event_id,kind,occurred_ms,profile_id,extension_id) VALUES(?1,?2,?3,?4,?5)", params![event.event_id,event.kind,event.occurred_at_ms,event.profile_id,event.extension_id]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     if inserted == 0 {
         let identity=tx.query_row("SELECT profile_id,extension_id FROM raw_events WHERE event_id=?1",params![event.event_id],|r|Ok((r.get::<_,Option<String>>(0)?,r.get::<_,Option<String>>(1)?))).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
@@ -263,6 +284,11 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(mut event): Json<
                 params![p.instance_id,p.platform,p.video_id,p.watched_ms, (event.kind == "video.qualified_play") as u8,event.occurred_at_ms,event.profile_id,event.extension_id])
                 .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
         }
+        Parsed::Visit(p)=>{
+            let host=if p.platform.starts_with("youtube_"){"www.youtube.com"}else{"www.instagram.com"};
+            if features::excluded(&tx,"",Some(host)){return Ok(event_receipt(&event.event_id,"ignored_excluded"));}
+            tx.execute("INSERT INTO video_visits(event_id,platform,video_id,occurred_ms,profile_id,extension_id) VALUES(?1,?2,?3,?4,?5,?6)",params![event.event_id,p.platform,p.video_id,event.occurred_at_ms,event.profile_id,event.extension_id]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+        },
         Parsed::Ack(p) => {pending_ack=Some(p);},
         Parsed::Health => {}
     }
@@ -448,23 +474,24 @@ async fn snapshot_inner(state:Arc<AppState>,compact:bool) -> ApiResult {
         Some(policy::union_ms(all.iter().filter(|s|!s.idle && distraction_labels.contains(&s.category))
             .map(|s|(s.start_ms,s.end_ms)).collect(),start,now))
     };
-    let plays:i64=db.query_row("SELECT COUNT(*) FROM videos WHERE platform!='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
-    let uniques:i64=db.query_row("SELECT COUNT(DISTINCT platform || ':' || video_id) FROM videos WHERE platform!='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
-    let playback:i64=db.query_row("SELECT COALESCE(SUM(watched_ms),0) FROM videos WHERE platform!='youtube_watch' AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
-    let watch_plays:i64=db.query_row("SELECT COUNT(*) FROM videos WHERE platform='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
-    let watch_uniques:i64=db.query_row("SELECT COUNT(DISTINCT video_id) FROM videos WHERE platform='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
-    let watch_playback:i64=db.query_row("SELECT COALESCE(SUM(watched_ms),0) FROM videos WHERE platform='youtube_watch' AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
+    let plays:i64=db.query_row("SELECT COUNT(*) FROM videos WHERE platform!='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
+    let uniques:i64=db.query_row("SELECT COUNT(DISTINCT platform || ':' || video_id) FROM videos WHERE platform!='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
+    let playback:i64=db.query_row("SELECT COALESCE(SUM(watched_ms),0) FROM videos WHERE platform!='youtube_watch' AND occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
+    let watch_plays:i64=db.query_row("SELECT COUNT(*) FROM videos WHERE platform='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
+    let watch_uniques:i64=db.query_row("SELECT COUNT(DISTINCT video_id) FROM videos WHERE platform='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
+    let watch_playback:i64=db.query_row("SELECT COALESCE(SUM(watched_ms),0) FROM videos WHERE platform='youtube_watch' AND occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
+    let route_visits:i64=db.query_row("SELECT COUNT(*) FROM video_visits WHERE occurred_ms>=?1",params![start],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"metrics_storage_failed"))?;
     let rules=if compact{Vec::new()}else{get_rules(&db,now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?};
     let current=recent.first().filter(|s|now-s.end_ms<8_000);
     let focus=features::active_focus(&db,now).ok().flatten();
     let focus_hint=focus.as_ref().and_then(|f|features::focus_goal_hint(&db,f,current,now));
     Ok(Json(json!({
         "ok":true,"schema_version":domain::SCHEMA_VERSION,"observed_at_ms":now,
-        "tracking_paused":state.paused.load(Ordering::SeqCst),"platform_supported":cfg!(windows),
+        "private_session":data_lifecycle::private_info(&db,now),"tracking_paused":state.paused.load(Ordering::SeqCst),"platform_supported":cfg!(windows),
         "browser_connected":db.query_row("SELECT EXISTS(SELECT 1 FROM browser_instances WHERE revoked=0 AND last_seen_ms>?1)",params![now-90000],|r|r.get::<_,bool>(0)).unwrap_or(false),
         "browser_rules_acknowledged":state.browser.lock().unwrap().rule_sync_ms>now-180_000,
         "browser_rules_count":state.browser.lock().unwrap().rule_count,
-        "metrics":{"active_ms":active,"development_ms":development,"entertainment_ms":entertainment,"distraction_ms":distraction,"qualified_plays":plays,"unique_videos":uniques,"replays":(plays-uniques).max(0),"playback_ms":playback,"watch_qualified_plays":watch_plays,"watch_unique_videos":watch_uniques,"watch_playback_ms":watch_playback},
+        "metrics":{"route_visits":route_visits,"active_ms":active,"development_ms":development,"entertainment_ms":entertainment,"distraction_ms":distraction,"qualified_plays":plays,"unique_videos":uniques,"replays":(plays-uniques).max(0),"playback_ms":playback,"watch_qualified_plays":watch_plays,"watch_unique_videos":watch_uniques,"watch_playback_ms":watch_playback},
         "current":current,"sessions":recent,"heatmap":heatmap,"rules":rules,
         "goals":if compact{Vec::<Value>::new()}else{features::read_goals(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?},
         "focus":focus,"focus_goal_hint":focus_hint,
@@ -498,10 +525,10 @@ async fn export_data(State(state): State<Arc<AppState>>) -> ApiResult {
     Ok(Json(json!({"schema_version":"1.0","exported_at_ms":now_ms(),"sessions":sessions,"videos":videos,"truncated":truncated,"scope":"app_basenames_and_opt_in_domains_and_observed_video_ids"})))
 }
 async fn delete_data(State(state): State<Arc<AppState>>) -> ApiResult {
-    stop_observing(&state);
-    let db=state.db.lock().unwrap();
-    db.execute_batch("DELETE FROM sessions; DELETE FROM raw_events; DELETE FROM videos; DELETE FROM classifications; DELETE FROM audits; DELETE FROM rule_states; DELETE FROM focus_sessions; DELETE FROM focus_snoozes; DELETE FROM device_sessions; DELETE FROM linked_devices;").map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    Ok(Json(json!({"ok":true,"deleted":"activity_video_classifications_audits_and_imported_devices","rules_retained":true})))
+    let mut tracker=state.tracker.lock().unwrap();tracker.reconciler.stop();tracker.session_id=None;
+    let db=state.db.lock().unwrap();data_lifecycle::clear_activity(&db,now_ms()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    *state.browser.lock().unwrap()=BrowserStatus::default();
+    Ok(Json(json!({"ok":true,"deleted":"activity_video_classifications_memory_and_imported_devices","rules_and_owner_overrides_retained":true,"queued_history_before_deletion_rejected":true})))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -531,7 +558,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
             if classify_state.stopping.load(Ordering::SeqCst){break;}
             if let Ok(db)=classify_state.db.lock(){let _=classification::queue_unknowns(&db);}
             classification::worker(Arc::clone(&classify_state)).await;
-            tokio::time::sleep(std::time::Duration::from_secs(75)).await;
+            let delay=if features::read_setting(&classify_state.db.lock().unwrap(),"lite_mode")=="true"{180}else{75};
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
         }
     });
     let prune_state=Arc::clone(&state);
@@ -559,7 +587,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/tracking/pause",post(pause)).route("/rules",get(rules).post(create_rule))
         .route("/rules/{id}",delete(remove_rule)).route("/extension/rules",get(extension_rules))
         .route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
-        .route("/export",get(export_data)).route("/data",delete(delete_data))
+        .route("/export",get(export_data)).route("/export/snapshot",post(export_snapshot::create)).route("/data",delete(delete_data)).route("/data/purge",post(data_lifecycle::purge)).route("/privacy/session",get(data_lifecycle::private_status).post(data_lifecycle::private_session))
         .route("/videos",get(features::video_history)).route("/insights",get(features::insights))
         .route("/categories",get(features::list_categories)).route("/categories/override",post(features::override_category))
         .route("/categories/override/{subject}",delete(features::delete_override))

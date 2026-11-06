@@ -47,3 +47,5 @@ export async function browserDiagnostics(browser:'Brave'|'Chrome'|'Edge',extensi
 
 export type LifecycleStatus={state:string;restart_count?:number;expected_version?:string;wanted?:boolean};
 export async function lifecycleStatus():Promise<LifecycleStatus>{return isTauri?invoke<LifecycleStatus>('lifecycle_status',{}):{state:'preview'};}
+
+export async function exportActivity():Promise<{saved_path:string;rows:number;complete:boolean}>{return invoke('export_activity',{});}

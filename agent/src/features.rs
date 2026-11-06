@@ -227,10 +227,10 @@ pub(super) async fn end_focus(State(s):State<Arc<AppState>>)->ApiResult{
 }
 
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct SettingsInput {retention_days:Option<u32>,idle_threshold_ms:Option<u32>,excluded_apps:Option<Vec<String>>,excluded_domains:Option<Vec<String>>,video_history_visible:Option<bool>,distraction_categories:Option<Vec<String>>,prediction_opt_in:Option<bool>,coach_share_opt_in:Option<bool>}
+pub(super) struct SettingsInput {lite_mode:Option<bool>,retention_days:Option<u32>,idle_threshold_ms:Option<u32>,excluded_apps:Option<Vec<String>>,excluded_domains:Option<Vec<String>>,video_history_visible:Option<bool>,distraction_categories:Option<Vec<String>>,prediction_opt_in:Option<bool>,coach_share_opt_in:Option<bool>}
 pub(super) async fn get_settings(State(s):State<Arc<AppState>>)->ApiResult{
     let db=s.db.lock().unwrap();let mut map=serde_json::Map::new();
-    for key in ["retention_days","idle_threshold_ms","excluded_apps","excluded_domains","video_history_visible","distraction_categories","prediction_opt_in","coach_share_opt_in"] {
+    for key in ["lite_mode","retention_days","idle_threshold_ms","excluded_apps","excluded_domains","video_history_visible","distraction_categories","prediction_opt_in","coach_share_opt_in"] {
         let v=read_setting(&db,key);
         map.insert(key.into(),serde_json::from_str(&v).unwrap_or(Value::Null));
     }
@@ -241,8 +241,11 @@ pub(super) async fn set_settings(State(s):State<Arc<AppState>>,Json(p):Json<Sett
         p.excluded_apps.as_ref().is_some_and(|xs|xs.len()>100||xs.iter().any(|x|x.is_empty()||x.len()>120||!x.bytes().all(|c|c.is_ascii_alphanumeric()||b"-_.".contains(&c))))||
         p.excluded_domains.as_ref().is_some_and(|xs|xs.len()>100||xs.iter().any(|x|!domain::valid_domain(x))) ||
         p.distraction_categories.as_ref().is_some_and(|xs|xs.len()>CATEGORIES.len()||xs.iter().any(|c|!CATEGORIES.contains(&c.as_str()))) {return Err(err(StatusCode::BAD_REQUEST,"invalid_settings"));}
-    let db=s.db.lock().unwrap();
+    let privacy_changed=p.excluded_apps.is_some()||p.excluded_domains.is_some();
+    let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;
+    if privacy_changed{crate::data_lifecycle::advance_epoch(&tx).map_err(storage)?;}
     for (key,value) in [
+        ("lite_mode",p.lite_mode.map(|v|v.to_string())),
         ("retention_days",p.retention_days.map(|v|v.to_string())),
         ("idle_threshold_ms",p.idle_threshold_ms.map(|v|v.to_string())),
         ("excluded_apps",p.excluded_apps.map(|v|serde_json::to_string(&v).unwrap())),
@@ -252,11 +255,13 @@ pub(super) async fn set_settings(State(s):State<Arc<AppState>>,Json(p):Json<Sett
         ("prediction_opt_in",p.prediction_opt_in.map(|v|v.to_string())),
         ("coach_share_opt_in",p.coach_share_opt_in.map(|v|v.to_string()))
     ] {
-        if let Some(v)=value {db.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,v]).map_err(storage)?;}
+        if let Some(v)=value {tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,v]).map_err(storage)?;}
     }
-    Ok(Json(json!({"ok":true,"effective_on_next_poll":true})))
+    tx.commit().map_err(storage)?;
+    Ok(Json(json!({"ok":true,"effective_on_next_poll":true,"historical_data_retained":true})))
 }
 pub(super) fn prune(db:&Connection,now:i64)->rusqlite::Result<()> {
+    let tx=db.unchecked_transaction()?;let db=&tx;
     let days=read_setting(db,"retention_days").parse::<i64>().unwrap_or(90).clamp(1,3650);
     let cutoff=now-days*86_400_000;
     db.execute("DELETE FROM sessions WHERE end_ms<=?1",params![cutoff])?;
@@ -267,14 +272,19 @@ pub(super) fn prune(db:&Connection,now:i64)->rusqlite::Result<()> {
     db.execute("DELETE FROM focus_sessions WHERE end_ms<?1",params![cutoff])?;
     db.execute("DELETE FROM focus_snoozes WHERE focus_id NOT IN (SELECT id FROM focus_sessions)",[])?;
     db.execute("DELETE FROM device_sessions WHERE end_ms<?1",params![cutoff])?;
-    Ok(())
+    crate::data_lifecycle::prune(db,cutoff,now)?;
+    tx.commit()
 }
 
 pub(super) async fn video_history(State(s):State<Arc<AppState>>)->ApiResult{
     let db=s.db.lock().unwrap();
     if read_setting(&db,"video_history_visible")!="true" {return Ok(Json(json!({"ok":true,"videos":[],"visibility_disabled":true})));}
-    let mut stmt=db.prepare("SELECT platform,video_id,COUNT(*),SUM(qualified),SUM(watched_ms),MAX(occurred_ms) FROM videos GROUP BY platform,video_id ORDER BY MAX(occurred_ms) DESC LIMIT 500").map_err(storage)?;
-    let videos=stmt.query_map([],|r|Ok(json!({"platform":r.get::<_,String>(0)?,"video_id":r.get::<_,String>(1)?,"instances":r.get::<_,i64>(2)?,"qualified_plays":r.get::<_,i64>(3)?,"watched_ms":r.get::<_,i64>(4)?,"last_seen_ms":r.get::<_,i64>(5)?}))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
+    let mut stmt=db.prepare("WITH plays AS (SELECT platform,video_id,COUNT(*) instances,SUM(qualified) qualified,SUM(watched_ms) watched,MAX(occurred_ms) last_ms FROM videos GROUP BY platform,video_id),
+      visits AS (SELECT platform,video_id,COUNT(*) visits,MAX(occurred_ms) last_ms FROM video_visits GROUP BY platform,video_id),
+      ids AS (SELECT platform,video_id FROM plays UNION SELECT platform,video_id FROM visits)
+      SELECT ids.platform,ids.video_id,COALESCE(p.instances,0),COALESCE(p.qualified,0),COALESCE(p.watched,0),max(COALESCE(p.last_ms,0),COALESCE(v.last_ms,0)),COALESCE(v.visits,0)
+      FROM ids LEFT JOIN plays p USING(platform,video_id) LEFT JOIN visits v USING(platform,video_id) ORDER BY 6 DESC LIMIT 500").map_err(storage)?;
+    let videos=stmt.query_map([],|r|Ok(json!({"platform":r.get::<_,String>(0)?,"video_id":r.get::<_,String>(1)?,"instances":r.get::<_,i64>(2)?,"qualified_plays":r.get::<_,i64>(3)?,"watched_ms":r.get::<_,i64>(4)?,"last_seen_ms":r.get::<_,i64>(5)?,"route_visits":r.get::<_,i64>(6)?}))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
     Ok(Json(json!({"ok":true,"videos":videos,"title_collection":false})))
 }
 

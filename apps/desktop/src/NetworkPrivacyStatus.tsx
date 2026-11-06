@@ -1,7 +1,7 @@
 import {useEffect,useState} from 'react';
 import {agent} from './api';
 
-type ClassifierStatus={enabled:boolean;provider:string;model:string;key_saved:boolean;external_requests_automatic:boolean;batch_size:number;
+type ClassifierStatus={paused_private?:boolean;enabled:boolean;provider:string;model:string;key_saved:boolean;external_requests_automatic:boolean;batch_size:number;
  last_attempt_at_ms?:number|null;last_result?:string;last_error_code?:string};
 type PrivacyStatus={classifier:ClassifierStatus;coachConsent:boolean;savedCoachProviders:string[];verifiedAt:number};
 const outcomes:Record<string,string>={in_progress:'Request in progress',succeeded:'Response received',failed:'Request failed',
@@ -33,7 +33,7 @@ export function NetworkPrivacyStatus({readonly}:{readonly:boolean}){
  const verified=!readonly&&!error&&status!==null;
  const classifier=status?.classifier;
  const automatic=verified&&classifier?.external_requests_automatic;
- const label=!verified?'Unknown':automatic?'On':classifier?.enabled?'Needs attention':'Off';
+ const label=!verified?'Unknown':classifier?.paused_private?'Paused for private session':automatic?'On':classifier?.enabled?'Needs attention':'Off';
  const latest=classifier?.last_attempt_at_ms;
  return <div aria-label="AI privacy status" aria-live="polite">
   <div className="settings-row"><div><strong>Automatic external classification</strong>

@@ -161,6 +161,22 @@ async function browserInfo() {
   const {browserKind='brave'} = await storage();
   return ['brave','chrome','edge'].includes(browserKind)?browserKind:'brave';
 }
+function videoRoute(raw){
+ try{const url=new URL(raw);if(url.protocol!=='https:')return null;const host=url.hostname;
+ const watch=host==='www.youtube.com'&&url.pathname==='/watch';
+ const id=watch?url.searchParams.get('v')?.match(/^[a-zA-Z0-9_-]{5,128}$/)?.[0]:host==='www.youtube.com'?url.pathname.match(/^\/shorts\/([a-zA-Z0-9_-]{1,128})\/?$/)?.[1]:host==='www.instagram.com'?url.pathname.match(/^\/reels?\/([a-zA-Z0-9_-]{1,128})\/?$/)?.[1]:null;
+ return id?{platform:watch?'youtube_watch':host==='www.youtube.com'?'youtube_shorts':'instagram_reels',video_id:id}:null;}catch{return null;}
+}
+async function navigationVisit(tabId,raw){
+ const route=videoRoute(raw);if(!route||!Number.isInteger(tabId))return;
+ const saved=await withQueueLock(async()=>{
+  const state=await storage();if(state.collectionEnabled!==true)return false;
+  const {navigationRoutes={}}=await chrome.storage.local.get(['navigationRoutes']);const now=Date.now(),key=route.platform+':'+route.video_id;
+  const prior=navigationRoutes[tabId];if(prior?.key===key&&now-prior.at<2000)return false;
+  navigationRoutes[tabId]={key,at:now};const recent=Object.fromEntries(Object.entries(navigationRoutes).sort((a,b)=>b[1].at-a[1].at).slice(0,50));
+  await chrome.storage.local.set({...queueUpdate(state,[...(state.eventQueue||[]),newEvent('video.navigation',route,await profileId())]),navigationRoutes:recent});return true;
+ });if(saved)await drainQueue();
+}
 async function tabChanged() {
   try {
     const window=await chrome.windows.getLastFocused();
@@ -259,9 +275,10 @@ chrome.alarms.onAlarm.addListener(async alarm=>{
   }catch{lastQueueError='queue_storage_failed';}
 });
 chrome.tabs.onActivated.addListener(tabChanged);
-chrome.tabs.onUpdated.addListener((id, info, tab)=>{if(info.url || info.status==='complete') tabChanged();});
+chrome.tabs.onUpdated.addListener((id, info, tab)=>{if(info.url){void navigationVisit(id,info.url).catch(()=>{});}if(info.url || info.status==='complete') tabChanged();});
 chrome.windows.onFocusChanged.addListener(tabChanged);
-chrome.webNavigation.onHistoryStateUpdated.addListener(d=>{if(d.frameId===0) tabChanged();});
+chrome.webNavigation.onHistoryStateUpdated.addListener(d=>{if(d.frameId===0){tabChanged();void navigationVisit(d.tabId,d.url).catch(()=>{});}});
+chrome.webNavigation.onCommitted?.addListener(d=>{if(d.frameId===0)void navigationVisit(d.tabId,d.url).catch(()=>{});});
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
   if(msg?.op==='adapterStatus'){
     const tab=sender.tab;

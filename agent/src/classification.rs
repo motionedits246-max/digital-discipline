@@ -161,17 +161,17 @@ pub(super) async fn list(State(s):State<Arc<AppState>>)->ApiResult{
  let last_attempt=read_setting(&db,"classification_last_attempt_ms").parse::<i64>().ok();
  Ok(Json(json!({"ok":true,"jobs":jobs,"enabled":enabled,"provider":provider,"model":model,"key_saved":key_saved,
    "last_attempt_at_ms":last_attempt,"last_result":read_setting(&db,"classification_last_result"),"last_error_code":read_setting(&db,"classification_last_error"),
-   "batch_size":MAX_BATCH,"external_requests_automatic":enabled&&key_saved&&supported(&provider)&&valid_model(&model),
+   "paused_private":crate::data_lifecycle::is_private(&db,now_ms()),"batch_size":MAX_BATCH,"external_requests_automatic":!crate::data_lifecycle::is_private(&db,now_ms())&&enabled&&key_saved&&supported(&provider)&&valid_model(&model),
    "memory":crate::classification_store::summary(&db,now_ms()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?,
    "privacy":"Only app executable basenames and public hostnames; never complete URLs, window titles, or file paths"})))
 }
 pub(super) async fn worker(state:Arc<AppState>){
  if state.stopping.load(std::sync::atomic::Ordering::SeqCst){return;}
- let (provider,model,version,auto_review,limit)={
+ let (provider,model,version,auto_review,limit,epoch)={
   let db=match state.db.lock(){Ok(d)=>d,Err(_)=>return};
-  if read_setting(&db,"classification_auto")!="true"{return;}
+  if read_setting(&db,"classification_auto")!="true"||crate::data_lifecycle::is_private(&db,now_ms()){return;}
   (read_setting(&db,"classification_provider"),read_setting(&db,"classification_model"),read_setting(&db,"classification_config_version"),
-   read_setting(&db,"classification_auto_review")!="false",read_setting(&db,"classification_daily_limit").parse::<i64>().unwrap_or(20))
+   read_setting(&db,"classification_auto_review")!="false",read_setting(&db,"classification_daily_limit").parse::<i64>().unwrap_or(20),read_setting(&db,"activity_data_epoch"))
  };
  if !supported(&provider)||!valid_model(&model){return;}
  let key=match load_key(&version){Ok(k)=>k,Err(_)=>{
@@ -180,7 +180,7 @@ pub(super) async fn worker(state:Arc<AppState>){
  let at=now_ms();
  let claim={
   let db=match state.db.lock(){Ok(d)=>d,Err(_)=>return};
-  if read_setting(&db,"classification_auto")!="true"||read_setting(&db,"classification_config_version")!=version{return;}
+  if read_setting(&db,"classification_auto")!="true"||read_setting(&db,"classification_config_version")!=version||read_setting(&db,"activity_data_epoch")!=epoch||crate::data_lifecycle::is_private(&db,now_ms()){return;}
   let claim=match crate::classification_store::claim(&db,at,auto_review,limit){Ok(Some(c))=>c,Ok(None)=>return,Err(_)=>{crate::record_storage_failure(&state);return;}};
   if request_status(&db,at,"in_progress","").is_err(){crate::record_storage_failure(&state);return;}
   claim
@@ -191,6 +191,7 @@ pub(super) async fn worker(state:Arc<AppState>){
  let db=match state.db.lock(){Ok(d)=>d,Err(_)=>return};
  let applied=(||->rusqlite::Result<()>{
   let tx=db.unchecked_transaction()?;
+  if read_setting(&tx,"activity_data_epoch")!=epoch{return tx.commit();}
   if read_setting(&tx,"classification_auto")!="true"||read_setting(&tx,"classification_config_version")!=version{
    for subject in &claim.subjects{tx.execute("UPDATE classifications SET state='awaiting_consent',reason='Configuration changed; old response ignored',updated_ms=?2 WHERE subject=?1 AND state='running'",params![subject,now_ms()])?;}
    crate::classification_store::finish(&tx,&claim,now_ms(),"cancelled")?;

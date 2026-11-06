@@ -33,3 +33,18 @@ pub fn observe(at_ms: i64, idle_limit_ms: u32) -> Option<Observation> {
 
 #[cfg(not(windows))]
 pub fn observe(_at_ms: i64, _idle_limit_ms: u32) -> Option<Observation> { None }
+
+#[cfg(windows)]
+pub fn process_resources()->Option<(u64,u64)>{
+ use windows_sys::Win32::{System::{Threading::{GetCurrentProcess,GetProcessTimes},ProcessStatus::{GetProcessMemoryInfo,PROCESS_MEMORY_COUNTERS}},Foundation::FILETIME};
+ unsafe{
+  let handle=GetCurrentProcess();let mut created:FILETIME=std::mem::zeroed();let mut ended:FILETIME=std::mem::zeroed();let mut kernel:FILETIME=std::mem::zeroed();let mut user:FILETIME=std::mem::zeroed();
+  if GetProcessTimes(handle,&mut created,&mut ended,&mut kernel,&mut user)==0{return None;}
+  let mut memory:PROCESS_MEMORY_COUNTERS=std::mem::zeroed();memory.cb=std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+  let memory_size=memory.cb;
+  if GetProcessMemoryInfo(handle,&mut memory,memory_size)==0{return None;}
+  let ticks=|t:FILETIME|((t.dwHighDateTime as u64)<<32)|t.dwLowDateTime as u64;
+  Some((ticks(kernel).saturating_add(ticks(user)),memory.WorkingSetSize as u64))
+ }
+}
+#[cfg(not(windows))]pub fn process_resources()->Option<(u64,u64)>{None}

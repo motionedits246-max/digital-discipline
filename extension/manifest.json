@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Digital Discipline — Brave Companion",
+  "name": "Digital Discipline \u2014 Brave Companion",
   "version": "0.3.6",
   "description": "Opt-in local browser counting and restrictions via direct localhost; no native messaging registration required.",
   "permissions": [
@@ -28,6 +28,7 @@
         "https://www.instagram.com/*"
       ],
       "js": [
+        "src/playback-model.js",
         "src/video.js"
       ],
       "run_at": "document_idle"
