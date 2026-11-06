@@ -21,11 +21,34 @@ Local environment: Linux x86_64, rustc 1.99.1, Node.js 24.22.1, npm 11.9.0. Depe
 
 The frontend build reports an existing bundle-size warning (about 522 kB before compression). It passes; efficient reporting, inactive-page work and bundle/resource improvements remain open under F05/N20.
 
-## Windows verification
+## Windows verification — passed, 6 November 2026
 
-The previous feature-branch Windows run [42077411269](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42077411269) passed for ancestor `a0324f79f7bd64a951a761ad989607034f703550`. It does not validate the new changes.
+[Windows CI run 42154963954](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42154963954) completed successfully for source commit `767adde5806f78c27f79907b5096ed4debc90aba`.
 
-The workflow is re-enabled for this integrated source milestone. Current Windows compilation, development signatures and installer artifacts must be checked against the actual new run before claiming success. A successful build is not installed runtime acceptance.
+| Check | Result |
+|---|---|
+| JavaScript tests | 35 passed |
+| SQLite migration checks | 8 passed |
+| Rust tests on Windows | 32 passed, including current-user DPAPI round-trip and configuration failure/cleanup checks |
+| Independent Windows agent | Release build passed |
+| Desktop strict TypeScript / Vite | Passed |
+| Tauri NSIS installer | Produced |
+| Development signature checks | Installer, agent and desktop have the expected ephemeral signer certificate |
+| Artifact upload | Completed; ZIP available at the run above |
+
+Environment: Windows Server 2022 GitHub runner, Rust/Cargo 1.99.1, Node.js 22.23.4, Python 3.12.10. This is CI evidence; no installed RDP/Brave scenario or hardware/resource measurement is implied.
+
+Installer: `Digital Discipline_0.3.9_x64-setup.exe`. CI-computed SHA-256:
+
+`23758483d91ba6099555c3688f7c3466bd27f4263372612a558b60c5c87813ee`
+
+Artifact: `DigitalDiscipline-MasterSpec-Branch-v0.3.9-DEV-SIGNED` (13,130,875 bytes), available until 6 December 2026 under the current retention policy. Outer artifact ZIP SHA-256:
+
+`7664087e0c6e8288bf0ad7372950ef4c044d17b39a74792bdb7d7c2796466a6b`
+
+The package includes SHA256SUMS.txt. All three executables are self-signed for development. Windows reported signature status `UnknownError`; the workflow verifies signer-certificate presence/identity, not a publicly trusted certificate chain. These files remain publicly untrusted.
+
+The earlier run 42154482188 was superseded/cancelled after the credential failure-path fix. Use 42154963954 for this milestone. Later documentation-only commits preserve this tested source.
 
 ## Still open
 

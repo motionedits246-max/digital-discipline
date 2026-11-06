@@ -31,7 +31,7 @@ This ledger distinguishes source work from installed Windows/Brave acceptance. A
 | F15 | Classification worker | Request status and configuration revision guards added; budgets/full lease/evidence acceptance open | `agent/src/classification.rs` |
 | F16 | Retention/export/purge | Partial; full export and deletion semantics open | `agent/src/main.rs` |
 | F17 | Analytics and coverage | Partial; full reconciliation/uncertainty tests open | `agent/src/main.rs; analytics.rs` |
-| F18 | Deterministic release | Cargo/npm lockfiles and enforced installs added; integrated Windows run/upgrade compatibility acceptance open | `Cargo.lock; package-lock.json; scripts/build-windows.ps1` |
+| F18 | Deterministic release | Cargo/npm lockfiles and enforced installs added; Windows CI passed; installed upgrade/compatibility acceptance open | `Cargo.lock; package-lock.json; scripts/build-windows.ps1` |
 | F19 | Trust boundaries | Existing IPC/loopback checks; adversarial coverage open | `agent/src/bridge.rs` |
 | F20 | Tests/runtime acceptance | 35 JS, 31 Linux Rust, 8 SQLite checks pass; real Windows/Brave acceptance open | Milestone evidence below |
 | F21 | Storage crash recovery | Ingestion rollback/retry failure injection passes; whole-store crash/disk recovery open | `agent/src/ingestion_tests.rs`; existing health reporting retained |
@@ -165,3 +165,10 @@ Each original ID is retained below. The interpretation is source present/partial
 ### Credential replacement failure-path review
 
 A follow-up source review found that overwriting one key file before committing provider settings could leave a mismatched key/provider after a failed DB write. F15/F21 now use versioned encrypted classifier blobs and a transactionally committed active revision. Two failure/cleanup regression tests pass with isolated dummy ciphertext; Windows DPAPI and provider runtime acceptance remain open. Existing legacy keys are read without migration until the owner replaces them.
+
+
+### Verified Windows build evidence
+
+[Run 42154963954](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42154963954) passed for source commit `767adde5806f78c27f79907b5096ed4debc90aba`: 35 JavaScript tests, 32 Windows Rust tests (including DPAPI round-trip), 8 SQLite checks, frontend/agent/Tauri packaging, expected development signer identity, and artifact upload. See BUILD-STATUS.md for CI-computed installer and outer-ZIP hashes. The superseded run 42154482188 was cancelled. Documentation-only follow-ups do not change the tested code.
+
+Windows CI is not installed Windows/Brave acceptance. F01/F04/F15/F18/F19/F20/F21 retain the remaining runtime/platform limits above; Phase 1 and the full roadmap remain open.
