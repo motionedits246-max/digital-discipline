@@ -2,7 +2,11 @@ name: Build Windows installer
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/master-spec-complete-2026-11]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'GITHUB-BUILD-INSTRUCTIONS.md'
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +42,14 @@ jobs:
           python-version: '3.12'
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+      - name: Record build tool versions
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          node --version
+          npm --version
+          python --version
       - name: Create ephemeral development signing certificate
         shell: pwsh
         run: |
@@ -71,6 +83,10 @@ jobs:
             }
             Write-Host "$($exe.Name): development-signed; status $($signature.Status) (self-signed, not publicly trusted)"
           }
+          Get-ChildItem release-output -File | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          } | Set-Content release-output/SHA256SUMS.txt -Encoding utf8
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:

@@ -18,10 +18,10 @@ try {
  python 'tests/workflow-migration.py'
  if($LASTEXITCODE -ne 0){throw 'Workflow migration test failed'}
  Write-Host '[2/6] Rust unit tests'
- cargo test -p digital-discipline-agent
+ cargo test --locked -p digital-discipline-agent
  if($LASTEXITCODE -ne 0){throw 'Agent tests failed'}
  Write-Host '[3/6] Build independent Rust agent'
- cargo build -p digital-discipline-agent --release
+ cargo build --locked -p digital-discipline-agent --release
  if($LASTEXITCODE -ne 0){throw 'Agent build failed'}
  if($env:DD_DEV_CERT_THUMBPRINT){
    Write-Host '[3b/6] Sign agent with development certificate (NOT publicly trusted)'
@@ -34,7 +34,7 @@ try {
  Push-Location 'apps/desktop'
  try {
   Write-Host '[4/6] Install locked app dependencies'
-  if(Test-Path package-lock.json){npm ci}else{npm install --no-audit --no-fund}
+  npm ci --no-audit --no-fund
   if($LASTEXITCODE -ne 0){throw 'npm dependency install failed'}
   Write-Host '[5/6] Build application frontend'
   npm run build
