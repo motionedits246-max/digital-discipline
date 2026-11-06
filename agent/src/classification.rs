@@ -26,6 +26,11 @@ fn load_key()->Result<Zeroizing<String>,String>{
 fn read_setting(db:&Connection,key:&str)->String{
  db.query_row("SELECT value FROM settings WHERE key=?1",params![key],|r|r.get(0)).unwrap_or_default()
 }
+fn request_status(db:&Connection,at:i64,result:&str,error_code:&str)->rusqlite::Result<usize>{
+ // One atomic statement. Never store a provider response body or request content.
+ db.execute("INSERT INTO settings(key,value) VALUES('classification_last_attempt_ms',?1),('classification_last_result',?2),('classification_last_error',?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+   params![at.to_string(),result,error_code])
+}
 fn is_public_domain(domain:&str)->bool{
  crate::domain::valid_domain(domain) && domain.contains('.') && domain.len()<=180
  && !domain.ends_with(".local") && !domain.ends_with(".internal")
@@ -53,22 +58,21 @@ pub(super) async fn configure(State(s):State<Arc<AppState>>,Json(mut req):Json<C
   let cipher=crate::credentials::protect_secret(req.api_key.as_bytes()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"encryption_failed"))?;
   fs::create_dir_all(path.parent().ok_or_else(||err(StatusCode::INTERNAL_SERVER_ERROR,"vault_path_invalid"))?)
    .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_write_failed"))?;
-  fs::write(path,cipher).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_write_failed"))?;
+  // Serialize key replacement with the version check used before sending.
+  // A worker must never send a newly saved key to the previous provider.
   let db=s.db.lock().unwrap();
-  for (key,val) in [("classification_provider",req.provider.as_str()),("classification_model",req.model.as_str()),("classification_auto",if req.enabled{"true"}else{"false"})] {
-   db.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,val])
-     .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-  }
+  fs::write(path,cipher).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_write_failed"))?;
+  db.execute("INSERT INTO settings(key,value) VALUES('classification_provider',?1),('classification_model',?2),('classification_auto',?3),('classification_config_version',?4) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+    params![req.provider,req.model,if req.enabled{"true"}else{"false"},uuid::Uuid::new_v4().to_string()])
+    .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
   Ok(Json(json!({"ok":true,"enabled":req.enabled,"saved":true,"batch_size":MAX_BATCH,"storage":"Windows DPAPI current-user"})))
  })();
  req.api_key.zeroize();result
 }
 pub(super) async fn remove_config(State(s):State<Arc<AppState>>)->ApiResult{
- {
   let db=s.db.lock().unwrap();
-  db.execute("INSERT INTO settings(key,value) VALUES('classification_auto','false') ON CONFLICT(key) DO UPDATE SET value='false'",[])
+  db.execute("INSERT INTO settings(key,value) VALUES('classification_auto','false'),('classification_config_version',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![uuid::Uuid::new_v4().to_string()])
    .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
- }
  if let Ok(path)=vault_path(){if path.exists(){fs::remove_file(path).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_delete_failed"))?;}}
  Ok(Json(json!({"ok":true,"enabled":false,"removed":true})))
 }
@@ -103,16 +107,23 @@ pub(super) async fn list(State(s):State<Arc<AppState>>)->ApiResult{
  let provider=read_setting(&db,"classification_provider");
  let model=read_setting(&db,"classification_model");
  let key_saved=vault_path().is_ok_and(|p|p.is_file());
+ let last_attempt=read_setting(&db,"classification_last_attempt_ms").parse::<i64>().ok();
  Ok(Json(json!({"ok":true,"jobs":jobs,"enabled":enabled,"provider":provider,"model":model,"key_saved":key_saved,
-   "batch_size":MAX_BATCH,"external_requests_automatic":enabled&&key_saved,
+   "last_attempt_at_ms":last_attempt,"last_result":read_setting(&db,"classification_last_result"),"last_error_code":read_setting(&db,"classification_last_error"),
+   "batch_size":MAX_BATCH,"external_requests_automatic":enabled&&key_saved&&supported(&provider)&&valid_model(&model),
    "privacy":"Only app executable basenames and public hostnames; never complete URLs, window titles, or file paths"})))
 }
 pub(super) async fn worker(state:Arc<AppState>){
- let (subjects,provider,model)={
+ let (subjects,provider,model,config_version)={
   let db=match state.db.lock(){Ok(d)=>d,Err(_)=>return};
   // A process terminated mid-request must not strand jobs in Running forever.
   // Recover only expired work; the existing attempt cap still applies.
   let stale_before=now_ms()-120_000;
+  if read_setting(&db,"classification_last_result")=="in_progress" {
+   if let Ok(at)=read_setting(&db,"classification_last_attempt_ms").parse::<i64>(){
+    if at<stale_before{let _=request_status(&db,at,"interrupted","worker_interrupted");}
+   }
+  }
   let _=db.execute("UPDATE classifications SET state=CASE WHEN COALESCE((SELECT attempts FROM classification_attempts WHERE subject=classifications.subject),0)>=3 THEN 'awaiting_review' ELSE 'failed_retryable' END,
     reason='Previous classification attempt was interrupted; retry bounded by attempts',
     updated_ms=?1 WHERE state='running' AND updated_ms<?2",params![now_ms()-RETRY_MS-1,stale_before]);
@@ -122,23 +133,29 @@ pub(super) async fn worker(state:Arc<AppState>){
   if !supported(&provider)||!valid_model(&model){return;}
   let mut stmt=match db.prepare("SELECT c.subject FROM classifications c LEFT JOIN classification_attempts a ON a.subject=c.subject WHERE COALESCE(a.attempts,0)<3 AND (c.state='awaiting_consent' OR (c.state='failed_retryable' AND c.updated_ms<?1)) ORDER BY c.updated_ms ASC LIMIT 10"){Ok(x)=>x,Err(_)=>return};
   let subjects=match stmt.query_map(params![now_ms()-RETRY_MS],|r|r.get::<_,String>(0)){Ok(rows)=>rows.filter_map(Result::ok).filter(|s|safe_subject(s)).collect::<Vec<_>>(),Err(_)=>return};
-  (subjects,provider,model)
+  (subjects,provider,model,read_setting(&db,"classification_config_version"))
  };
  if subjects.is_empty(){return;}
  let key=match load_key(){Ok(k)=>k,Err(_)=>return};
+ let attempt_at=now_ms();
  {
   let db=match state.db.lock(){Ok(x)=>x,Err(_)=>return};
-  if read_setting(&db,"classification_auto")!="true"{return;}
+  if read_setting(&db,"classification_auto")!="true"||read_setting(&db,"classification_config_version")!=config_version{return;}
+  if request_status(&db,attempt_at,"in_progress","").is_err(){crate::record_storage_failure(&state);return;}
   for subject in &subjects{
-   let _=db.execute("UPDATE classifications SET state='running',reason='AI batch request in progress',updated_ms=?2 WHERE subject=?1 AND state IN ('awaiting_consent','failed_retryable')",params![subject,now_ms()]);
+   let _=db.execute("UPDATE classifications SET state='running',reason='AI batch request in progress',updated_ms=?2 WHERE subject=?1 AND state IN ('awaiting_consent','failed_retryable')",params![subject,attempt_at]);
   }
  }
  let result=request_batch(&provider,&model,key.as_str(),&subjects).await;
  let db=match state.db.lock(){Ok(x)=>x,Err(_)=>return};
- if read_setting(&db,"classification_auto")!="true" { // Stop applying results after disable / removal.
-  for subject in &subjects {let _=db.execute("UPDATE classifications SET state='awaiting_consent',reason='Automatic classification disabled',updated_ms=?2 WHERE subject=?1 AND state='running'",params![subject,now_ms()]);}
+ if read_setting(&db,"classification_auto")!="true"||read_setting(&db,"classification_config_version")!=config_version {
+  // A disable/re-enable or key/provider change invalidates this request too.
+  for subject in &subjects {let _=db.execute("UPDATE classifications SET state='awaiting_consent',reason='Configuration changed; old response ignored',updated_ms=?2 WHERE subject=?1 AND state='running' AND updated_ms=?3",params![subject,now_ms(),attempt_at]);}
+  if read_setting(&db,"classification_config_version")==config_version{let _=request_status(&db,attempt_at,"disabled_after_send","");}
   return;
  }
+ let (status,error_code)=match &result{Ok(_)=>("succeeded",""),Err(reason)=>("failed",*reason)};
+ if request_status(&db,attempt_at,status,error_code).is_err(){crate::record_storage_failure(&state);}
  match result{
   Ok(items)=>{
    for item in items{
@@ -198,7 +215,7 @@ async fn request_batch(provider:&str,model:&str,key:&str,subjects:&[String])->Re
   _=>return Err("unsupported_provider"),
  };
  let mut response=req.send().await.map_err(|_|"provider_unavailable")?;
- if !response.status().is_success(){return Err(if response.status().as_u16()==429{"rate_limited"}else{"provider_rejected"});}
+ if !response.status().is_success(){return Err(match response.status().as_u16(){401=>"invalid_key",403=>"provider_access_denied",404=>"model_unavailable",429=>"rate_limited",500..=599=>"provider_unavailable",_=>"provider_rejected"});}
  let mut buf=Vec::new();
  while let Some(part)=response.chunk().await.map_err(|_|"response_failed")? {
   if buf.len()+part.len()>128_000 {return Err("response_too_large");}
