@@ -17,12 +17,21 @@ try {
  if($LASTEXITCODE -ne 0){throw 'Browser pairing migration test failed'}
  python 'tests/workflow-migration.py'
  if($LASTEXITCODE -ne 0){throw 'Workflow migration test failed'}
+ Write-Host '[1c/6] Privileged desktop route validation'
+ rustc --test apps/desktop/src-tauri/src/ipc_routes.rs -o (Join-Path $root 'ipc-route-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'IPC route tests did not compile'}
+ & (Join-Path $root 'ipc-route-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'IPC route tests failed'}
+ Remove-Item (Join-Path $root 'ipc-route-tests.exe')
  Write-Host '[2/6] Rust unit tests'
  cargo test --locked -p digital-discipline-agent
  if($LASTEXITCODE -ne 0){throw 'Agent tests failed'}
  Write-Host '[3/6] Build independent Rust agent'
  cargo build --locked -p digital-discipline-agent --release
  if($LASTEXITCODE -ne 0){throw 'Agent build failed'}
+ Write-Host '[3a/6] Isolated agent runtime lifecycle'
+ & (Join-Path $root 'scripts/test-agent-runtime.ps1')
+ if($LASTEXITCODE -ne 0){throw 'Agent runtime lifecycle tests failed'}
  if($env:DD_DEV_CERT_THUMBPRINT){
    Write-Host '[3b/6] Sign agent with development certificate (NOT publicly trusted)'
    $cert=Get-Item ("Cert:\CurrentUser\My\" + $env:DD_DEV_CERT_THUMBPRINT)
@@ -39,6 +48,10 @@ try {
   Write-Host '[5/6] Build application frontend'
   npm run build
   if($LASTEXITCODE -ne 0){throw 'Frontend compilation failed'}
+  Write-Host '[5b/6] Renderer interaction tests in Microsoft Edge'
+  $env:PW_CHANNEL='msedge'
+  npm run test:ui
+  if($LASTEXITCODE -ne 0){throw 'Renderer interaction tests failed'}
   Write-Host '[6/6] Build Tauri NSIS installer'
   npm run tauri:build
   if($LASTEXITCODE -ne 0){throw 'Tauri installer failed'}

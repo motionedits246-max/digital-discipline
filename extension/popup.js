@@ -52,7 +52,8 @@ $('purgePending').addEventListener('click',async()=>{
 });
 $('notifications').addEventListener('change',async e=>{await chrome.runtime.sendMessage({op:'notificationsEnable',value:e.target.checked});refresh();});
 async function notifyPrefs(){
- await chrome.runtime.sendMessage({op:'notificationPreferences',dndEnabled:$('dnd').checked,quietStart:$('quietStart').value,quietEnd:$('quietEnd').value});refresh();
+ for(const id of ['quietStart','quietEnd']){const m=$(id).value.match(/^(\d{1,2}):(\d{1,2})$/);if(m&&+m[1]<24&&+m[2]<60)$(id).value=m[1].padStart(2,'0')+':'+m[2].padStart(2,'0');if($(id).value&&!/^([01]\d|2[0-3]):[0-5]\d$/.test($(id).value)){$('status').textContent='Use a 24-hour time, for example 22:30.';return;}}
+ const result=await chrome.runtime.sendMessage({op:'notificationPreferences',dndEnabled:$('dnd').checked,quietStart:$('quietStart').value,quietEnd:$('quietEnd').value});if(result?.ok)await refresh();else $('status').textContent='Could not save notification times.';
 }
 for(const id of ['dnd','quietStart','quietEnd'])$(id).addEventListener('change',notifyPrefs);
 for(const button of document.querySelectorAll('[data-browser]'))button.addEventListener('click',async()=>{await chrome.runtime.sendMessage({op:'browserKind',value:button.dataset.browser});refresh();});

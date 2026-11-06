@@ -1,7 +1,7 @@
 //! Restricted, opt-in loopback transport for Chromium MV3 extensions.
 //! Desktop-only master-token endpoints enroll/revoke IDs. Ordinary websites
 //! cannot access bridge endpoints: extension Origin + explicit ID allowlist.
-use axum::{extract::{Path,State,Request},http::{header::{ORIGIN,HOST,ACCESS_CONTROL_ALLOW_ORIGIN,ACCESS_CONTROL_ALLOW_METHODS,ACCESS_CONTROL_ALLOW_HEADERS,HeaderValue},Method,StatusCode},middleware::Next,response::{IntoResponse,Response},routing::{get,post,delete},Json,Router};
+use axum::{extract::{Path,State,Request},http::{header::{ORIGIN,HOST,ACCESS_CONTROL_ALLOW_ORIGIN,ACCESS_CONTROL_ALLOW_METHODS,ACCESS_CONTROL_ALLOW_HEADERS,HeaderValue},Method,StatusCode},middleware::Next,response::{IntoResponse,Response},routing::{get,post},Json,Router};
 use serde::Deserialize;
 use serde_json::{json,Value};
 use rusqlite::params;
@@ -81,15 +81,23 @@ async fn hello(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)-
  if paired{touch(&state,id).await;}else{request_approval(&state,id);}
  Ok(Json(json!({"ok":true,"paired":paired,"transport":"loopback","schema_version":"1.0"})))
 }
-async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)->ApiResult {
+async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(info):Json<crate::tracking::SyncInfo>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;
  if !is_paired(&state,id){request_approval(&state,id);return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized_open_desktop_setup"));}
+ let status={let db=state.db.lock().unwrap();let browser=db.query_row("SELECT browser FROM browser_pairs WHERE extension_id=?1",params![id],|r|r.get::<_,String>(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+ crate::tracking::sync(&db,id,&browser,info,now_ms())};
+ status.map_err(|code|err(if code=="profile_revoked_authorize_in_desktop"{StatusCode::FORBIDDEN}else if code=="storage_failed"{StatusCode::INTERNAL_SERVER_ERROR}else{StatusCode::BAD_REQUEST},code))?;
  touch(&state,id).await;
  crate::extension_rules(State(state)).await
 }
-async fn event(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(payload):Json<crate::Event>)->ApiResult {
+async fn event(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(mut payload):Json<crate::Event>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;
  if !is_paired(&state,id){return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized_open_desktop_setup"));}
+ if let Some(profile)=&payload.profile_id{
+  let revoked=state.db.lock().unwrap().query_row("SELECT revoked FROM browser_instances WHERE extension_id=?1 AND profile_id=?2",params![id,profile],|r|r.get::<_,i64>(0)).unwrap_or(0)!=0;
+  if revoked{return Err(err(StatusCode::FORBIDDEN,"profile_revoked_authorize_in_desktop"));}
+ }
+ payload.extension_id=Some(id.to_owned());
  touch(&state,id).await;
  crate::event_ingest(State(state),Json(payload)).await
 }

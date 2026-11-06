@@ -31,10 +31,12 @@
     });
     return matches.sort((a,b)=>b.clientWidth*b.clientHeight-a.clientWidth*a.clientHeight)[0] || null;
   }
+  let lastAdapterReport=0;
   function tick() {
     if (!collecting) return;
     const currentId=match();
     const currentVideo=currentId?activeVideo():null;
+    if(visible()&&performance.now()-lastAdapterReport>5000){lastAdapterReport=performance.now();chrome.runtime.sendMessage({op:'adapterStatus',status:currentId&&currentVideo?'ready':'no_player'}).catch(()=>{});}
     const currentKind=location.pathname==='/watch'?'watch':location.pathname.startsWith('/shorts/')?'shorts':'reels';
     if (currentId!==id || currentKind!==observedKind || (!video && currentVideo)) reset(currentId,currentVideo);
     else if (currentVideo!==video) {

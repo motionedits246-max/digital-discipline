@@ -70,6 +70,13 @@ jobs:
         run: |
           .\scripts\build-windows.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed' }
+      - name: Upload renderer failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Renderer-failure-evidence
+          path: apps/desktop/ui-test-output/**
+          if-no-files-found: ignore
       - name: Verify and hash installer
         shell: pwsh
         run: |
@@ -90,7 +97,7 @@ jobs:
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-MasterSpec-Branch-v0.3.9-DEV-SIGNED
+          name: DigitalDiscipline-MasterSpec-Branch-v0.4.0-DEV-SIGNED
           path: release-output/*
           if-no-files-found: error
           retention-days: 30

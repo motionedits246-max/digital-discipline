@@ -27,6 +27,9 @@ pub struct Segment {
 #[derive(Default, Debug)]
 pub struct Reconciler {
     current: Option<Segment>,
+    high_water_ms: Option<i64>,
+    pub clock_rollbacks: u64,
+    pub observation_gaps: u64,
 }
 
 impl Reconciler {
@@ -34,6 +37,13 @@ impl Reconciler {
         // Return a finalized segment and the current bounded heartbeat segment.
         // A tick gap never gets attributed to the old foreground app.
         if obs.at_ms < 0 { return (None, self.current.clone()); }
+        // A wall-clock correction must never count the same UTC interval twice.
+        // Wait for the previous watermark instead of assigning negative/replayed time.
+        if self.high_water_ms.is_some_and(|last|obs.at_ms<last){
+            if self.current.is_some(){self.clock_rollbacks+=1;}
+            return (self.current.take(),None);
+        }
+        self.high_water_ms=Some(obs.at_ms);
         let previous = self.current.take();
         match previous {
             None => {
@@ -42,6 +52,7 @@ impl Reconciler {
             }
             Some(mut prev) => {
                 let gap = obs.at_ms.saturating_sub(prev.end_ms);
+                if gap>POLL_GAP_MS{self.observation_gaps+=1;}
                 let same = prev.app == obs.app && prev.domain == obs.domain && prev.profile_id == obs.profile_id && prev.idle == obs.idle;
                 if gap <= POLL_GAP_MS && same && gap >= 0 {
                     prev.end_ms = obs.at_ms;
@@ -91,6 +102,13 @@ mod tests {
     use super::*;
     fn obs(at: i64, app: &str, idle: bool) -> Observation {
         Observation { at_ms: at, app: app.into(), idle, domain: None,profile_id:None }
+    }
+    #[test]
+    fn rollback_never_recounts_a_previously_observed_interval_even_after_pause(){
+        let mut r=Reconciler::default();r.push(obs(1000,"code.exe",false));r.push(obs(5000,"code.exe",false));
+        let (ended,current)=r.push(obs(2000,"brave.exe",false));assert_eq!(ended.unwrap().end_ms,5000);assert!(current.is_none());
+        r.stop();assert!(r.push(obs(4000,"brave.exe",false)).1.is_none());
+        let current=r.push(obs(6000,"brave.exe",false)).1.unwrap();assert_eq!(current.start_ms,6000);assert_eq!(r.clock_rollbacks,1);
     }
     #[test]
     fn switches_and_idle_cannot_overlap() {

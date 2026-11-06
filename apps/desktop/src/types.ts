@@ -10,6 +10,7 @@ export type Day = {date:string;active_ms:number;development_ms:number;entertainm
 export type Snapshot = {
   ok:boolean;schema_version:string;observed_at_ms:number;tracking_paused:boolean;platform_supported:boolean;browser_connected:boolean;browser_rules_acknowledged?:boolean;browser_rules_count?:number;
   metrics:{active_ms:number;development_ms:number;entertainment_ms:number;distraction_ms?:number|null;qualified_plays:number;unique_videos:number;replays:number;playback_ms:number;watch_qualified_plays?:number;watch_unique_videos?:number;watch_playback_ms?:number};
+  profile_receipts?:{extension_id:string;profile_id:string;accepted_at_ms:number}[];
   current:Session|null;sessions:Session[];heatmap:Day[];rules:Rule[];goals?:Goal[];focus?:Focus|null;focus_goal_hint?:{kind:string;text:string;since_ms:number}|null;
   coverage:{windows_collector:string;browser:string;no_data_is_not_zero:boolean};
 };

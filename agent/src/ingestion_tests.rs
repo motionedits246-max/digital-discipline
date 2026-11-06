@@ -9,12 +9,13 @@ fn state()->Arc<AppState>{
   CREATE TABLE sessions(id TEXT PRIMARY KEY,start_ms INTEGER,end_ms INTEGER,app TEXT,idle INTEGER,domain TEXT);
   CREATE TABLE rules(id TEXT PRIMARY KEY);").unwrap();
  features::migrate(&db).unwrap();
+ crate::tracking::migrate(&db).unwrap();
  Arc::new(AppState{db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),
-  browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),
-  token:String::new(),shutdown:Arc::new(tokio::sync::Notify::new())})
+  browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(false),stopping:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),
+  token:"runtime-test-token".into(),shutdown:Arc::new(tokio::sync::Notify::new())})
 }
 fn playback(id:&str,instance:&str)->Event{
- Event{schema_version:"1.0".into(),event_id:id.into(),source:"extension".into(),occurred_at_ms:now_ms(),kind:"video.qualified_play".into(),
+ Event{schema_version:"1.0".into(),event_id:id.into(),source:"extension".into(),occurred_at_ms:now_ms(),kind:"video.qualified_play".into(),profile_id:None,extension_id:None,
   payload:json!({"platform":"youtube_shorts","video_id":"Example123","instance_id":instance,"watched_ms":2300})}
 }
 fn rows(s:&AppState,table:&str)->i64{
@@ -51,4 +52,23 @@ async fn paused_and_excluded_receipts_never_claim_recorded_playback(){
  s.db.lock().unwrap().execute("UPDATE settings SET value='[\"www.youtube.com\"]' WHERE key='excluded_domains'",[]).unwrap();
  let excluded=event_ingest(State(Arc::clone(&s)),Json(playback(&Uuid::new_v4().to_string(),&instance))).await.unwrap().0;
  assert_eq!(excluded["disposition"],"ignored_excluded");assert_eq!(rows(&s,"videos"),0);
+}
+
+#[tokio::test]
+async fn graceful_shutdown_flushes_and_rejects_later_events_without_changing_pause_preference(){
+ let s=state();observe_tick(&s,Observation{app:"code.exe".into(),domain:None,profile_id:None,idle:false,at_ms:1000});
+ let _=shutdown_agent(State(s.clone())).await;assert!(s.stopping.load(Ordering::SeqCst));assert!(s.tracker.lock().unwrap().session_id.is_none());
+ assert_eq!(event_ingest(State(s.clone()),Json(playback(&Uuid::new_v4().to_string(),&Uuid::new_v4().to_string()))).await.unwrap_err().0,StatusCode::SERVICE_UNAVAILABLE);
+ assert_eq!(features::read_setting(&s.db.lock().unwrap(),"paused"),"");
+}
+#[tokio::test]
+async fn desktop_boundary_rejects_web_origins_and_foreign_hosts_even_with_token(){
+ let s=state();let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+ let app=Router::new().route("/test",get(||async{"accepted"})).layer(middleware::from_fn_with_state(s,auth));
+ let task=tokio::spawn(async move{axum::serve(listener,app).await.unwrap()});let client=reqwest::Client::new();
+ for (host,origin,expected) in [("evil.example",None,403),("127.0.0.1:48761",Some("https://evil.example"),403),("127.0.0.1:48761",None,200)]{
+  let mut req=client.get(format!("http://{address}/test")).header("host",host).header("authorization","Bearer runtime-test-token");if let Some(o)=origin{req=req.header("origin",o);}
+  assert_eq!(req.send().await.unwrap().status().as_u16(),expected);
+ }
+ task.abort();
 }

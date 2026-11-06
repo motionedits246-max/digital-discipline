@@ -12,6 +12,10 @@ mod insights;
 mod analytics;
 mod features;
 mod classification;
+mod classification_store;
+mod schema;
+mod tracking;
+mod reporting;
 mod prediction;
 mod devices;
 mod hourly;
@@ -19,13 +23,13 @@ mod hourly;
 mod ingestion_tests;
 
 use axum::{extract::{Path, State, Request, DefaultBodyLimit}, http::{header::AUTHORIZATION, StatusCode}, middleware::{self, Next}, response::{IntoResponse, Response}, routing::{delete, get, post}, Json, Router};
-use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
+use chrono::{Duration, Local, NaiveDate, TimeZone, Utc};
 use domain::{Observation, Reconciler};
 use rand::RngCore;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::{atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering}, Arc, Mutex}, thread, time::Duration as StdDuration};
+use std::{fs, path::PathBuf, sync::{atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering}, Arc, Mutex}, thread, time::Duration as StdDuration};
 use uuid::Uuid;
 
 type ApiResult = Result<Json<Value>, (StatusCode, String)>;
@@ -35,7 +39,7 @@ struct Tracker { reconciler: Reconciler, session_id: Option<String> }
 struct BrowserStatus { domain: Option<String>, profile_id:Option<String>, browser: String, focused: bool, last_event_ms: i64, rule_sync_ms: i64, rule_count: u32 }
 struct AppState {
     db: Mutex<Connection>, tracker: Mutex<Tracker>, browser: Mutex<BrowserStatus>,
-    paused: AtomicBool, storage_last_error_ms: AtomicI64, storage_error_count:AtomicU64, token: String, shutdown: Arc<tokio::sync::Notify>,
+    paused: AtomicBool, stopping: AtomicBool, storage_last_error_ms: AtomicI64, storage_error_count:AtomicU64, token: String, shutdown: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +56,8 @@ struct BlockAck { applied_count: u32 }
 struct Event {
     schema_version: String, event_id: String, source: String,
     occurred_at_ms: i64, kind: String, payload: Value,
+    #[serde(default)] profile_id: Option<String>,
+    #[serde(skip)] extension_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,19 +105,14 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
     workflow::migrate(&db)?;
     devices::migrate(&db)?;
     bridge::migrate(&db)?;
+    schema::migrate(&db)?;
     Ok(db)
 }
 
 fn observe_tick(state: &AppState, mut sample: Observation) {
-    if state.paused.load(Ordering::SeqCst) { return; }
-    let browser_name = sample.app.to_ascii_lowercase();
-    let status = state.browser.lock().unwrap().clone();
-    if status.focused && (0..90_000).contains(&(sample.at_ms - status.last_event_ms)) &&
-        ((status.browser == "brave" && browser_name == "brave.exe") ||
-        (status.browser == "chrome" && browser_name == "chrome.exe") ||
-        (status.browser == "edge" && browser_name == "msedge.exe")) {
-        sample.domain = status.domain;
-        sample.profile_id = status.profile_id;
+    if state.paused.load(Ordering::SeqCst)||state.stopping.load(Ordering::SeqCst) { return; }
+    if let Ok(Some((domain,profile)))=tracking::foreground(&state.db.lock().unwrap(),&sample.app,sample.at_ms){
+        sample.domain=domain;sample.profile_id=Some(profile);
     }
     // Keep privacy exclusions ahead of storage; skipping closes the current observation.
     {
@@ -119,6 +120,7 @@ fn observe_tick(state: &AppState, mut sample: Observation) {
         if features::excluded(&db,&sample.app,sample.domain.as_deref()) {drop(db);stop_observing(state);return;}
     }
     let mut tracker = state.tracker.lock().unwrap();
+    if state.stopping.load(Ordering::SeqCst) { return; }
     let (ended, current) = tracker.reconciler.push(sample);
     let db = state.db.lock().unwrap();
     let mut failed=false;
@@ -162,14 +164,25 @@ fn stop_observing(state: &AppState) {
     }
 }
 async fn auth(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
+    if request.headers().get("host").and_then(|v|v.to_str().ok())!=Some("127.0.0.1:48761") || request.headers().contains_key("origin") {
+        return (StatusCode::FORBIDDEN,"desktop_loopback_only").into_response();
+    }
     let presented = request.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
     let expected = format!("Bearer {}", state.token);
     if presented != Some(expected.as_str()) { return StatusCode::UNAUTHORIZED.into_response(); }
     next.run(request).await
 }
 
-async fn health() -> Json<Value> { Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION})) }
-async fn shutdown_agent(State(state):State<Arc<AppState>>) -> Json<Value> {state.shutdown.notify_one();Json(json!({"ok":true,"shutting_down":true}))}
+async fn health(State(state):State<Arc<AppState>>) -> ApiResult {
+    let version:i32=state.db.lock().unwrap().query_row("PRAGMA user_version",[],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    Ok(Json(json!({"ok":true,"application":"digital-discipline-agent","version":env!("CARGO_PKG_VERSION"),"schema_version":domain::SCHEMA_VERSION,"storage_version":version,"stopping":state.stopping.load(Ordering::SeqCst)})))
+}
+async fn shutdown_agent(State(state):State<Arc<AppState>>) -> Json<Value> {
+    state.stopping.store(true,Ordering::SeqCst);
+    stop_observing(&state);
+    state.shutdown.notify_one();
+    Json(json!({"ok":true,"shutting_down":true}))
+}
 async fn pause(State(state): State<Arc<AppState>>, Json(cmd): Json<PauseCommand>) -> ApiResult {
     state.paused.store(cmd.paused, Ordering::SeqCst);
     if cmd.paused { stop_observing(&state); }
@@ -182,9 +195,11 @@ fn event_receipt(event_id:&str,disposition:&str)->Json<Value> {
         "duplicate":disposition=="duplicate","ignored_due_to_pause":disposition=="ignored_paused",
         "ignored_due_to_exclusion":disposition=="ignored_excluded"}))
 }
-async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Event>) -> ApiResult {
+async fn event_ingest(State(state): State<Arc<AppState>>, Json(mut event): Json<Event>) -> ApiResult {
+    if state.stopping.load(Ordering::SeqCst){return Err(err(StatusCode::SERVICE_UNAVAILABLE,"agent_stopping_retry"));}
     if event.schema_version != domain::SCHEMA_VERSION || event.source != "extension" ||
         event.event_id.len() > 80 || event.event_id.len() < 8 ||
+        event.profile_id.as_ref().is_some_and(|p|!tracking::valid_profile(p)) ||
         event.occurred_at_ms > now_ms() + 300_000 || event.occurred_at_ms < now_ms() - 86_400_000 {
         return Err(err(StatusCode::BAD_REQUEST,"invalid_envelope"));
     }
@@ -217,6 +232,10 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Even
         },
         _ => return Err(err(StatusCode::BAD_REQUEST,"unsupported_kind")),
     };
+    if let Parsed::Tab(p)=&parsed{
+        if event.profile_id.is_some()&&p.profile_id.is_some()&&event.profile_id!=p.profile_id{return Err(err(StatusCode::BAD_REQUEST,"profile_identity_mismatch"));}
+        if event.profile_id.is_none(){event.profile_id=p.profile_id.clone();}
+    }
     if state.paused.load(Ordering::SeqCst) && event.kind!="block.ack" {
         return Ok(event_receipt(&event.event_id,"ignored_paused"));
     }
@@ -224,8 +243,12 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Even
     // A retry after a failed derived write must never be discarded as a duplicate.
     let mut db = state.db.lock().unwrap();
     let tx = db.transaction().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    let inserted = tx.execute("INSERT OR IGNORE INTO raw_events(event_id,kind,occurred_ms) VALUES(?1,?2,?3)", params![event.event_id,event.kind,event.occurred_at_ms]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    if inserted == 0 { return Ok(event_receipt(&event.event_id,"duplicate")); }
+    let inserted = tx.execute("INSERT OR IGNORE INTO raw_events(event_id,kind,occurred_ms,profile_id,extension_id) VALUES(?1,?2,?3,?4,?5)", params![event.event_id,event.kind,event.occurred_at_ms,event.profile_id,event.extension_id]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    if inserted == 0 {
+        let identity=tx.query_row("SELECT profile_id,extension_id FROM raw_events WHERE event_id=?1",params![event.event_id],|r|Ok((r.get::<_,Option<String>>(0)?,r.get::<_,Option<String>>(1)?))).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+        if identity.0.as_ref().zip(event.profile_id.as_ref()).is_some_and(|(a,b)|a!=b)||identity.1.as_ref().zip(event.extension_id.as_ref()).is_some_and(|(a,b)|a!=b){return Err(err(StatusCode::UNPROCESSABLE_ENTITY,"event_identity_conflict"));}
+        return Ok(event_receipt(&event.event_id,"duplicate"));
+    }
     let mut pending_browser: Option<BrowserPayload> = None;
     let mut pending_ack: Option<BlockAck> = None;
     match parsed {
@@ -233,14 +256,17 @@ async fn event_ingest(State(state): State<Arc<AppState>>, Json(event): Json<Even
         Parsed::Video(p) => {
             let host=if p.platform=="youtube_shorts" || p.platform=="youtube_watch"{"www.youtube.com"}else{"www.instagram.com"};
             if features::excluded(&tx,"",Some(host)){return Ok(event_receipt(&event.event_id,"ignored_excluded"));}
-            tx.execute("INSERT INTO videos(instance_id,platform,video_id,watched_ms,qualified,occurred_ms) VALUES(?1,?2,?3,?4,?5,?6)
-                ON CONFLICT(instance_id) DO UPDATE SET watched_ms=max(watched_ms,excluded.watched_ms), qualified=max(qualified,excluded.qualified)",
-                params![p.instance_id,p.platform,p.video_id,p.watched_ms, (event.kind == "video.qualified_play") as u8,event.occurred_at_ms])
+            let identity=tx.query_row("SELECT platform,video_id,profile_id,extension_id FROM videos WHERE instance_id=?1",params![p.instance_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?))).optional().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+            if identity.is_some_and(|(platform,id,profile,ext)|platform!=p.platform||id!=p.video_id||profile.as_ref().zip(event.profile_id.as_ref()).is_some_and(|(a,b)|a!=b)||ext.as_ref().zip(event.extension_id.as_ref()).is_some_and(|(a,b)|a!=b)){return Err(err(StatusCode::UNPROCESSABLE_ENTITY,"playback_identity_conflict"));}
+            tx.execute("INSERT INTO videos(instance_id,platform,video_id,watched_ms,qualified,occurred_ms,profile_id,extension_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+                ON CONFLICT(instance_id) DO UPDATE SET watched_ms=max(watched_ms,excluded.watched_ms), qualified=max(qualified,excluded.qualified),profile_id=COALESCE(videos.profile_id,excluded.profile_id),extension_id=COALESCE(videos.extension_id,excluded.extension_id)",
+                params![p.instance_id,p.platform,p.video_id,p.watched_ms, (event.kind == "video.qualified_play") as u8,event.occurred_at_ms,event.profile_id,event.extension_id])
                 .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
         }
         Parsed::Ack(p) => {pending_ack=Some(p);},
         Parsed::Health => {}
     }
+    tracking::record_event(&tx,event.extension_id.as_deref(),event.profile_id.as_deref(),pending_browser.as_ref().map(|b|b.browser.as_str()),pending_browser.as_ref().and_then(|b|b.domain.as_deref()),pending_browser.as_ref().is_some_and(|b|b.focused),event.occurred_at_ms,event.kind=="video.qualified_play",event.kind=="block.ack").map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     tx.commit().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     drop(db);
     if let Some(p) = pending_browser {
@@ -406,33 +432,15 @@ fn get_sessions(db: &Connection, earliest: i64, latest: i64, cap: usize) -> rusq
     Ok(items)
 }
 
-async fn snapshot(State(state): State<Arc<AppState>>) -> ApiResult {
+async fn snapshot_inner(state:Arc<AppState>,compact:bool) -> ApiResult {
     let now=now_ms(); let today=Local::now().date_naive();let start=midnight_local_ms(today);
     let db=state.db.lock().unwrap();
-    let recent=get_sessions(&db,start,now,180).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    let all=get_sessions(&db,midnight_local_ms(today-Duration::days(364)),now,100_000).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    let mut days:BTreeMap<String,(i64,i64,i64)> = BTreeMap::new();
-    for s in &all {
-        if s.idle { continue; }
-        let mut day=DateTime::<Utc>::from_timestamp_millis(s.start_ms).unwrap_or_else(Utc::now).with_timezone(&Local).date_naive();
-        let end=DateTime::<Utc>::from_timestamp_millis(s.end_ms).unwrap_or_else(Utc::now).with_timezone(&Local).date_naive();
-        let mut i=0;
-        while day<=end && i<366 {
-            let lo=midnight_local_ms(day).max(s.start_ms);
-            let hi=midnight_local_ms(day+Duration::days(1)).min(s.end_ms);
-            let delta=(hi-lo).max(0);
-            let entry=days.entry(day.to_string()).or_default();entry.0+=delta;
-            if s.category=="Development" {entry.1+=delta;}
-            if s.category=="Entertainment" {entry.2+=delta;}
-            day+=Duration::days(1);i+=1;
-        }
-    }
-    let heatmap=(0..365).rev().map(|i|{
-        let day=(today-Duration::days(i)).to_string();
-        let (active,development,entertainment)=days.get(&day).copied().unwrap_or_default();
-        json!({"date":day,"active_ms":active,"development_ms":development,"entertainment_ms":entertainment,"observed":days.contains_key(&day)})
-    }).collect::<Vec<_>>();
-    let (active,development,entertainment)=days.get(&today.to_string()).copied().unwrap_or_default();
+    let recent=get_sessions(&db,start,now,if compact{5}else{180}).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    let all=get_sessions(&db,start,now,50000).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    let active=policy::union_ms(all.iter().filter(|s|!s.idle).map(|s|(s.start_ms,s.end_ms)).collect(),start,now);
+    let development=policy::union_ms(all.iter().filter(|s|!s.idle&&s.category=="Development").map(|s|(s.start_ms,s.end_ms)).collect(),start,now);
+    let entertainment=policy::union_ms(all.iter().filter(|s|!s.idle&&s.category=="Entertainment").map(|s|(s.start_ms,s.end_ms)).collect(),start,now);
+    let heatmap:Vec<Value>=Vec::new();
     // "Distraction" exists only when the owner explicitly chooses categories.
     // Never assert an activity is wasted based on our curated taxonomy.
     let distraction_labels:Vec<String>=serde_json::from_str(&features::read_setting(&db,"distraction_categories")).unwrap_or_default();
@@ -446,23 +454,26 @@ async fn snapshot(State(state): State<Arc<AppState>>) -> ApiResult {
     let watch_plays:i64=db.query_row("SELECT COUNT(*) FROM videos WHERE platform='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
     let watch_uniques:i64=db.query_row("SELECT COUNT(DISTINCT video_id) FROM videos WHERE platform='youtube_watch' AND qualified=1 AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
     let watch_playback:i64=db.query_row("SELECT COALESCE(SUM(watched_ms),0) FROM videos WHERE platform='youtube_watch' AND occurred_ms>=?1",params![start],|r|r.get(0)).unwrap_or(0);
-    let rules=get_rules(&db,now).unwrap_or_default();
+    let rules=if compact{Vec::new()}else{get_rules(&db,now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?};
     let current=recent.first().filter(|s|now-s.end_ms<8_000);
     let focus=features::active_focus(&db,now).ok().flatten();
     let focus_hint=focus.as_ref().and_then(|f|features::focus_goal_hint(&db,f,current,now));
     Ok(Json(json!({
         "ok":true,"schema_version":domain::SCHEMA_VERSION,"observed_at_ms":now,
         "tracking_paused":state.paused.load(Ordering::SeqCst),"platform_supported":cfg!(windows),
-        "browser_connected":state.browser.lock().unwrap().last_event_ms>now-120_000,
+        "browser_connected":db.query_row("SELECT EXISTS(SELECT 1 FROM browser_instances WHERE revoked=0 AND last_seen_ms>?1)",params![now-90000],|r|r.get::<_,bool>(0)).unwrap_or(false),
         "browser_rules_acknowledged":state.browser.lock().unwrap().rule_sync_ms>now-180_000,
         "browser_rules_count":state.browser.lock().unwrap().rule_count,
         "metrics":{"active_ms":active,"development_ms":development,"entertainment_ms":entertainment,"distraction_ms":distraction,"qualified_plays":plays,"unique_videos":uniques,"replays":(plays-uniques).max(0),"playback_ms":playback,"watch_qualified_plays":watch_plays,"watch_unique_videos":watch_uniques,"watch_playback_ms":watch_playback},
         "current":current,"sessions":recent,"heatmap":heatmap,"rules":rules,
-        "goals":features::read_goals(&db).unwrap_or_default(),
+        "goals":if compact{Vec::<Value>::new()}else{features::read_goals(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?},
         "focus":focus,"focus_goal_hint":focus_hint,
-        "coverage":{"windows_collector":if !cfg!(windows){"unsupported"}else if state.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000{"degraded_storage"}else{"running"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true}
+        "profile_receipts":tracking::receipts(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?,
+        "coverage":{"windows_collector":if !cfg!(windows){"unsupported"}else if state.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000{"degraded_storage"}else{"running"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true,"today_may_be_truncated":all.len()==50000,"last_native_observation_ms":recent.first().map(|s|s.end_ms)}
     })))
 }
+async fn snapshot(State(state):State<Arc<AppState>>)->ApiResult{snapshot_inner(state,false).await}
+async fn live(State(state):State<Arc<AppState>>)->ApiResult{snapshot_inner(state,true).await}
 async fn day_sessions(Path(day): Path<String>, State(state): State<Arc<AppState>>) -> ApiResult {
     let date=NaiveDate::parse_from_str(&day,"%Y-%m-%d")
         .map_err(|_|err(StatusCode::BAD_REQUEST,"invalid_date"))?;
@@ -506,14 +517,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
+    // Claim the collector port before opening/migrating storage or spawning workers.
+    // A second agent exits without changing an active collector's database/token.
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:48761").await?;
     fs::create_dir_all(data_dir()?)?;
     let token=ensure_token()?;
     let db=init_db()?;
     let paused=db.query_row("SELECT value FROM settings WHERE key='paused'",[],|r|r.get::<_,String>(0)).unwrap_or_default()=="true";
-    let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),token,shutdown:Arc::new(tokio::sync::Notify::new())});
+    let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),stopping:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),token,shutdown:Arc::new(tokio::sync::Notify::new())});
     let classify_state=Arc::clone(&state);
     tokio::spawn(async move{
         loop {
+            if classify_state.stopping.load(Ordering::SeqCst){break;}
             if let Ok(db)=classify_state.db.lock(){let _=classification::queue_unknowns(&db);}
             classification::worker(Arc::clone(&classify_state)).await;
             tokio::time::sleep(std::time::Duration::from_secs(75)).await;
@@ -521,11 +536,13 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     });
     let prune_state=Arc::clone(&state);
     thread::spawn(move||loop {
+        if prune_state.stopping.load(Ordering::SeqCst){break;}
         if let Ok(db)=prune_state.db.lock(){let _=features::prune(&db,now_ms());}
         thread::sleep(StdDuration::from_secs(3600));
     });
     let track=Arc::clone(&state);
     thread::spawn(move||loop {
+        if track.stopping.load(Ordering::SeqCst){break;}
         let now=now_ms();
         if !track.paused.load(Ordering::SeqCst) {
             let threshold=track.db.lock().unwrap().query_row("SELECT value FROM settings WHERE key='idle_threshold_ms'",[],|r|r.get::<_,String>(0)).unwrap_or_default().parse::<u32>().unwrap_or(300_000);
@@ -537,7 +554,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     let shutdown_signal=Arc::clone(&state.shutdown);
     let authenticated=Router::new()
         .route("/shutdown",post(shutdown_agent)).route("/health",get(health)).route("/state",get(snapshot)).route("/sessions/{day}",get(day_sessions)).route("/events",post(event_ingest))
-        .route("/health/details",get(health::details))
+        .route("/health/details",get(health::details)).route("/live",get(live)).route("/reports/heatmap",get(reporting::history))
+        .route("/tracking/doctor",get(tracking::doctor)).route("/tracking/doctor/rendered",post(tracking::rendered)).route("/tracking/profiles/access",post(tracking::access))
         .route("/tracking/pause",post(pause)).route("/rules",get(rules).post(create_rule))
         .route("/rules/{id}",delete(remove_rule)).route("/extension/rules",get(extension_rules))
         .route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
@@ -559,12 +577,12 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/devices",get(devices::list)).route("/devices/export",get(devices::export))
         .route("/devices/import",post(devices::import)).route("/devices/{id}",delete(devices::forget))
         .route("/classifications",get(classification::list)).route("/classifications/config",post(classification::configure).delete(classification::remove_config))
+        .route("/classifications/preferences",post(classification::preferences))
         .route("/browser-pairs",get(bridge::list).post(bridge::enroll))
         .route("/browser-pairs/{id}",delete(bridge::revoke))
         .layer(middleware::from_fn_with_state(Arc::clone(&state),auth));
     let app=Router::new().merge(authenticated).merge(bridge::routes())
         .layer(DefaultBodyLimit::max(512_000)).with_state(state);
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:48761").await?;
     eprintln!("Digital Discipline agent running on loopback (auth required)");
     axum::serve(listener,app).with_graceful_shutdown(async move {shutdown_signal.notified().await;}).await?;
     Ok(())

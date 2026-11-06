@@ -2,7 +2,7 @@
 use super::{AppState, ApiResult, err, now_ms, midnight_local_ms};
 use crate::{domain, insights, policy};
 use axum::{extract::{Path,State}, http::StatusCode, Json};
-use chrono::{Datelike, Duration, Local, Timelike, Utc};
+use chrono::{Datelike, Duration, Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -70,19 +70,26 @@ pub(super) fn read_setting(db:&Connection,key:&str)->String {
 pub(super) fn load_categories(db:&Connection)->rusqlite::Result<HashMap<String,String>>{
     let mut stmt=db.prepare("SELECT subject,category FROM (SELECT subject,category,1 AS precedence FROM classifications WHERE state='succeeded' UNION ALL SELECT subject,category,2 AS precedence FROM category_overrides) ORDER BY precedence")?;
     let mut out=HashMap::new();
-    for row in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?{let(k,v)=row?;out.insert(k,v);}
+    for row in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?{let(k,v)=row?;out.insert(k.to_ascii_lowercase(),v);}
+    let mut own=db.prepare("SELECT subject,category FROM category_overrides")?;
+    for row in own.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?{let(k,v)=row?;out.insert(format!("owner:{}",k.to_ascii_lowercase()),v);}
     Ok(out)
 }
 pub(super) fn resolved_category(map:&HashMap<String,String>,app:&str,domain:Option<&str>)->String{
-    domain.and_then(|d|map.get(&format!("domain:{d}")))
-        .or_else(||map.get(&format!("app:{app}")))
+    domain.and_then(|d|map.get(&format!("owner:domain:{}",d.to_ascii_lowercase())))
+        .or_else(||map.get(&format!("owner:app:{}",app.to_ascii_lowercase())))
+        .or_else(||domain.and_then(|d|map.get(&format!("domain:{}",d.to_ascii_lowercase()))))
+        .or_else(||map.get(&format!("app:{}",app.to_ascii_lowercase())))
         .cloned().unwrap_or_else(||domain::category(app,domain).to_owned())
 }
 pub(super) fn category_for(db:&Connection, app:&str, domain:Option<&str>)->String {
     // Domain override takes priority, app override next; known mappings are only suggestions.
-    for subject in domain.map(|x|format!("domain:{x}")).into_iter().chain(std::iter::once(format!("app:{app}"))) {
-        if let Ok(category)=db.query_row::<String,_,_>("SELECT category FROM category_overrides WHERE subject=?1",params![subject],|r|r.get(0)) {return category;}
-        if let Ok(category)=db.query_row::<String,_,_>("SELECT category FROM classifications WHERE subject=?1 AND state='succeeded'",params![subject],|r|r.get(0)) {return category;}
+    let subjects=domain.map(|x|format!("domain:{}",x.to_ascii_lowercase())).into_iter().chain(std::iter::once(format!("app:{}",app.to_ascii_lowercase()))).collect::<Vec<_>>();
+    for table in ["category_overrides","classifications"] {
+      for subject in &subjects {
+        let sql=if table=="category_overrides"{"SELECT category FROM category_overrides WHERE lower(subject)=?1"}else{"SELECT category FROM classifications WHERE subject=?1 AND state='succeeded'"};
+        if let Ok(category)=db.query_row::<String,_,_>(sql,params![subject],|r|r.get(0)) {return category;}
+      }
     }
     domain::category(app,domain).to_owned()
 }

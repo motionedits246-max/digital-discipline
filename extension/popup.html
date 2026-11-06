@@ -40,7 +40,7 @@
     <h2>Notifications</h2>
     <label class="switch-row"><input id="notifications" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Rule notifications</strong><small>Receive local restriction alerts</small></span></label>
     <label class="switch-row"><input id="dnd" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Do not disturb</strong><small>Mute alerts; restrictions remain active</small></span></label>
-    <div class="time-row"><label>From <input type="time" id="quietStart" aria-label="Quiet hours start"></label><label>Until <input type="time" id="quietEnd" aria-label="Quiet hours end"></label></div>
+    <div class="time-row"><label>From <input type="text" inputmode="numeric" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" placeholder="HH:MM" id="quietStart" aria-label="Quiet hours start"></label><label>Until <input type="text" inputmode="numeric" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" placeholder="HH:MM" id="quietEnd" aria-label="Quiet hours end"></label></div>
   </section>
   <section class="setting-group">
     <h2>Browser profile</h2>

@@ -15,8 +15,9 @@ pub async fn details(State(s):State<Arc<AppState>>)->ApiResult{
   (last,count,sessions,enabled,bytes)
  };
  let browser=s.browser.lock().unwrap().clone();
+ let (clock_rollbacks,observation_gaps)={let tracker=s.tracker.lock().unwrap();(tracker.reconciler.clock_rollbacks,tracker.reconciler.observation_gaps)};
  Ok(Json(json!({"ok":true,"sampled_at_ms":now,
-  "agent":{"reachable":true,"tracking_paused":s.paused.load(Ordering::SeqCst),
+  "agent":{"reachable":true,"version":env!("CARGO_PKG_VERSION"),"clock_rollbacks":clock_rollbacks,"observation_gaps":observation_gaps,"tracking_paused":s.paused.load(Ordering::SeqCst),
     "storage_last_error_at_ms":s.storage_last_error_ms.load(Ordering::SeqCst),
     "storage_error_count":s.storage_error_count.load(Ordering::SeqCst),
     "storage_degraded":s.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000},

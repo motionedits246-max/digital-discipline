@@ -8,7 +8,7 @@ export async function agent<T=unknown>(method:'GET'|'POST'|'DELETE',path:string,
   if (!isTauri) throw new Error('Browser preview has no privileged agent access');
   return invoke<T>('agent_request',{method,path,body:body??null});
 }
-export async function snapshot():Promise<Snapshot> { return agent<Snapshot>('GET','/state'); }
+export async function snapshot(compact=false):Promise<Snapshot> { return agent<Snapshot>('GET',compact?'/live':'/state'); }
 export async function presentation(mode:'pill'|'quick'|'full'|'popout'):Promise<void> {
   if(isTauri) await invoke<void>('set_presentation',{mode});
 }
@@ -44,3 +44,6 @@ export async function setAutostart(enabled:boolean):Promise<string>{
 export type BrowserDiagnostics={manifest_exists:boolean;manifest_valid:boolean;registry_matches:boolean;origin_allowed:boolean;host_exists:boolean;agent_reachable:boolean;extension_bundled:boolean;manifest_path:string;host_path:string;note:string};
 export async function openExtensionFolder():Promise<string>{return invoke<string>('open_extension_folder',{});}
 export async function browserDiagnostics(browser:'Brave'|'Chrome'|'Edge',extensionId:string):Promise<BrowserDiagnostics>{return invoke<BrowserDiagnostics>('browser_pair_diagnostics',{browser,extensionId});}
+
+export type LifecycleStatus={state:string;restart_count?:number;expected_version?:string;wanted?:boolean};
+export async function lifecycleStatus():Promise<LifecycleStatus>{return isTauri?invoke<LifecycleStatus>('lifecycle_status',{}):{state:'preview'};}

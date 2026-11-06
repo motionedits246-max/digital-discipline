@@ -11,6 +11,7 @@ let lastConnectionError = '';
 let lastQueueError = '';
 let lastNativeReplyAt = 0;
 let lastConnectAttemptAt = 0;
+let adapterState='unknown';let adapterAt=0;let foregroundTimer=null;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
 async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved']); }
@@ -18,9 +19,13 @@ async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
   try {
+    let syncBody='{}';
+    if(sync){const opts=await storage(),d=opts.queueDiagnostics||{};syncBody=JSON.stringify({profile_id:await profileId(),browser:await browserInfo(),recording_enabled:opts.collectionEnabled===true,queued:(opts.eventQueue||[]).length,
+      adapter:opts.collectionEnabled!==true?'recording_off':Date.now()-adapterAt<30000?adapterState:'unknown',qualified_at_ms:opts.videoObserved?.lastAt||0,
+      companion_version:chrome.runtime.getManifest?.().version||'0.3.6',loss_count:(d.expired||0)+(d.overflow||0)+(d.invalid||0)+(d.rejected||0)});}
     const response=await fetch(BRIDGE+(sync?'/bridge/sync':'/bridge/event'),{
       method:'POST',headers:{'X-DD-Bridge':'1','Content-Type':'application/json'},
-      body:sync?'{}':JSON.stringify(message.event),cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(6000)
+      body:sync?syncBody:JSON.stringify(message.event),cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(6000)
     });
     const raw=await response.text();
     let reply;
@@ -56,15 +61,15 @@ function queueUpdate(state, input) {
       bytes:cleaned.bytes}
   };
 }
-function newEvent(kind,payload) {
-  return {schema_version:'1.0',source:'extension',event_id:crypto.randomUUID(),occurred_at_ms:Date.now(),kind,payload};
+function newEvent(kind,payload,profile) {
+  return {schema_version:'1.0',source:'extension',event_id:crypto.randomUUID(),occurred_at_ms:Date.now(),kind,payload,profile_id:profile};
 }
 async function pushEvent(kind, payload) {
   const saved=await withQueueLock(async () => {
     const state=await storage();
     // Check consent in the same serialized operation as the queue write.
     if(state.collectionEnabled!==true)return false;
-    await chrome.storage.local.set(queueUpdate(state,[...(state.eventQueue||[]),newEvent(kind,payload)]));
+    await chrome.storage.local.set(queueUpdate(state,[...(state.eventQueue||[]),newEvent(kind,payload,await profileId())]));
     return true;
   });
   if(saved)await drainQueue();
@@ -143,7 +148,9 @@ async function purgePending() {
     return eventQueue.length;
   });
 }
-async function profileId() {
+let profilePromise=null;
+function profileId(){if(profilePromise)return profilePromise;profilePromise=makeProfileId().catch(error=>{profilePromise=null;throw error;});return profilePromise;}
+async function makeProfileId() {
   const existing=(await chrome.storage.local.get(['profileId'])).profileId;
   if(typeof existing==='string' && /^[a-f0-9-]{36}$/.test(existing))return existing;
   const fresh=crypto.randomUUID();
@@ -157,6 +164,9 @@ async function browserInfo() {
 async function tabChanged() {
   try {
     const window=await chrome.windows.getLastFocused();
+    const collecting=(await storage()).collectionEnabled===true;
+    if(window.focused&&collecting&&!foregroundTimer)foregroundTimer=setInterval(()=>{void tabChanged().then(()=>syncRules()).catch(()=>{});},15000);
+    if((!window.focused||!collecting)&&foregroundTimer){clearInterval(foregroundTimer);foregroundTimer=null;}
     if (!window.focused || window.id === chrome.windows.WINDOW_ID_NONE) {
       await pushEvent('browser.window_blurred',{browser:await browserInfo(),domain:null,focused:false,profile_id:await profileId()}); return;
     }
@@ -193,7 +203,7 @@ async function applyBlocks(blocks) {
   await chrome.storage.local.set({ownedIds:next.map(x=>x.id),blocks:safe});
   // Rule acknowledgement is separate from optional browser activity recording.
   void request({op:'event',event:{schema_version:'1.0',source:'extension',event_id:crypto.randomUUID(),
-    occurred_at_ms:now,kind:'block.ack',payload:{applied_count:next.length}}});
+    occurred_at_ms:now,profile_id:await profileId(),kind:'block.ack',payload:{applied_count:next.length}}});
   if (notificationsEnabled) {
     const cooled={...lastNotifications};
     for (const block of safe) {
@@ -253,6 +263,13 @@ chrome.tabs.onUpdated.addListener((id, info, tab)=>{if(info.url || info.status==
 chrome.windows.onFocusChanged.addListener(tabChanged);
 chrome.webNavigation.onHistoryStateUpdated.addListener(d=>{if(d.frameId===0) tabChanged();});
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
+  if(msg?.op==='adapterStatus'){
+    const tab=sender.tab;
+    if(tab?.active===true&&sender.frameId===0&&/^https:\/\/www\.(youtube\.com|instagram\.com)\//.test(tab.url||'')&&['ready','no_player','unsupported'].includes(msg.status)){
+      adapterState=msg.status;adapterAt=Date.now();sendResponse({ok:true});
+    }else sendResponse({ok:false,error:'invalid_adapter_status'});
+    return;
+  }
   if (msg?.op==='video') {
     // Only accept playback observations from extension's permitted content-script origins.
     let url,tabUrl;
@@ -306,12 +323,12 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
       const profile=await profileId(),browser=await browserInfo();
       await withQueueLock(async()=>{
         const state=await storage(),pending=[...(state.eventQueue||[])];
-        if(!enable&&state.collectionEnabled===true)pending.push(newEvent('browser.window_blurred',{browser,domain:null,focused:false,profile_id:profile}));
+        if(!enable&&state.collectionEnabled===true)pending.push(newEvent('browser.window_blurred',{browser,domain:null,focused:false,profile_id:profile},profile));
         // Stop new collection atomically while retaining the existing queue for sync.
         await chrome.storage.local.set({...queueUpdate(state,pending),collectionEnabled:enable});
       });
       if(enable) await tabChanged();
-      else await drainQueue();
+      else {if(foregroundTimer){clearInterval(foregroundTimer);foregroundTimer=null;}await drainQueue();}
       sendResponse({ok:true,enabled:enable});
     })().catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));
     return true;

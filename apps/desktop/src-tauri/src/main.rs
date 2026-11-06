@@ -1,7 +1,9 @@
 #![cfg_attr(all(windows,not(debug_assertions)), windows_subsystem = "windows")]
+mod ipc_routes;
+#[cfg(windows)] mod lifecycle;
 use serde_json::Value;
 use std::{fs, path::PathBuf, time::Duration};
-#[cfg(windows)] use std::io::Write;
+#[cfg(windows)] use std::io::{Read,Write};
 #[cfg(windows)] use std::{net::{TcpStream,SocketAddr},process::Command};
 use tauri::{Manager, LogicalSize, Size};
 
@@ -13,22 +15,7 @@ fn token_path() -> Result<PathBuf,String> {
 #[tauri::command]
 async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<Value,String> {
     // Strict IPC allowlist prevents a compromised WebView from becoming an arbitrary HTTP proxy.
-    let allowed=match (method.as_str(),path.as_str()) {
-        ("GET","/state"|"/export"|"/videos"|"/insights"|"/categories"|"/goals"|"/workflows"|"/health/details"|"/settings"|"/classifications"|"/devices"|"/devices/export"|"/rules/audit"|"/browser-pairs"|"/coach/credentials") => true,
-        ("GET",p) if p.starts_with("/sessions/") && p.len()==20 && p[10..].bytes().all(|c|c.is_ascii_digit()||c==b'-') => true,
-        ("POST","/tracking/pause"|"/rules"|"/categories/override"|"/goals"|"/workflows/profiles"|"/workflows/tasks"|"/focus/start"|"/focus/end"|"/focus/hint/choice"|"/settings"|"/coach"|"/coach/credentials"|"/classifications/config"|"/devices/import"|"/rules/preview"|"/browser-pairs") => true,
-        ("POST",p) if p.starts_with("/workflows/tasks/") && p.len()==53 && p[17..].bytes().all(|c|c.is_ascii_hexdigit()||c==b'-') => true,
-        ("DELETE",p) if p.starts_with("/workflows/profiles/") && p.len()==56 && p[20..].bytes().all(|c|c.is_ascii_hexdigit()||c==b'-') => true,
-        ("DELETE","/data") => true,
-        ("DELETE","/classifications/config") => true,
-        ("DELETE",p) if matches!(p,"/coach/credentials/openai"|"/coach/credentials/gemini"|"/coach/credentials/anthropic"|"/coach/credentials/groq"|"/coach/credentials/openrouter") => true,
-        ("DELETE",p) if p.starts_with("/browser-pairs/") && p.len()==47 && p[15..].bytes().all(|b|(b'a'..=b'p').contains(&b)) => true,
-        ("DELETE",p) if (p.starts_with("/rules/") || p.starts_with("/goals/") || p.starts_with("/devices/")) &&
-            p.rsplit('/').next().is_some_and(|id|id.len()==36 && id.chars().all(|c|c.is_ascii_hexdigit()||c=='-')) => true,
-        ("DELETE",p) if p.starts_with("/categories/override/") && p.len()<300 &&
-            p[21..].bytes().all(|c|c.is_ascii_alphanumeric()||b"-_.:".contains(&c)) => true,
-        _ => false,
-    };
+    let allowed=ipc_routes::allowed(&method,&path);
     if !allowed { return Err("Command or route not allowed".into()); }
     let token=fs::read_to_string(token_path()?).map_err(|_|"Agent not started; token unavailable".to_owned())?;
     let client=reqwest::Client::builder().timeout(Duration::from_secs(if path=="/coach" {58}else{6})).build().map_err(|e|e.to_string())?;
@@ -90,19 +77,6 @@ fn hide_to_tray(app:tauri::AppHandle)->Result<(),String>{
     w.hide().map_err(|e|e.to_string())
 }
 
-#[cfg(windows)]
-fn start_bundled_agent(app:&tauri::AppHandle) {
-    // UI can be closed or crash without terminating the headless native agent.
-    use std::os::windows::process::CommandExt;
-    let exe=app.path().resource_dir().ok().map(|d|d.join("bin").join("digital-discipline-agent.exe"));
-    if let Some(exe)=exe.filter(|e|e.is_file()) {
-        let addr=SocketAddr::from(([127,0,0,1],48761));
-        if TcpStream::connect_timeout(&addr,Duration::from_millis(350)).is_err() {
-            // CREATE_NO_WINDOW. Never request elevated permissions here.
-            let _=Command::new(exe).creation_flags(0x08000000).spawn();
-        }
-    }
-}
 #[tauri::command]
 fn pair_browser(app:tauri::AppHandle,browser:String,extension_id:String)->Result<String,String>{
     #[cfg(not(windows))] {let _=(app,browser,extension_id);return Err("Browser pairing is supported on Windows only".into());}
@@ -188,7 +162,8 @@ fn send_agent_command(path:&str,body:&str){
         if let Ok(mut stream)=TcpStream::connect_timeout(&SocketAddr::from(([127,0,0,1],48761)),Duration::from_millis(500)){
             let _=stream.set_write_timeout(Some(Duration::from_millis(500)));
             let request=format!("POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",token.trim(),body.len());
-            let _=stream.write_all(request.as_bytes());
+            let _=stream.set_read_timeout(Some(Duration::from_secs(2)));
+            if stream.write_all(request.as_bytes()).is_ok(){let mut receipt=Vec::new();let _=stream.take(4096).read_to_end(&mut receipt);}
         }
     }
 }
@@ -223,9 +198,17 @@ fn set_autostart(app:tauri::AppHandle,enabled:bool)->Result<String,String>{
     }
 }
 
+#[tauri::command]
+fn lifecycle_status(app:tauri::AppHandle)->Value{
+ #[cfg(windows)] {return app.state::<lifecycle::Supervisor>().status();}
+ #[cfg(not(windows))] {let _=app;serde_json::json!({"state":"unsupported","note":"Windows desktop supervisor"})}
+}
+
 fn main() {
+    #[cfg(windows)] let _single=match lifecycle::SingleInstance::acquire(){Ok(Some(owner))=>owner,Ok(None)=>return,Err(e)=>{eprintln!("{e}");return;}};
+    #[cfg(windows)] let activation_event=_single.event();
     tauri::Builder::default()
-      .setup(|app| {
+      .setup(move |app| {
           #[cfg(windows)] {
               use tauri::Emitter;
               use tauri_plugin_global_shortcut::{GlobalShortcutExt,ShortcutState};
@@ -240,7 +223,9 @@ fn main() {
                       }
                   }).build())?;
               let _=app.global_shortcut().register("Ctrl+Shift+D");
-              start_bundled_agent(app.handle());
+              let supervisor=lifecycle::Supervisor::new();
+              lifecycle::start(app.handle(),&supervisor,activation_event);
+              app.manage(supervisor);
               // Persistent Windows tray. Closing the overlay hides it; Quit exits the app
               // and explicitly requests a graceful agent shutdown.
               use tauri::{menu::{Menu,MenuItem},tray::{TrayIconBuilder,TrayIconEvent,MouseButton,MouseButtonState}};
@@ -257,7 +242,7 @@ fn main() {
                    "open"=>{if let Some(w)=app.get_webview_window("main"){let _=w.show();}let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.set_focus();}let _=app.emit("dd:open-dashboard",());},
                    "pause"=>send_agent_command("/tracking/pause",r#"{"paused":true}"#),
                    "resume"=>send_agent_command("/tracking/pause",r#"{"paused":false}"#),
-                   "quit"=>{send_agent_command("/shutdown","{}");app.exit(0)},
+                   "quit"=>{app.state::<lifecycle::Supervisor>().stop();send_agent_command("/shutdown","{}");app.exit(0)},
                    _=>{},
                 })
                 .on_tray_icon_event(|tray,event|{if let TrayIconEvent::Click{button:MouseButton::Left,button_state:MouseButtonState::Up,..}=event{
@@ -273,7 +258,7 @@ fn main() {
           #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {api.prevent_close();let _=window.hide();}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart])
+      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

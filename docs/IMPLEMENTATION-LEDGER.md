@@ -172,3 +172,10 @@ A follow-up source review found that overwriting one key file before committing 
 [Run 42154963954](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42154963954) passed for source commit `767adde5806f78c27f79907b5096ed4debc90aba`: 35 JavaScript tests, 32 Windows Rust tests (including DPAPI round-trip), 8 SQLite checks, frontend/agent/Tauri packaging, expected development signer identity, and artifact upload. See BUILD-STATUS.md for CI-computed installer and outer-ZIP hashes. The superseded run 42154482188 was cancelled. Documentation-only follow-ups do not change the tested code.
 
 Windows CI is not installed Windows/Brave acceptance. F01/F04/F15/F18/F19/F20/F21 retain the remaining runtime/platform limits above; Phase 1 and the full roadmap remain open.
+
+
+## v0.4.0 integrated continuation — implementation in progress
+
+The user requested one combined handoff, including a custom date selector, a visible Presentation Mode privacy screen, automatic bounded AI review and saved classifications. This continuation also adds profile-scoped Tracking Doctor stages, compact live refreshes, independent streaming history reads, conservative browser foreground attribution, agent version negotiation, bounded recovery and clock rollback protection.
+
+Local evidence before the Windows run: 40 JavaScript tests, 40 Linux Rust tests, 8 SQLite smoke tests, one pure IPC route test, and TypeScript/Vite build. New renderer interaction and isolated Windows agent lifecycle tests are now required in CI. This entry is not installed Windows/Brave acceptance or completion of the full roadmap. Later changes will update this evidence and the remaining work.
