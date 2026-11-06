@@ -11,13 +11,14 @@ This is the first continuation from feature-branch integration base `c71592e5403
 - **F04/C8:** recording-off retains pending data for local sync. Queue deletion is separate, with a review explaining that an already transmitted observation may still arrive.
 - **F01:** Settings independently reports automatic classification, provider/model, encrypted key-file presence, last request result/time, Coach sharing and saved Coach provider names. Unavailable status is shown as Unknown rather than Off.
 - **F01/F15:** classifier request status is stored as timestamps and fixed result/error codes, never provider bodies or prompts. A changed provider/key/configuration invalidates an older in-flight result; configuration versions prevent a quick disable/re-enable from applying it.
+- **F15/F21:** classifier replacement writes a new versioned encrypted blob, then transactionally commits its provider/model/revision. A failed configuration write retains the previous key/provider pair. Successful replacement cleans up old classifier blobs; Disable and delete also removes unreachable classifier blobs left after a crash. Legacy unversioned keys remain readable until replaced.
 - **F18:** Cargo/npm lockfiles are committed and packaging enforces locked Cargo tests/build plus npm ci. Source changes on this branch run Windows CI; documentation-only changes do not restart it. Successful packaging emits SHA256SUMS.txt.
 
 Playback detection in `extension/src/video.js`, the 2-second threshold, authorization IDs, profile IDs, existing rules and recording consent defaults were preserved.
 
 ## Data and compatibility
 
-No new SQLite schema version is required. Classifier status/configuration revision uses the existing settings table. Extension diagnostics add local counters and retry metadata. Rejection history stores only bounded event IDs, known kinds, fixed reason codes and timestamps.
+No new SQLite schema version is required. New classifier keys use versioned DPAPI filenames; the active revision is stored with the provider configuration. No plaintext key is written. Classifier status/configuration revision uses the existing settings table. Extension diagnostics add local counters and retry metadata. Rejection history stores only bounded event IDs, known kinds, fixed reason codes and timestamps.
 
 Events retain their original IDs on retry. No event replay/age window was expanded. Provider keys remain in the Windows-user DPAPI vault and are not sent to diagnostics or portable exports.
 
@@ -26,7 +27,7 @@ Desktop/agent 0.3.9 and companion 0.3.5 use additive event protocol 1.0 receipts
 ## Automated evidence
 
 - 35 Node tests pass (23 at baseline; 12 added). Nine recovery scenarios execute the real companion worker with synthetic Chrome/network/storage surfaces.
-- 29 Rust tests pass on Linux. Added tests exercise real in-memory SQLite ingestion: lost-reply duplicate replay; rollback after an injected derived-write failure; pause/exclusion receipts.
+- 31 Rust tests pass on Linux. Added tests exercise real in-memory SQLite ingestion: lost-reply duplicate replay; rollback after an injected derived-write failure; pause/exclusion receipts. Two additional filesystem/SQLite tests cover failed configuration commits and scoped key cleanup using dummy encrypted fixtures.
 - Eight Python/SQLite migration checks pass.
 - Desktop strict TypeScript check and Vite production build pass.
 - Extension syntax checks and git diff whitespace checks pass.

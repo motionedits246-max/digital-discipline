@@ -103,9 +103,9 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
   if(busy||readonly||key.length<8||!authorized)return;
   setBusy(true);setMessage('');
   try{
-   await agent('POST','/classifications/config',{provider,model,api_key:key,enabled:true});
+   const saved=await agent<{old_key_cleanup_pending?:boolean}>('POST','/classifications/config',{provider,model,api_key:key,enabled:true});
    setKey('');refresh();onUpdate();
-   setMessage('Encrypted classifier key saved. Up to ten unknown app names or public hostnames per background JSON request. Tracking remains independent.');
+   setMessage('Encrypted classifier key saved. Up to ten names per background JSON request. Tracking remains independent.'+(saved.old_key_cleanup_pending?' An older encrypted key file could not be removed; use Disable and delete key to retry cleanup.':''));
   }catch(e){setMessage('Could not enable automatic classification: '+String(e));}
   finally{setBusy(false);}
  }

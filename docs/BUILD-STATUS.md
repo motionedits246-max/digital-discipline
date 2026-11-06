@@ -12,7 +12,7 @@ Desktop/agent: 0.3.9. Companion: 0.3.5. Event protocol: 1.0. Database schema rem
 | Baseline SQLite migration checks | 8 passed |
 | Baseline desktop TypeScript/production build | Passed |
 | Updated JavaScript suite | 35 passed, including nine worker recovery scenarios |
-| Updated Rust agent suite on Linux | 29 passed, including transactional ingestion faults |
+| Updated Rust agent suite on Linux | 31 passed, including transactional ingestion faults |
 | Updated SQLite migration checks | 8 passed |
 | Updated desktop TypeScript/production build | Passed |
 | Extension JS syntax and whitespace checks | Passed |

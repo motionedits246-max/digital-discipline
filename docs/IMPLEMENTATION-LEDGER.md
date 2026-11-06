@@ -33,7 +33,7 @@ This ledger distinguishes source work from installed Windows/Brave acceptance. A
 | F17 | Analytics and coverage | Partial; full reconciliation/uncertainty tests open | `agent/src/main.rs; analytics.rs` |
 | F18 | Deterministic release | Cargo/npm lockfiles and enforced installs added; integrated Windows run/upgrade compatibility acceptance open | `Cargo.lock; package-lock.json; scripts/build-windows.ps1` |
 | F19 | Trust boundaries | Existing IPC/loopback checks; adversarial coverage open | `agent/src/bridge.rs` |
-| F20 | Tests/runtime acceptance | 35 JS, 29 Linux Rust, 8 SQLite checks pass; real Windows/Brave acceptance open | Milestone evidence below |
+| F20 | Tests/runtime acceptance | 35 JS, 31 Linux Rust, 8 SQLite checks pass; real Windows/Brave acceptance open | Milestone evidence below |
 | F21 | Storage crash recovery | Ingestion rollback/retry failure injection passes; whole-store crash/disk recovery open | `agent/src/ingestion_tests.rs`; existing health reporting retained |
 | F22 | Overlay/multimonitor | Existing controls; high DPI/recovery tests open | `src-tauri/src/main.rs` |
 
@@ -109,7 +109,7 @@ Existing code represents the original 32 product concepts, but detailed per-feat
 
 This slice follows master-spec Phase 0 and part of Phase 1; it does not close Phase 1 or the full roadmap. See [the milestone](FOUNDATION-MILESTONE-2026-11-06.md) and [current build status](BUILD-STATUS.md).
 
-Baseline: 23 JavaScript tests, 8 SQLite migration checks and the desktop TypeScript/Vite build passed before editing. Current local validation: 35 JavaScript tests, 29 Linux Rust tests, 8 SQLite checks, TypeScript/Vite and extension syntax/whitespace checks passed. Environment: Linux x86_64, rustc 1.99.1, Node 24.22.1, npm 11.9.0. No installed Windows/Brave test or live provider call was performed here.
+Baseline: 23 JavaScript tests, 8 SQLite migration checks and the desktop TypeScript/Vite build passed before editing. Current local validation: 35 JavaScript tests, 31 Linux Rust tests, 8 SQLite checks, TypeScript/Vite and extension syntax/whitespace checks passed. Environment: Linux x86_64, rustc 1.99.1, Node 24.22.1, npm 11.9.0. No installed Windows/Brave test or live provider call was performed here.
 
 | ID | Baseline | Phase/dependency | Final behavior in this slice | Source/tests | Runtime evidence | Remaining limitation |
 |---|---|---|---|---|---|---|
@@ -117,7 +117,7 @@ Baseline: 23 JavaScript tests, 8 SQLite migration checks and the desktop TypeScr
 | F04 / A2 / A5 | Partial queue recovery | Phase 1 observation integrity | Persistent jitter/backoff/wake recovery, exact ACK dispositions, poison progression, count/byte/age bounds and visible losses; explicit queue deletion | queue-policy and queue-recovery tests; Rust ingestion tests | Synthetic worker/storage/network and real in-memory SQLite tests passed | Real browser scheduler, worker termination, disk/quota and reconnect acceptance remains |
 | F15 / A3 | Existing stale-job patch | Bounded support for F01 | Static request/error status and revision guard against stale configuration results | classification.rs; Rust build/tests | No provider request made | Request budgets, full attempt leases/local evidence and runtime override/config race acceptance remain |
 | F18 | No lockfiles; source CI gated | Phase 0/reproducibility | Committed Cargo/npm locks, enforced installs, tool-version evidence, source-only Windows CI and checksum artifact | Cargo.lock; package-lock.json; build script/workflow | Local dependency resolution and builds passed | New Windows build evidence and fresh/upgrade acceptance remain; stable compiler/action pinning is not complete |
-| F19 / F20 | Existing boundary and mocks | Phase 1 receiving boundary | Unsafe ACKs cannot remove data; redacted quarantine; regression tests exercise worker recovery | queue recovery tests; ingestion_tests.rs | 35 JS / 29 Linux Rust / 8 SQLite pass | Full adversarial API/import and real adapter matrix remain |
+| F19 / F20 | Existing boundary and mocks | Phase 1 receiving boundary | Unsafe ACKs cannot remove data; redacted quarantine; regression tests exercise worker recovery | queue recovery tests; ingestion_tests.rs | 35 JS / 31 Linux Rust / 8 SQLite pass | Full adversarial API/import and real adapter matrix remain |
 | F21 | Transactional ingestion present | Phase 1 storage integrity | Injected derived-write failure rolls back raw dedup ID; subsequent stable-ID retry succeeds | ingestion_tests.rs | In-memory SQLite fault scenario passed | Disk full/corrupt store/process-kill/recovery-copy scenarios remain |
 
 No SQL schema migration was added. New classifier metadata uses existing settings. Extension diagnostics are local, bounded and contain no payloads; retained pending events follow recording consent and the declared queue policy. Existing player qualification logic, authorizations, profile IDs and restriction leases were preserved.
@@ -160,3 +160,8 @@ Each original ID is retained below. The interpretation is source present/partial
 | D6 | Cross-device tracking | Partial; manual encrypted session exchange only | N08, N10 |
 | D7 | Difficulty levels | Gentle, Balanced, Strict represented | F14, N03, N15 |
 | D8 | Weekly insights | Present; comparable coverage and actionable review needed | F17, N13, N18 |
+
+
+### Credential replacement failure-path review
+
+A follow-up source review found that overwriting one key file before committing provider settings could leave a mismatched key/provider after a failed DB write. F15/F21 now use versioned encrypted classifier blobs and a transactionally committed active revision. Two failure/cleanup regression tests pass with isolated dummy ciphertext; Windows DPAPI and provider runtime acceptance remain open. Existing legacy keys are read without migration until the owner replaces them.

@@ -7,19 +7,59 @@ use axum::{extract::State,http::StatusCode,Json};
 use rusqlite::{params,Connection};
 use serde::Deserialize;
 use serde_json::{json,Value};
-use std::{sync::Arc,time::Duration,path::PathBuf,fs};
+use std::{sync::Arc,time::Duration,path::{Path,PathBuf},fs};
 use zeroize::{Zeroize,Zeroizing};
 
 const CLASSES:&[&str]=&["Development","Design","Productivity","Communication","Education","Entertainment","Gaming","Social","News","Utility","System","Browser","Unclassified"];
 const MAX_BATCH:usize=10;
 const RETRY_MS:i64=10*60*1000;
 
-fn vault_path()->Result<PathBuf,String>{
+fn vault_root()->Result<PathBuf,String>{
  let dir=std::env::var_os("LOCALAPPDATA").ok_or("local_app_data_unavailable")?;
- Ok(PathBuf::from(dir).join("DigitalDiscipline").join("classification-key.dpapi"))
+ Ok(PathBuf::from(dir).join("DigitalDiscipline"))
 }
-fn load_key()->Result<Zeroizing<String>,String>{
- let data=fs::read(vault_path()?).map_err(|_|"classification_key_missing".to_string())?;
+fn key_path(root:&Path,revision:&str)->Result<PathBuf,&'static str>{
+ if revision.is_empty(){return Ok(root.join("classification-key.dpapi"));}
+ if uuid::Uuid::parse_str(revision).is_err(){return Err("invalid_vault_version");}
+ Ok(root.join(format!("classification-key-{revision}.dpapi")))
+}
+fn managed_key_paths(root:&Path)->std::io::Result<Vec<PathBuf>>{
+ if !root.exists(){return Ok(Vec::new());}
+ let mut paths=Vec::new();
+ for entry in fs::read_dir(root)?{
+  let entry=entry?;let name=entry.file_name();let name=name.to_string_lossy();
+  let managed=name=="classification-key.dpapi"||name.strip_prefix("classification-key-").and_then(|n|n.strip_suffix(".dpapi")).is_some_and(|v|uuid::Uuid::parse_str(v).is_ok());
+  if managed{paths.push(entry.path());}
+ }
+ Ok(paths)
+}
+fn cleanup_keys(root:&Path,keep:Option<&Path>)->std::io::Result<()>{
+ let mut failure=None;
+ for path in managed_key_paths(root)?{
+  if keep==Some(path.as_path()){continue;}
+  if let Err(error)=fs::remove_file(path){failure=Some(error);}
+ }
+ if let Some(error)=failure{Err(error)}else{Ok(())}
+}
+fn save_encrypted_config(db:&Connection,root:&Path,provider:&str,model:&str,enabled:bool,cipher:&[u8])->Result<bool,&'static str>{
+ fs::create_dir_all(root).map_err(|_|"vault_write_failed")?;
+ let revision=uuid::Uuid::new_v4().to_string();
+ let path=key_path(root,&revision)?;
+ if fs::write(&path,cipher).is_err(){let _=fs::remove_file(&path);return Err("vault_write_failed");}
+ // The new blob is unreachable until the provider/model/revision commit together.
+ // A failed DB write leaves the previous key and provider pair intact.
+ let stored=(||->rusqlite::Result<()>{
+  let tx=db.unchecked_transaction()?;
+  tx.execute("INSERT INTO settings(key,value) VALUES('classification_provider',?1),('classification_model',?2),('classification_auto',?3),('classification_config_version',?4) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+    params![provider,model,if enabled{"true"}else{"false"},revision])?;
+  tx.commit()
+ })();
+ if stored.is_err(){let _=fs::remove_file(path);return Err("storage_failed");}
+ Ok(cleanup_keys(root,Some(&path)).is_err())
+}
+fn load_key(revision:&str)->Result<Zeroizing<String>,String>{
+ let data=fs::read(key_path(&vault_root()?,revision)?).map_err(|_|"classification_key_missing".to_string())?;
+ if data.len()>8192{return Err("invalid_classification_key".into());}
  let raw=crate::credentials::unprotect_secret(&data)?;
  String::from_utf8(raw).map(Zeroizing::new).map_err(|_|"invalid_classification_key".into())
 }
@@ -54,26 +94,23 @@ pub(super) async fn configure(State(s):State<Arc<AppState>>,Json(mut req):Json<C
  ||req.api_key.bytes().any(|x|x==0||x==b'\n'||x==b'\r')
  {req.api_key.zeroize();return Err(err(StatusCode::BAD_REQUEST,"invalid_classification_configuration"));}
  let result=(||{
-  let path=vault_path().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_unavailable"))?;
+  let root=vault_root().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_unavailable"))?;
   let cipher=crate::credentials::protect_secret(req.api_key.as_bytes()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"encryption_failed"))?;
-  fs::create_dir_all(path.parent().ok_or_else(||err(StatusCode::INTERNAL_SERVER_ERROR,"vault_path_invalid"))?)
-   .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_write_failed"))?;
   // Serialize key replacement with the version check used before sending.
   // A worker must never send a newly saved key to the previous provider.
   let db=s.db.lock().unwrap();
-  fs::write(path,cipher).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_write_failed"))?;
-  db.execute("INSERT INTO settings(key,value) VALUES('classification_provider',?1),('classification_model',?2),('classification_auto',?3),('classification_config_version',?4) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-    params![req.provider,req.model,if req.enabled{"true"}else{"false"},uuid::Uuid::new_v4().to_string()])
-    .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-  Ok(Json(json!({"ok":true,"enabled":req.enabled,"saved":true,"batch_size":MAX_BATCH,"storage":"Windows DPAPI current-user"})))
+  let cleanup_pending=save_encrypted_config(&db,&root,&req.provider,&req.model,req.enabled,&cipher)
+    .map_err(|code|err(StatusCode::INTERNAL_SERVER_ERROR,code))?;
+  Ok(Json(json!({"ok":true,"enabled":req.enabled,"saved":true,"old_key_cleanup_pending":cleanup_pending,"batch_size":MAX_BATCH,"storage":"Windows DPAPI current-user"})))
  })();
  req.api_key.zeroize();result
 }
 pub(super) async fn remove_config(State(s):State<Arc<AppState>>)->ApiResult{
   let db=s.db.lock().unwrap();
-  db.execute("INSERT INTO settings(key,value) VALUES('classification_auto','false'),('classification_config_version',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![uuid::Uuid::new_v4().to_string()])
+  db.execute("INSERT INTO settings(key,value) VALUES('classification_auto','false') ON CONFLICT(key) DO UPDATE SET value=excluded.value",[])
    .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
- if let Ok(path)=vault_path(){if path.exists(){fs::remove_file(path).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_delete_failed"))?;}}
+ let root=vault_root().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_unavailable"))?;
+ cleanup_keys(&root,None).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"vault_delete_failed"))?;
  Ok(Json(json!({"ok":true,"enabled":false,"removed":true})))
 }
 pub(super) fn queue_unknowns(db:&Connection)->rusqlite::Result<usize>{
@@ -106,7 +143,8 @@ pub(super) async fn list(State(s):State<Arc<AppState>>)->ApiResult{
  let enabled=read_setting(&db,"classification_auto")=="true";
  let provider=read_setting(&db,"classification_provider");
  let model=read_setting(&db,"classification_model");
- let key_saved=vault_path().is_ok_and(|p|p.is_file());
+ let revision=read_setting(&db,"classification_config_version");
+ let key_saved=vault_root().is_ok_and(|root|key_path(&root,&revision).is_ok_and(|p|p.is_file()));
  let last_attempt=read_setting(&db,"classification_last_attempt_ms").parse::<i64>().ok();
  Ok(Json(json!({"ok":true,"jobs":jobs,"enabled":enabled,"provider":provider,"model":model,"key_saved":key_saved,
    "last_attempt_at_ms":last_attempt,"last_result":read_setting(&db,"classification_last_result"),"last_error_code":read_setting(&db,"classification_last_error"),
@@ -136,7 +174,7 @@ pub(super) async fn worker(state:Arc<AppState>){
   (subjects,provider,model,read_setting(&db,"classification_config_version"))
  };
  if subjects.is_empty(){return;}
- let key=match load_key(){Ok(k)=>k,Err(_)=>return};
+ let key=match load_key(&config_version){Ok(k)=>k,Err(_)=>return};
  let attempt_at=now_ms();
  {
   let db=match state.db.lock(){Ok(x)=>x,Err(_)=>return};
@@ -232,6 +270,41 @@ async fn request_batch(provider:&str,model:&str,key:&str,subjects:&[String])->Re
 #[cfg(test)]
 mod tests{
  use super::*;
+ struct TestVault(PathBuf);
+ impl Drop for TestVault{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+ fn config_fixture()->(Connection,TestVault){
+  let db=Connection::open_in_memory().unwrap();
+  db.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+    INSERT INTO settings VALUES('classification_provider','openai'),('classification_model','old-model'),('classification_auto','true');").unwrap();
+  let root=std::env::temp_dir().join(format!("digital-discipline-vault-test-{}",uuid::Uuid::new_v4()));
+  fs::create_dir_all(&root).unwrap();fs::write(key_path(&root,"").unwrap(),b"old-encrypted-fixture").unwrap();
+  (db,TestVault(root))
+ }
+ #[test]fn configuration_failure_keeps_the_previous_provider_and_key_pair(){
+  let (db,root)=config_fixture();
+  // FAIL can retain earlier rows of one statement. The explicit transaction must
+  // roll back provider/model changes even when failure occurs on the final row.
+  db.execute_batch("CREATE TRIGGER fail_revision BEFORE INSERT ON settings WHEN NEW.key='classification_config_version' BEGIN SELECT RAISE(FAIL,'injected disk-write failure'); END;").unwrap();
+  assert_eq!(save_encrypted_config(&db,&root.0,"anthropic","new-model",true,b"new-encrypted-fixture"),Err("storage_failed"));
+  assert_eq!(read_setting(&db,"classification_provider"),"openai");
+  assert_eq!(read_setting(&db,"classification_model"),"old-model");
+  assert_eq!(fs::read(key_path(&root.0,"").unwrap()).unwrap(),b"old-encrypted-fixture");
+  assert_eq!(managed_key_paths(&root.0).unwrap().len(),1);
+ }
+ #[test]fn successful_configuration_and_removal_touch_only_managed_classifier_keys(){
+  let (db,root)=config_fixture();
+  fs::write(root.0.join("coach-unrelated.dpapi"),b"leave-this-alone").unwrap();
+  assert_eq!(save_encrypted_config(&db,&root.0,"anthropic","new-model",true,b"new-encrypted-fixture"),Ok(false));
+  let revision=read_setting(&db,"classification_config_version");
+  assert_eq!(read_setting(&db,"classification_provider"),"anthropic");
+  assert_eq!(fs::read(key_path(&root.0,&revision).unwrap()).unwrap(),b"new-encrypted-fixture");
+  assert!(!key_path(&root.0,"").unwrap().exists());
+  // Also remove an unreachable encrypted blob left by an interrupted save.
+  fs::write(key_path(&root.0,&uuid::Uuid::new_v4().to_string()).unwrap(),b"orphan-fixture").unwrap();
+  cleanup_keys(&root.0,None).unwrap();
+  assert!(managed_key_paths(&root.0).unwrap().is_empty());
+  assert!(root.0.join("coach-unrelated.dpapi").exists());
+ }
  #[test] fn validates_exact_batch_and_does_not_trust_foreign_labels(){
   let subjects=vec!["app:mystery.exe".to_string(),"domain:example.org".to_string()];
   let text=r#"{"results":[{"subject":"app:mystery.exe","category":"Development","confidence":0.95,"reason":"Name only","evidence_ids":["name_only"]},{"subject":"domain:example.org","category":"Education","confidence":0.30,"reason":"No context","evidence_ids":["name_only"]}]}"#;
