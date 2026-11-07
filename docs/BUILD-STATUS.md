@@ -9,7 +9,7 @@ Current source: desktop/agent **0.4.2**, companion **0.3.8**, event protocol **1
 | Check | Evidence |
 |---|---|
 | JavaScript policies, queue recovery and adapters | 50 passed |
-| Rust agent on Linux | 54 passed |
+| Rust agent on Linux | 55 passed |
 | SQLite legacy migrations | 8 passed |
 | TypeScript and production frontend | Passed |
 | Renderer interactions | Six checks passed in isolated local Chromium processes; latest Windows rerun pending |
@@ -26,6 +26,8 @@ The Linux test browser required isolated processes because its serverless Chromi
 ## Scope and remaining acceptance
 
 Current work includes custom calendar/time/select controls; a visible privacy shield that preserves drafts; durable classification memory and bounded automatic second review; request budgets/leases; compact live state and independent history reads; conservative browser/profile attribution; observed playback/replay and separate navigation visits; version-aware agent recovery; clock rollback protection; timed private collection windows, deletion tombstones and complete local export; focus workflows and local status records.
+
+Queued AI jobs recheck the current app/domain exclusions when claimed. Excluded reviews and owner overrides do not prevent other eligible services from being classified; exclusion matching includes domain boundaries and case-insensitive Windows app names. Tests cover exclusions added after queuing and later removed, without making provider requests.
 
 Full encrypted backup/restore, trusted updating, automatic multi-device sync, earned entertainment rewards, planner/correction/passive-learning and later expanded roadmap items remain open. Native application intervention is a visible warning capability while foreground recording is active; it does not block or kill apps. Desktop notifications are inbox-only. Resource numbers currently measure the agent process.
 

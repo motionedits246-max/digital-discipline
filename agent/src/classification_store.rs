@@ -53,6 +53,9 @@ pub fn restore_cached(db:&Connection,subject:&str,now:i64)->rusqlite::Result<boo
  }
  Ok(false)
 }
+// Recheck current exclusions at the actual send boundary, including old queued jobs.
+const PRIVACY_FILTER:&str="NOT EXISTS(SELECT 1 FROM json_each(COALESCE((SELECT value FROM settings WHERE key='excluded_apps'),'[]')) a WHERE lower(c.subject)='app:'||lower(a.value))
+ AND NOT EXISTS(SELECT 1 FROM json_each(COALESCE((SELECT value FROM settings WHERE key='excluded_domains'),'[]')) d WHERE lower(c.subject)='domain:'||lower(d.value) OR (substr(c.subject,1,7)='domain:' AND lower(c.subject) LIKE 'domain:%.'||lower(d.value)))";
 pub struct Claim{pub id:String,pub subjects:Vec<String>,pub review:bool}
 pub fn claim(db:&Connection,now:i64,auto_review:bool,daily_limit:i64)->rusqlite::Result<Option<Claim>>{
  let tx=db.unchecked_transaction()?;
@@ -61,13 +64,13 @@ pub fn claim(db:&Connection,now:i64,auto_review:bool,daily_limit:i64)->rusqlite:
  let start=now.div_euclid(86_400_000)*86_400_000;
  let used:i64=tx.query_row("SELECT COUNT(*) FROM classification_requests WHERE started_ms>=?1 AND started_ms<?2",params![start,start+86_400_000],|r|r.get(0))?;
  if used>=daily_limit.clamp(1,500){return Ok(None);}
- let review=auto_review&&tx.query_row("SELECT EXISTS(SELECT 1 FROM classifications c LEFT JOIN classification_job_state j ON j.subject=c.subject WHERE c.state='awaiting_review' AND COALESCE(j.reviewed,0)=0 AND COALESCE(j.attempts,0)<3 AND COALESCE(j.next_attempt_ms,0)<=?1)",params![now],|r|r.get::<_,bool>(0))?;
+ let review=auto_review&&tx.query_row(&format!("SELECT EXISTS(SELECT 1 FROM classifications c LEFT JOIN classification_job_state j ON j.subject=c.subject WHERE c.state='awaiting_review' AND COALESCE(j.reviewed,0)=0 AND COALESCE(j.attempts,0)<3 AND COALESCE(j.next_attempt_ms,0)<=?1 AND NOT EXISTS(SELECT 1 FROM category_overrides o WHERE lower(o.subject)=lower(c.subject)) AND {PRIVACY_FILTER})"),params![now],|r|r.get::<_,bool>(0))?;
  let subjects={
-  let mut q=tx.prepare("SELECT c.subject FROM classifications c LEFT JOIN classification_job_state j ON j.subject=c.subject
+  let mut q=tx.prepare(&format!("SELECT c.subject FROM classifications c LEFT JOIN classification_job_state j ON j.subject=c.subject
    WHERE COALESCE(j.attempts,0)<3 AND COALESCE(j.next_attempt_ms,0)<=?1 AND
    ((?2=1 AND c.state='awaiting_review' AND COALESCE(j.reviewed,0)=0) OR (?2=0 AND c.state IN ('awaiting_consent','failed_retryable')))
    AND NOT EXISTS(SELECT 1 FROM category_overrides o WHERE lower(o.subject)=lower(c.subject))
-   ORDER BY c.updated_ms,c.subject LIMIT 10")?;
+   AND {PRIVACY_FILTER} ORDER BY c.updated_ms,c.subject LIMIT 10"))?;
   let rows=q.query_map(params![now,review as u8],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
   rows.into_iter().filter(|s|canonical(s).as_ref()==Some(s)).collect::<Vec<_>>()
  };
@@ -99,5 +102,19 @@ pub fn summary(db:&Connection,now:i64)->rusqlite::Result<Value>{
  fn db()->Connection{let db=Connection::open_in_memory().unwrap();db.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE classifications(subject TEXT PRIMARY KEY,state TEXT,category TEXT,reason TEXT,created_ms INTEGER,updated_ms INTEGER);CREATE TABLE category_overrides(subject TEXT PRIMARY KEY,category TEXT,updated_ms INTEGER);").unwrap();migrate(&db).unwrap();db}
  #[test]fn returning_service_uses_saved_decision_without_new_ai_request(){let db=db();remember(&db,"app:Editor.EXE","Development",0.7,"Known tool","test","model",1000,false).unwrap();assert!(restore_cached(&db,"app:editor.exe",2000).unwrap());assert!(claim(&db,3000,true,20).unwrap().is_none());assert_eq!(features::category_for(&db,"editor.exe",None),"Development");}
  #[test]fn review_is_automatic_but_bounded_and_manual_choice_wins(){let db=db();db.execute("INSERT INTO classifications VALUES('app:mystery.exe','awaiting_consent','Unclassified','',1,1)",[]).unwrap();let a=claim(&db,1000,true,20).unwrap().unwrap();remember(&db,&a.subjects[0],"Utility",0.4,"Uncertain","test","m",2000,false).unwrap();finish(&db,&a,2000,"succeeded").unwrap();assert!(claim(&db,3000,true,20).unwrap().is_none());let b=claim(&db,700000,true,20).unwrap().unwrap();assert!(b.review);remember(&db,&b.subjects[0],"Utility",0.4,"Still uncertain","test","m",700100,true).unwrap();assert!(claim(&db,1400000,true,20).unwrap().is_none());db.execute("INSERT INTO category_overrides VALUES('app:mystery.exe','Education',1)",[]).unwrap();assert_eq!(features::category_for(&db,"mystery.exe",None),"Education");}
+ #[test]fn exclusions_are_rechecked_before_claim_and_do_not_starve_allowed_jobs(){
+  let db=db();db.execute_batch("INSERT INTO settings VALUES('excluded_apps','[\"EXCLUDED.EXE\"]');INSERT INTO settings VALUES('excluded_domains','[\"private.example.com\"]');
+   INSERT INTO classifications VALUES('domain:sub.private.example.com','awaiting_review','Unclassified','',0,0);
+   INSERT INTO classifications VALUES('app:manual.exe','awaiting_review','Unclassified','',0,0);
+   INSERT INTO category_overrides VALUES('app:manual.exe','Education',1);
+   INSERT INTO classifications VALUES('app:excluded.exe','awaiting_consent','Unclassified','',1,1);
+   INSERT INTO classifications VALUES('domain:notprivate.example.com','awaiting_consent','Unclassified','',101,101);
+   INSERT INTO classifications VALUES('app:allowed.exe','awaiting_consent','Unclassified','',100,100);").unwrap();
+  for i in 0..15{db.execute("INSERT INTO classifications VALUES(?1,'awaiting_consent','Unclassified','',2,2)",params![format!("domain:x{i}.private.example.com")]).unwrap();}
+  assert!(features::excluded(&db,"excluded.exe",None));
+  let job=claim(&db,1000,true,20).unwrap().unwrap();assert!(!job.review);assert_eq!(job.subjects,vec!["app:allowed.exe","domain:notprivate.example.com"]);
+  assert_eq!(db.query_row("SELECT COUNT(*) FROM classification_job_state WHERE subject NOT IN('app:allowed.exe','domain:notprivate.example.com')",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+  db.execute("UPDATE settings SET value='[]' WHERE key IN('excluded_apps','excluded_domains')",[]).unwrap();let next=claim(&db,2000,true,20).unwrap().unwrap();assert!(next.review);assert_eq!(next.subjects,vec!["domain:sub.private.example.com"]);
+ }
  #[test]fn crash_consumes_attempt_and_request_budget(){let db=db();db.execute("INSERT INTO classifications VALUES('app:mystery.exe','awaiting_consent','Unclassified','',1,1)",[]).unwrap();assert!(claim(&db,1000,true,1).unwrap().is_some());assert!(claim(&db,200000,true,1).unwrap().is_none());assert_eq!(summary(&db,200000).unwrap()["requests_today"],1);}
 }

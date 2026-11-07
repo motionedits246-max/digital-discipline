@@ -96,7 +96,7 @@ pub(super) fn category_for(db:&Connection, app:&str, domain:Option<&str>)->Strin
 pub(super) fn excluded(db:&Connection,app:&str,domain:Option<&str>)->bool {
     let apps:Vec<String>=serde_json::from_str(&read_setting(db,"excluded_apps")).unwrap_or_default();
     let domains:Vec<String>=serde_json::from_str(&read_setting(db,"excluded_domains")).unwrap_or_default();
-    apps.iter().any(|x|x==app) || domain.is_some_and(|d|domains.iter().any(|x|d==x||d.ends_with(&format!(".{x}"))))
+    apps.iter().any(|x|x.eq_ignore_ascii_case(app)) || domain.is_some_and(|d|domains.iter().any(|x|d==x||d.ends_with(&format!(".{x}"))))
 }
 
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
