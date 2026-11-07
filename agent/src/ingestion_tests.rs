@@ -91,3 +91,9 @@ async fn invalid_learning_override_rolls_back_the_whole_session_start(){
  assert_eq!(features::start_focus(State(s.clone()),Json(payload)).await.unwrap_err().0,StatusCode::BAD_REQUEST);
  let d=s.db.lock().unwrap();assert_eq!(d.query_row("SELECT COUNT(*) FROM focus_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),0);
 }
+#[tokio::test]
+async fn presentation_mask_changes_notification_privacy_without_stopping_recording(){
+ let s=state();let at=now_ms();let sample=|time|Observation{app:"code.exe".into(),domain:None,profile_id:None,idle:false,at_ms:time};
+ observe_tick(&s,sample(at));let cmd=serde_json::from_value(json!({"enabled":true})).unwrap();let _=data_lifecycle::presentation(State(s.clone()),Json(cmd)).await.unwrap();observe_tick(&s,sample(at+2000));
+ assert!(!s.paused.load(Ordering::SeqCst));let db=s.db.lock().unwrap();assert_eq!(features::read_setting(&db,"presentation_privacy"),"true");assert_eq!(db.query_row("SELECT end_ms-start_ms FROM sessions LIMIT 1",[],|r|r.get::<_,i64>(0)).unwrap(),2000);
+}

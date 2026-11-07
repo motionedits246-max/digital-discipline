@@ -14,7 +14,7 @@ let lastConnectAttemptAt = 0;
 let adapterState='unknown';let adapterAt=0;let foregroundTimer=null;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
-async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved','agentPrivateUntil']); }
+async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved','agentPrivateUntil','presentationPrivacy']); }
 async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
@@ -35,7 +35,7 @@ async function request(message) {
       lastConnectionError=safeDeliveryReason(response.status,reply?.error);
       return {ok:false,error:lastConnectionError,http_status:response.status,delivery:classifyDelivery(response.status)};
     }
-    if(sync){await applyAgentPurge(reply.purge_before_ms);if(Number.isSafeInteger(reply.private_until_ms)&&reply.private_until_ms>=0)await chrome.storage.local.set({agentPrivateUntil:reply.private_until_ms});}
+    if(sync){await applyAgentPurge(reply.purge_before_ms);if(typeof reply.presentation_private==='boolean')await chrome.storage.local.set({presentationPrivacy:reply.presentation_private});if(Number.isSafeInteger(reply.private_until_ms)&&reply.private_until_ms>=0)await chrome.storage.local.set({agentPrivateUntil:reply.private_until_ms});}
     connected=true;lastConnectionError='';lastNativeReplyAt=Date.now();
     return reply;
   } catch {
@@ -220,7 +220,7 @@ async function removeOwnedRules() {
   await chrome.storage.local.set({ownedIds:[],blocks:[]});
 }
 async function applyBlocks(blocks) {
-  const {ownedIds=[],notificationsEnabled=false,dndEnabled=false,quietStart='',quietEnd='',lastNotifications={}}=await storage();
+  const {ownedIds=[],notificationsEnabled=false,dndEnabled=false,quietStart='',quietEnd='',lastNotifications={},presentationPrivacy=false}=await storage();
   const now=Date.now();
   const safe=blocks.filter(x=>x && x.expires_at_ms>now && x.expires_at_ms<=now+240000 && domainValid(x.domain) && ['block','hide_feed','stop_autoplay','notify'].includes(x.action||'block')).slice(0,500);
   // Only navigation-deny policies become DNR rules. Visual policies belong to the content adapter.
@@ -241,7 +241,7 @@ async function applyBlocks(blocks) {
       try {
         await chrome.notifications.create('digital-discipline-'+key+'-'+now,{
           type:'basic',iconUrl:'icons/icon128.png',title:'Digital Discipline',
-          message:`${label} reached its trigger. ${block.action==='notify'?'This is a reminder.':'The browser policy is now active.'}`
+          message:presentationPrivacy?'An approved browser policy is now active. Open Digital Discipline for details.':`${label} reached its trigger. ${block.action==='notify'?'This is a reminder.':'The browser policy is now active.'}`
         });
         cooled[key]=now;
       } catch {} // Browser may suppress notifications; enforcement continues.
@@ -315,7 +315,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     const id=watch ? url.searchParams.get('v')?.match(/^[a-zA-Z0-9_-]{5,128}$/)?.[0] : host==='www.youtube.com' ? url.pathname.match(/^\/shorts\/([a-zA-Z0-9_-]+)/)?.[1] : url.pathname.match(/^\/reels?\/([a-zA-Z0-9_-]+)/)?.[1];
     if (!id) {sendResponse({ok:false,error:'unrecognized_video_route'});return;}
     (async()=>{
-      const opts=await chrome.storage.local.get(['collectionEnabled','videoObserved','agentPrivateUntil']);
+      const opts=await chrome.storage.local.get(['collectionEnabled','videoObserved','agentPrivateUntil','presentationPrivacy']);
       if(opts.collectionEnabled!==true||opts.agentPrivateUntil>Date.now()){sendResponse({ok:false,error:opts.agentPrivateUntil>Date.now()?'private_session_active':'recording_off'});return;}
       if(msg.kind==='video.qualified_play'){
         const observed=opts.videoObserved||{shorts:0,watches:0,reels:0,lastAt:0};

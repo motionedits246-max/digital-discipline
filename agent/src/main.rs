@@ -391,7 +391,7 @@ async fn extension_rules_for_profile(state:Arc<AppState>,profile:Option<String>)
         }
     }
     let (blocks,next_policy_check)=policy_exceptions::apply(&db,blocks,profile.as_deref(),now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"policy_exception_storage_failed"))?;
-    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"purge_before_ms":features::read_setting(&db,"activity_deleted_before_ms").parse::<i64>().unwrap_or(0),"private_until_ms":features::read_setting(&db,"private_until_ms").parse::<i64>().unwrap_or(0),"next_policy_check_ms":next_policy_check})))
+    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"presentation_private":features::read_setting(&db,"presentation_privacy")=="true","purge_before_ms":features::read_setting(&db,"activity_deleted_before_ms").parse::<i64>().unwrap_or(0),"private_until_ms":features::read_setting(&db,"private_until_ms").parse::<i64>().unwrap_or(0),"next_policy_check_ms":next_policy_check})))
 }
 async fn preview_rules(State(state):State<Arc<AppState>>,Json(cmd):Json<RuleInput>)->ApiResult {
     let domain=cmd.domain.trim().to_ascii_lowercase();
@@ -594,7 +594,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/tracking/pause",post(pause)).route("/rules",get(rules).post(create_rule))
         .route("/rules/{id}",delete(remove_rule)).route("/extension/rules",get(extension_rules))
         .route("/policy/exceptions",get(policy_exceptions::list).post(policy_exceptions::create)).route("/policy/exceptions/{id}",delete(policy_exceptions::revoke)).route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
-        .route("/export",get(export_data)).route("/export/snapshot",post(export_snapshot::create)).route("/data",delete(delete_data)).route("/data/purge",post(data_lifecycle::purge)).route("/privacy/session",get(data_lifecycle::private_status).post(data_lifecycle::private_session))
+        .route("/export",get(export_data)).route("/export/snapshot",post(export_snapshot::create)).route("/data",delete(delete_data)).route("/data/purge",post(data_lifecycle::purge)).route("/privacy/session",get(data_lifecycle::private_status).post(data_lifecycle::private_session)).route("/privacy/presentation",post(data_lifecycle::presentation))
         .route("/videos",get(features::video_history)).route("/insights",get(features::insights))
         .route("/categories",get(features::list_categories)).route("/categories/override",post(features::override_category))
         .route("/categories/override/{subject}",delete(features::delete_override))

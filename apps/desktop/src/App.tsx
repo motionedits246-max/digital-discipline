@@ -82,6 +82,7 @@ export default function App(){
  const [day,setDay]=useState(localISO(new Date()));const [heatMetric,setHeatMetric]=useState<'active_ms'|'development_ms'|'entertainment_ms'>('active_ms');const [recovery,setRecovery]=useState(20);
  const sample=useMemo(()=>makeDemo(),[]);const shown=demo?sample:data;
  const offline=!demo&&(!data||!!error);
+ useEffect(()=>{if(!demo&&!offline)void agent('POST','/privacy/presentation',{enabled:presentationPrivacy}).catch(()=>{});},[demo,offline,presentationPrivacy]);
  const currentMode=useRef(mode);currentMode.current=mode;
  const startTour=()=>{setSetupActive(false);setPage('Overview');setMode('full');void presentation('full');setTourActive(true);};
  const finishTour=()=>{setTourActive(false);try{window.localStorage.setItem('dd:guided-tour-complete-v1','true');}catch{}};

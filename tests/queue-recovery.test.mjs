@@ -9,7 +9,7 @@ const observation=(id=crypto.randomUUID(),occurred=Date.now())=>({
  kind:'video.progress',payload:{platform:'youtube_shorts',video_id:'example123',instance_id:crypto.randomUUID(),watched_ms:2300}
 });
 async function worker(state={},deliver){
- const handlers={},alarms=new Map(),requests=[];
+ const handlers={},alarms=new Map(),requests=[],notifications=[];
  const event=name=>({addListener(fn){handlers[name]=fn;}});
  globalThis.chrome={
   runtime:{onInstalled:event('install'),onStartup:event('startup'),onMessage:event('message')},
@@ -21,7 +21,7 @@ async function worker(state={},deliver){
   tabs:{onActivated:event('tab'),onUpdated:event('update'),async query(){return [];}},
   windows:{onFocusChanged:event('focus'),async getLastFocused(){return {focused:false};}},
   webNavigation:{onHistoryStateUpdated:event('navigation')},
-  declarativeNetRequest:{async updateDynamicRules(){}},notifications:{async create(){}}
+  declarativeNetRequest:{async updateDynamicRules(){}},notifications:{async create(id,body){notifications.push(body);}}
  };
  globalThis.fetch=async(url,options)=>{
   if(url.endsWith('/bridge/sync'))return Response.json({ok:true,schema_version:'1.0',blocks:[],...(state.syncReply||{})});
@@ -35,7 +35,7 @@ async function worker(state={},deliver){
  const message=(body,sender={})=>new Promise((resolve,reject)=>{
   if(handlers.message(body,sender,resolve)!==true)reject(Error('Response channel was not held'));
  });
- return {state,requests,alarms,message,alarm:()=>handlers.alarm({name:'queue-retry'})};
+ return {state,requests,alarms,notifications,message,alarm:()=>handlers.alarm({name:'queue-retry'})};
 }
 
 test('poison and expired entries do not block later valid observations',async()=>{
@@ -131,4 +131,8 @@ test('agent private window suppresses new companion playback without revoking co
  const w=await worker({collectionEnabled:true,eventQueue:[],syncReply:{private_until_ms:Date.now()+60000}});await w.message({op:'resync'});
  const sender={frameId:0,tab:{url:'https://www.youtube.com/shorts/Example123'}};
  const reply=await w.message({op:'video',kind:'video.qualified_play',page_url:sender.tab.url,instance_id:crypto.randomUUID(),watched_ms:2300},sender);assert.equal(reply.error,'private_session_active');assert.equal(w.state.eventQueue.length,0);assert.equal(w.state.collectionEnabled,true);
+});
+
+test('presentation mode removes private rule labels from delivered browser notifications',async()=>{
+ const w=await worker({notificationsEnabled:true,syncReply:{presentation_private:true,blocks:[{id:'private-rule',domain:'www.youtube.com',action:'notify',reason:'Private rule label',expires_at_ms:Date.now()+60000}]}});await w.message({op:'resync'});assert.equal(w.notifications.length,1);assert.equal(w.notifications[0].message.includes('Private rule label'),false);assert.match(w.notifications[0].message,/approved browser policy/);
 });

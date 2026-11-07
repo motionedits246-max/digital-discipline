@@ -79,6 +79,11 @@ pub fn prune(db:&Connection,cutoff:i64,now:i64)->rusqlite::Result<()>{
  db.execute("DELETE FROM purged_subjects WHERE before_ms<?1",params![now-2*86400000])?;
  db.execute("DELETE FROM private_windows WHERE end_ms<?1",params![now-2*86400000])?;Ok(())
 }
+#[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct PresentationInput{enabled:bool}
+pub async fn presentation(State(s):State<Arc<AppState>>,Json(p):Json<PresentationInput>)->ApiResult{
+ s.db.lock().unwrap().execute("INSERT OR REPLACE INTO settings(key,value) VALUES('presentation_privacy',?1)",params![p.enabled.to_string()]).map_err(storage)?;
+ Ok(Json(json!({"ok":true,"tracking_unchanged":true,"notification_details_hidden":p.enabled})))
+}
 fn storage(_:rusqlite::Error)->(StatusCode,String){err(StatusCode::INTERNAL_SERVER_ERROR,"privacy_storage_failed")}
 #[cfg(test)]mod tests{
  use super::*;

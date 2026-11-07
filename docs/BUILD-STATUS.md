@@ -8,8 +8,8 @@ Current source: desktop/agent **0.4.2**, companion **0.3.8**, event protocol **1
 
 | Check | Evidence |
 |---|---|
-| JavaScript policies, queue recovery and adapters | 49 passed |
-| Rust agent on Linux | 53 passed |
+| JavaScript policies, queue recovery and adapters | 50 passed |
+| Rust agent on Linux | 54 passed |
 | SQLite legacy migrations | 8 passed |
 | TypeScript and production frontend | Passed |
 | Renderer interactions | Six checks passed in isolated local Chromium processes; latest Windows rerun pending |
