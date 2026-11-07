@@ -28,7 +28,7 @@ Desktop/agent 0.3.9 and companion 0.3.5 use additive event protocol 1.0 receipts
 
 - 35 Node tests pass (23 at baseline; 12 added). Nine recovery scenarios execute the real companion worker with synthetic Chrome/network/storage surfaces.
 - 31 Rust tests pass on Linux. Added tests exercise real in-memory SQLite ingestion: lost-reply duplicate replay; rollback after an injected derived-write failure; pause/exclusion receipts. Two additional filesystem/SQLite tests cover failed configuration commits and scoped key cleanup using dummy encrypted fixtures.
-- [Windows CI run 42154963954](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42154963954) passed for source commit `767adde5806f78c27f79907b5096ed4debc90aba`: 32 Windows Rust tests including DPAPI round-trip, 35 Node tests, eight SQLite checks, production agent/desktop/installer, development signer checks and artifact upload. Installer/ZIP hashes are recorded in BUILD-STATUS.md.
+- [Windows CI run 42154963954](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42154963954) passed for source commit `767adde5806f78c27f79907b5096ed4debc90aba`: 32 Windows Rust tests including DPAPI round-trip, 35 Node tests, eight SQLite checks, production agent/desktop/installer, development signer checks and artifact upload. Installer/ZIP hashes are recorded in BUILD-STATUS.md.
 - Eight Python/SQLite migration checks pass.
 - Desktop strict TypeScript check and Vite production build pass.
 - Extension syntax checks and git diff whitespace checks pass.

@@ -15,25 +15,25 @@ This ledger distinguishes source work from installed Windows/Brave acceptance. A
 | ID | Requirement | Current state | Evidence / gap |
 |---|---|---|---|
 | F01 | Privacy/network/key status | Live independent Coach/classifier states and request history implemented; Windows/provider acceptance pending | `NetworkPrivacyStatus.tsx; classification.rs`; milestone below |
-| F02 | Pairing/Tracking Doctor | Existing pairing; doctor incomplete | `bridge.rs; BrowserSetupWizard.tsx` |
+| F02 | Pairing/Tracking Doctor | Per-profile staged Doctor implemented; real Brave acceptance open | `bridge.rs; BrowserSetupWizard.tsx` |
 | F03 | Video counting/replay | Source present; real adapter matrix pending | `extension/src/video.js` |
 | F04 | Event queue/rejection/retry | Recovery/ACK/retention implementation verified in automated tests; real MV3 acceptance pending | `queue-policy.js; background.js; ingestion_tests.rs; tests/queue-recovery.test.mjs` |
-| F05 | Efficient live/aggregates | Open: snapshot still scans 100,000 sessions | `agent/src/main.rs` |
+| F05 | Efficient live/aggregates | Compact live API; separate streamed history reader; stale response suppression tested | `agent/src/main.rs` |
 | F06 | Profile attribution | Partial; per-profile reliability unverified | `agent/src/bridge.rs; extension/src/background.js` |
-| F07 | Autoplay/manual playback | Manual playback regression patched; full autoplay policy incomplete | `extension/src/video.js` |
+| F07 | Autoplay/manual playback | Replay/seek/speed/visibility/player replacement fixtures pass; autoplay restores original attributes; real adapter matrix open | `extension/src/video.js` |
 | F08 | Custom dropdowns | Existing control; keyboard/accessibility audit open | `CustomSelect.tsx` |
 | F09 | Command palette | Arrow-key/Enter command navigation added; focus trap runtime acceptance open | `App.tsx` |
 | F10 | Form controls/import | Existing; high-DPI/manual testing open | `FileDropzone.tsx; style.css` |
 | F11 | Onboarding/upgrade | Existing tour; real upgrade/version evidence open | `GuidedTour.tsx; BrowserSetupWizard.tsx` |
-| F12 | Tray/agent lifetime | Existing; full shutdown/crash/duplicate process tests open | `src-tauri/src/main.rs` |
-| F13 | Time/idle/lock | Existing; lock/sleep/clock correction tests open | `agent/src/domain.rs; windows.rs` |
+| F12 | Tray/agent lifetime | Authenticated version negotiation and bounded supervisor; real Windows agent restart/duplicate/stop tests pass; GUI crash/soak open | `src-tauri/src/main.rs` |
+| F13 | Time/idle/lock | Rollback watermark and gap tests pass; lock/real sleep/passive acceptance open | `agent/src/domain.rs; windows.rs` |
 | F14 | Policy conflict/explanations | Existing; enforcement accounting tests open | `agent/src/policy.rs` |
-| F15 | Classification worker | Request status and configuration revision guards added; budgets/full lease/evidence acceptance open | `agent/src/classification.rs` |
-| F16 | Retention/export/purge | Partial; full export and deletion semantics open | `agent/src/main.rs` |
+| F15 | Classification worker | Durable decision memory, one bounded review, leases, request budget, config and data-epoch guards tested; live provider acceptance open | `agent/src/classification.rs` |
+| F16 | Retention/export/purge | Streamed consistent full local snapshots; private windows and scoped/global erasure tombstones tested; encrypted restore remains N08 | `agent/src/main.rs` |
 | F17 | Analytics and coverage | Partial; full reconciliation/uncertainty tests open | `agent/src/main.rs; analytics.rs` |
 | F18 | Deterministic release | Cargo/npm lockfiles and enforced installs added; Windows CI passed; installed upgrade/compatibility acceptance open | `Cargo.lock; package-lock.json; scripts/build-windows.ps1` |
 | F19 | Trust boundaries | Existing IPC/loopback checks; adversarial coverage open | `agent/src/bridge.rs` |
-| F20 | Tests/runtime acceptance | 35 JS, 31 Linux Rust, 8 SQLite checks pass; real Windows/Brave acceptance open | Milestone evidence below |
+| F20 | Tests/runtime acceptance | Checkpoint: 45 JS, 47 Windows Rust, 8 SQLite, 3 Edge renderer tests and Windows lifecycle pass; new workflow checks below | Milestone evidence below |
 | F21 | Storage crash recovery | Ingestion rollback/retry failure injection passes; whole-store crash/disk recovery open | `agent/src/ingestion_tests.rs`; existing health reporting retained |
 | F22 | Overlay/multimonitor | Existing controls; high DPI/recovery tests open | `src-tauri/src/main.rs` |
 
@@ -169,7 +169,7 @@ A follow-up source review found that overwriting one key file before committing 
 
 ### Verified Windows build evidence
 
-[Run 42154963954](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42154963954) passed for source commit `767adde5806f78c27f79907b5096ed4debc90aba`: 35 JavaScript tests, 32 Windows Rust tests (including DPAPI round-trip), 8 SQLite checks, frontend/agent/Tauri packaging, expected development signer identity, and artifact upload. See BUILD-STATUS.md for CI-computed installer and outer-ZIP hashes. The superseded run 42154482188 was cancelled. Documentation-only follow-ups do not change the tested code.
+[Run 42154963954](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42154963954) passed for source commit `767adde5806f78c27f79907b5096ed4debc90aba`: 35 JavaScript tests, 32 Windows Rust tests (including DPAPI round-trip), 8 SQLite checks, frontend/agent/Tauri packaging, expected development signer identity, and artifact upload. See BUILD-STATUS.md for CI-computed installer and outer-ZIP hashes. The superseded run 42154482188 was cancelled. Documentation-only follow-ups do not change the tested code.
 
 Windows CI is not installed Windows/Brave acceptance. F01/F04/F15/F18/F19/F20/F21 retain the remaining runtime/platform limits above; Phase 1 and the full roadmap remain open.
 
@@ -183,6 +183,22 @@ Local evidence before the Windows run: 40 JavaScript tests, 40 Linux Rust tests,
 
 ### Integrated Windows checkpoint verified
 
-Source `d4f5944bbd306b55d2296f78a8573709d7421c28`, run [42223016774](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42223016774), succeeded. Evidence: 40 JavaScript tests, 41 Windows agent tests (including DPAPI), 8 SQLite tests, 1 privileged IPC route test, 3 renderer interaction tests in Edge, real agent version/duplicate/pause/restart/shutdown checks, frontend and Windows installer build. This is automated Windows evidence, not owner-installed Brave acceptance. Installer SHA-256: `e6b7278615528b44e4090380cc09ae42a88ed5b4c2790b9f74fe9b6b02b24f7d`. Development signatures remain self-signed and untrusted.
+Source `d4f5944bbd306b55d2296f78a8573709d7421c28`, run [42223016774](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42223016774), succeeded. Evidence: 40 JavaScript tests, 41 Windows agent tests (including DPAPI), 8 SQLite tests, 1 privileged IPC route test, 3 renderer interaction tests in Edge, real agent version/duplicate/pause/restart/shutdown checks, frontend and Windows installer build. This is automated Windows evidence, not owner-installed Brave acceptance. Installer SHA-256: `e6b7278615528b44e4090380cc09ae42a88ed5b4c2790b9f74fe9b6b02b24f7d`. Development signatures remain self-signed and untrusted.
 
 The next source checkpoint adds tested player adapter/replay/speed/seek/autoplay behavior, separately labeled route visits, schema-11 private intervals and deletion tombstones, AI data-epoch guards, scoped erasure, complete streamed local snapshots (provider credentials excluded; not an encrypted restore system), measured agent resources and persisted Lite scheduling. Further workflow implementation and final combined validation are in progress.
+
+
+## 7 November continuation — focus workflow foundation
+
+The canonical repository moved to `motionedits246-max/digital-discipline-windows`; the branch and source history were preserved. Checkpoint `cdf49e0e1800f706d7322c3294e81469e4f040f0` passed [Windows run 42224610368](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42224610368): 45 JS, 47 Windows Rust, 8 SQLite, 3 Edge interaction tests and real agent lifecycle/snapshot checks. Installer SHA-256 `dfc1063159848850b252ba160ba55af1b2eaaaab6e53e34b1f94f2a022a60c06`.
+
+Current source advances desktop/agent to 0.4.1, companion to 0.3.7 and schema to 12:
+
+- N01: editable app/site profiles; persisted focus/task association and immutable per-session relevance snapshot. Starting focus moves draft/paused task to active, never to completed. Owner outcomes remain separate.
+- N02: explicit direct-video Learning Mode; selected-rule exceptions and separate home/related/Shorts/autoplay controls. Another hard rule still blocks the same video. Playlist/channel/embedded exceptions are explicitly unsupported; no remote transcript/content analysis.
+- N05: 2/5/10-minute exceptions for one selected rule and configured site, optional profile scope and predefined reason; emergency recovery stays separate. Companion expiry alarms and short leases remain fail-open when the agent is unavailable.
+- N06: persisted work/break/paused/finished cycle, bounded scheduled catch-up, optimistic version checks, skip/extend/finish and original-rule restoration. Timers never mint measured work.
+- N07: reviews show planned versus observed eligible/activity time, coverage, switches and owner outcomes; editable/deletable local next-step notes and a dismissible quick-panel resume card.
+- N19: private session and presentation state are distinct; privacy shield is visible and tray can display/toggle presentation state alongside recording/private status.
+
+Local evidence for this source checkpoint: 47 JS and 50 Linux Rust tests, TypeScript/Vite build. Added renderer workflow/private/unlock interaction checks and expanded real Windows agent restart/learning/exception/review/snapshot checks; their CI result is pending. No claim that all N features or installed Brave acceptance are complete. Native app intervention, reward ledger, encrypted restore, verified updates/sync, planner, corrections, passive-learning eligibility and later review/notification features remain to be implemented or expanded.

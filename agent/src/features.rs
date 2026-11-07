@@ -165,26 +165,28 @@ pub(super) async fn delete_goal(Path(id):Path<String>,State(s):State<Arc<AppStat
     Ok(Json(json!({"ok":true})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>}
+pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>,task_id:Option<String>,profile_id:Option<String>,cycle:Option<crate::focus_workflow::CycleInput>,learning:Option<crate::policy_exceptions::LearningInput>}
 pub(super) fn active_focus(db:&Connection,now:i64)->rusqlite::Result<Option<Value>>{
-    db.query_row("SELECT id,goal_id,start_ms,end_ms,difficulty,domains_json FROM focus_sessions WHERE start_ms<=?1 AND end_ms>?1 AND ended_ms IS NULL ORDER BY start_ms DESC LIMIT 1",params![now],|r|{
+    crate::focus_workflow::advance(db,now)?;
+    let mut result=db.query_row("SELECT id,goal_id,start_ms,end_ms,difficulty,domains_json FROM focus_sessions WHERE start_ms<=?1 AND (end_ms>?1 OR EXISTS(SELECT 1 FROM focus_cycles c WHERE c.focus_id=focus_sessions.id AND c.state='paused')) AND ended_ms IS NULL ORDER BY start_ms DESC LIMIT 1",params![now],|r|{
         let domains:String=r.get(5)?;
         Ok(json!({"id":r.get::<_,String>(0)?,"goal_id":r.get::<_,Option<String>>(1)?,"start_ms":r.get::<_,i64>(2)?,"end_ms":r.get::<_,i64>(3)?,"difficulty":r.get::<_,String>(4)?,"block_domains":serde_json::from_str::<Value>(&domains).unwrap_or(json!([]))}))
-    }).optional()
+    }).optional()?;
+    if let Some(f)=&mut result{crate::focus_workflow::augment(db,f)?;}Ok(result)
 }
 /// A hint is emitted only after 60 seconds of a known, user-unlisted application.
 /// Missing browser metadata never becomes a fabricated goal violation.
 pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super::SessionDto>,now:i64)->Option<Value>{
-    let id=focus["goal_id"].as_str()?;
+    let id=focus["goal_id"].as_str();
     let active_focus_id=focus["id"].as_str()?;
     let muted=db.query_row("SELECT until_ms FROM focus_snoozes WHERE focus_id=?1",params![active_focus_id],|r|r.get::<_,i64>(0)).unwrap_or(0);
     if muted>now {return None;}
     let session=current?;
     if session.idle || now-session.start_ms<60_000{return None;}
     if ["brave.exe","chrome.exe","msedge.exe"].contains(&session.app.as_str()) && session.domain.is_none(){return None;}
-    let (apps,domains):(String,String)=db.query_row("SELECT apps_json,domains_json FROM goals WHERE id=?1 AND enabled=1",params![id],|r|Ok((r.get(0)?,r.get(1)?))).ok()?;
-    let apps:Vec<String>=serde_json::from_str(&apps).ok()?;
-    let domains:Vec<String>=serde_json::from_str(&domains).ok()?;
+    let (apps,domains)=if focus["profile_id"].as_str().is_some(){(serde_json::from_value::<Vec<String>>(focus["context"]["apps"].clone()).ok()?,serde_json::from_value::<Vec<String>>(focus["context"]["domains"].clone()).ok()?)}else{
+     let (apps,domains):(String,String)=db.query_row("SELECT apps_json,domains_json FROM goals WHERE id=?1 AND enabled=1",params![id?],|r|Ok((r.get(0)?,r.get(1)?))).ok()?;(serde_json::from_str::<Vec<String>>(&apps).ok()?,serde_json::from_str::<Vec<String>>(&domains).ok()?)
+    };
     if apps.is_empty()&&domains.is_empty(){return None;}
     if apps.iter().any(|a|a==&session.app) || session.domain.as_deref().is_some_and(|d|domains.iter().any(|host|d==host||d.ends_with(&format!(".{host}")))) {return None;}
     Some(json!({"kind":"out_of_goal_scope","since_ms":session.start_ms,
@@ -193,17 +195,23 @@ pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super:
 }
 
 pub(super) async fn start_focus(State(s):State<Arc<AppState>>,Json(p):Json<StartFocus>)->ApiResult{
-    if !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d)){
+    if !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d))||p.cycle.as_ref().is_some_and(|c|!c.valid()){
         return Err(err(StatusCode::BAD_REQUEST,"invalid_focus"));
     }
-    let db=s.db.lock().unwrap();let now=now_ms();
+    let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;let now=now_ms();
+    let db=&tx;
     if active_focus(&db,now).map_err(storage)?.is_some(){return Err(err(StatusCode::CONFLICT,"focus_already_active"));}
     if let Some(id)=&p.goal_id {
         let enabled=db.query_row("SELECT enabled FROM goals WHERE id=?1",params![id],|r|r.get::<_,i64>(0)).optional().map_err(storage)?;
         if enabled!=Some(1){return Err(err(StatusCode::BAD_REQUEST,"goal_not_found"));}
     }
-    let id=Uuid::new_v4().to_string();let end=now+p.minutes as i64*60_000;
+    let (profile,context)=crate::focus_workflow::context(db,p.task_id.as_deref(),p.profile_id.as_deref())?;
+    let planned=p.cycle.as_ref().map_or(p.minutes as i64*60000,|c|c.planned_ms());
+    let id=Uuid::new_v4().to_string();let end=now+planned;
     db.execute("INSERT INTO focus_sessions(id,goal_id,start_ms,end_ms,difficulty,domains_json) VALUES(?1,?2,?3,?4,?5,?6)",params![id,p.goal_id,now,end,p.difficulty,serde_json::to_string(&p.block_domains).unwrap()]).map_err(storage)?;
+    crate::focus_workflow::attach(db,&id,p.task_id.as_deref(),profile.as_deref(),&context,p.cycle.as_ref(),now,planned).map_err(storage)?;
+    if let Some(learning)=&p.learning{let _=crate::policy_exceptions::start_learning(db,&id,learning)?;}
+    tx.commit().map_err(storage)?;
     Ok(Json(json!({"ok":true,"id":id,"end_ms":end,"safety":"emergency_unblock_available"})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
@@ -222,7 +230,9 @@ pub(super) async fn choose_focus_hint(State(s):State<Arc<AppState>>,Json(p):Json
 }
 
 pub(super) async fn end_focus(State(s):State<Arc<AppState>>)->ApiResult{
-    s.db.lock().unwrap().execute("UPDATE focus_sessions SET ended_ms=?1 WHERE ended_ms IS NULL AND end_ms>?1",params![now_ms()]).map_err(storage)?;
+    let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;let now=now_ms();
+    crate::focus_workflow::finish_all(&tx,now).map_err(storage)?;
+    tx.execute("UPDATE focus_sessions SET ended_ms=?1 WHERE ended_ms IS NULL AND end_ms>?1",params![now]).map_err(storage)?;tx.commit().map_err(storage)?;
     Ok(Json(json!({"ok":true,"extension_sync_pending":true})))
 }
 

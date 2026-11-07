@@ -49,3 +49,5 @@ export type LifecycleStatus={state:string;restart_count?:number;expected_version
 export async function lifecycleStatus():Promise<LifecycleStatus>{return isTauri?invoke<LifecycleStatus>('lifecycle_status',{}):{state:'preview'};}
 
 export async function exportActivity():Promise<{saved_path:string;rows:number;complete:boolean}>{return invoke('export_activity',{});}
+
+export async function setPrivacyMask(enabled:boolean):Promise<void>{if(isTauri)await invoke('set_privacy_mask',{enabled});}

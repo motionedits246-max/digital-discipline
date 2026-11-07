@@ -8,6 +8,7 @@ type Task={id:string;profile_id:string|null;title:string;outcome:string;state:st
 type Data={profiles:Profile[];tasks:Task[];may_be_truncated:boolean};
 export function TaskWorkspacePanel({readonly}:{readonly:boolean}){
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [editing,setEditing]=useState('');
  const [profileName,setProfileName]=useState('Coding'),[apps,setApps]=useState('code.exe, cursor.exe'),[domains,setDomains]=useState('github.com, docs.rs');
  const [title,setTitle]=useState('Finish today\'s focused work'),[profileId,setProfileId]=useState('');
  const [outcomes,setOutcomes]=useState<Record<string,string>>({});
@@ -19,7 +20,7 @@ export function TaskWorkspacePanel({readonly}:{readonly:boolean}){
   try{await action();await refresh();}catch(e){setError(String(e));}
   finally{setBusy(false);}
  }
- function createProfile(e:FormEvent){e.preventDefault();void submit(()=>agent('POST','/workflows/profiles',{name:profileName,apps:split(apps),domains:split(domains)}));}
+ function createProfile(e:FormEvent){e.preventDefault();void submit(()=>agent('POST',editing?'/workflows/profiles/'+editing:'/workflows/profiles',{name:profileName,apps:split(apps),domains:split(domains)}).then(()=>setEditing('')));}
  function createTask(e:FormEvent){e.preventDefault();void submit(()=>agent('POST','/workflows/tasks',{title,profile_id:profileId||null}));}
  function transition(id:string,state:string){void submit(()=>agent('POST','/workflows/tasks/'+id,{state,outcome:outcomes[id]||null}));}
  const actions:Record<string,string[]>={draft:['active','abandoned'],active:['paused','completed','abandoned'],paused:['active','completed','abandoned']};
@@ -28,13 +29,13 @@ export function TaskWorkspacePanel({readonly}:{readonly:boolean}){
     <p>Choose what is relevant to a task. Completing it is always your own report, never inferred from elapsed time.</p></div>
     <span className="tag">Local</span></div>
   <div className="double-grid">
-   <article className="surface padded advanced-card"><h3>Create a focus profile</h3>
+   <article className="surface padded advanced-card"><h3>{editing?'Edit focus profile':'Create a focus profile'}</h3>
     <form className="rule-form" onSubmit={createProfile}>
      <label>Profile name<input value={profileName} maxLength={80} onChange={e=>setProfileName(e.target.value)} required/></label>
      <label>Related app executables<textarea value={apps} onChange={e=>setApps(e.target.value)} rows={2}/></label>
      <label>Related public domains<textarea value={domains} onChange={e=>setDomains(e.target.value)} rows={2}/></label>
      <p className="form-hint">Targets describe relevance for this profile only. They do not rewrite global categories or automatically add restrictions.</p>
-     <button className="primary-btn" disabled={busy||readonly}>Create profile</button>
+     <button className="primary-btn" disabled={busy||readonly}>{editing?'Save profile':'Create profile'}</button>{editing&&<button className="secondary-btn" type="button" onClick={()=>setEditing('')}>Cancel edit</button>}
     </form>
    </article>
    <article className="surface padded advanced-card"><h3>Add a task</h3>
@@ -60,7 +61,7 @@ export function TaskWorkspacePanel({readonly}:{readonly:boolean}){
   <article className="surface padded advanced-card"><div className="panel-header"><h3>Saved profiles</h3></div>
    {(data?.profiles||[]).map(p=><div className="settings-row" key={p.id}><div><strong>{p.name}</strong>
     <small>{p.apps.join(', ')||'No app targets'} · {p.domains.join(', ')||'No domain targets'}</small></div>
-    <button type="button" className="secondary-btn" disabled={readonly||busy} onClick={()=>void submit(()=>agent('DELETE','/workflows/profiles/'+p.id))}>Archive</button>
+    <div className="coach-vault-actions"><button type="button" className="secondary-btn" disabled={readonly||busy} onClick={()=>{setEditing(p.id);setProfileName(p.name);setApps(p.apps.join(', '));setDomains(p.domains.join(', '));}}>Edit profile</button><button type="button" className="secondary-btn" disabled={readonly||busy} onClick={()=>void submit(()=>agent('DELETE','/workflows/profiles/'+p.id))}>Archive</button></div>
    </div>)}
   </article>
   {error&&<p role="alert" className="advanced-feedback">{error}</p>}

@@ -24,9 +24,10 @@ impl SingleInstance{
  pub fn event(&self)->isize{self.event}
 }
 impl Drop for SingleInstance{fn drop(&mut self){unsafe{CloseHandle(self.event as *mut c_void);CloseHandle(self.lock as *mut c_void);}}}
-#[derive(Clone)]pub struct Supervisor{wanted:Arc<AtomicBool>,state:Arc<Mutex<Value>>}
+#[derive(Clone)]pub struct Supervisor{pub privacy_mask:Arc<AtomicBool>,wanted:Arc<AtomicBool>,state:Arc<Mutex<Value>>}
 impl Supervisor{
- pub fn new()->Self{Self{wanted:Arc::new(AtomicBool::new(true)),state:Arc::new(Mutex::new(json!({"state":"starting","restart_count":0})))}}
+ pub fn new()->Self{Self{privacy_mask:Arc::new(AtomicBool::new(false)),wanted:Arc::new(AtomicBool::new(true)),state:Arc::new(Mutex::new(json!({"state":"starting","restart_count":0})))}}
+ pub fn wanted(&self)->bool{self.wanted.load(Ordering::SeqCst)}
  pub fn stop(&self){self.wanted.store(false,Ordering::SeqCst);}
  pub fn status(&self)->Value{self.state.lock().unwrap().clone()}
  fn update(&self,status:&str,count:u32){*self.state.lock().unwrap()=json!({"state":status,"restart_count":count,"expected_version":env!("CARGO_PKG_VERSION"),"wanted":self.wanted.load(Ordering::SeqCst)});}
@@ -55,7 +56,7 @@ pub fn start(app:&tauri::AppHandle,supervisor:&Supervisor,event:isize){
   while monitor.wanted.load(Ordering::SeqCst){
    let token=crate::token_path().ok().and_then(|p|fs::read_to_string(p).ok()).unwrap_or_default();
    match health(&client,token.trim()){
-    Some(info) if info["version"]==env!("CARGO_PKG_VERSION")=>{monitor.update("healthy",count);failures=0;},
+    Some(info) if info["version"]==env!("CARGO_PKG_VERSION")=>{monitor.update("healthy",count);{let mut status=monitor.state.lock().unwrap();status["tracking_paused"]=info["tracking_paused"].clone();status["private_session"]=info["private_session"].clone();}failures=0;},
     Some(_)=>{
      monitor.update("replacing_previous_agent",count);
      let _=client.post("http://127.0.0.1:48761/shutdown").bearer_auth(token.trim()).json(&json!({})).send();

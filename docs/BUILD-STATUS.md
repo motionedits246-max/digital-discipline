@@ -23,7 +23,7 @@ The frontend build reports an existing bundle-size warning (about 522 kB before 
 
 ## Windows verification — passed, 6 November 2026
 
-[Windows CI run 42154963954](https://github.com/Priyanshu945628/digital-discipline-windows/actions/runs/42154963954) completed successfully for source commit `767adde5806f78c27f79907b5096ed4debc90aba`.
+[Windows CI run 42154963954](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42154963954) completed successfully for source commit `767adde5806f78c27f79907b5096ed4debc90aba`.
 
 | Check | Result |
 |---|---|

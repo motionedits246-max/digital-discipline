@@ -221,6 +221,12 @@ async fn export_activity()->Result<Value,String>{
 }
 
 #[tauri::command]
+fn set_privacy_mask(app:tauri::AppHandle,enabled:bool){
+ #[cfg(windows)] {app.state::<lifecycle::Supervisor>().privacy_mask.store(enabled,std::sync::atomic::Ordering::SeqCst);}
+ #[cfg(not(windows))] let _=(app,enabled);
+}
+
+#[tauri::command]
 fn lifecycle_status(app:tauri::AppHandle)->Value{
  #[cfg(windows)] {return app.state::<lifecycle::Supervisor>().status();}
  #[cfg(not(windows))] {let _=app;serde_json::json!({"state":"unsupported","note":"Windows desktop supervisor"})}
@@ -255,13 +261,24 @@ fn main() {
               let pause=MenuItem::with_id(app,"pause","Pause tracking",true,None::<&str>)?;
               let resume=MenuItem::with_id(app,"resume","Resume tracking",true,None::<&str>)?;
               let quit=MenuItem::with_id(app,"quit","Quit Digital Discipline",true,None::<&str>)?;
-              let menu=Menu::with_items(app,&[&open,&pause,&resume,&quit])?;
+              let modes=MenuItem::with_id(app,"modes","Checking tracking modes…",false,None::<&str>)?;
+              let privacy=MenuItem::with_id(app,"privacy","Toggle Presentation Mode",true,None::<&str>)?;
+              let supervisor=app.state::<lifecycle::Supervisor>().inner().clone();let modes_copy=modes.clone();
+              std::thread::spawn(move||while supervisor.wanted(){
+                let status=supervisor.status();let private=status["private_session"]["active"]==true;
+                let collection=if status["state"]!="healthy"{"Agent unavailable"}else if private{"Private session"}else if status["tracking_paused"]==true{"Tracking paused"}else{"Tracking on"};
+                let masked=supervisor.privacy_mask.load(std::sync::atomic::Ordering::SeqCst);
+                let _=modes_copy.set_text(format!("{} · Presentation {}",collection,if masked{"on"}else{"off"}));
+                std::thread::sleep(Duration::from_secs(2));
+              });
+              let menu=Menu::with_items(app,&[&modes,&open,&privacy,&pause,&resume,&quit])?;
               TrayIconBuilder::new()
                 .icon(app.default_window_icon().ok_or_else(||std::io::Error::other("Window icon missing"))?.clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app,event|match event.id().as_ref(){
                    "open"=>{if let Some(w)=app.get_webview_window("main"){let _=w.show();}let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.set_focus();}let _=app.emit("dd:open-dashboard",());},
+                   "privacy"=>{let _=app.emit("dd:toggle-privacy",());},
                    "pause"=>send_agent_command("/tracking/pause",r#"{"paused":true}"#),
                    "resume"=>send_agent_command("/tracking/pause",r#"{"paused":false}"#),
                    "quit"=>{app.state::<lifecycle::Supervisor>().stop();send_agent_command("/shutdown","{}");app.exit(0)},
@@ -280,7 +297,7 @@ fn main() {
           #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {api.prevent_close();let _=window.hide();}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity])
+      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

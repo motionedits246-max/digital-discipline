@@ -7,7 +7,7 @@ use serde_json::{json,Value,Map};
 use std::{fs::{self,OpenOptions},io::{Write,BufWriter},path::{Path,PathBuf},sync::{Arc,atomic::{AtomicBool,Ordering}}};
 static EXPORTING:AtomicBool=AtomicBool::new(false);
 struct ExportLease;impl Drop for ExportLease{fn drop(&mut self){EXPORTING.store(false,Ordering::SeqCst);}}
-const TABLES:&[&str]=&["sessions","videos","video_visits","raw_events","category_overrides","classifications","classification_memory","goals","focus_sessions","workflow_profiles","workflow_tasks","rules","rule_states","audits","device_sessions","linked_devices","settings"];
+const TABLES:&[&str]=&["sessions","videos","video_visits","raw_events","category_overrides","classifications","classification_memory","goals","focus_sessions","focus_cycles","focus_cycle_transitions","focus_reviews","learning_sessions","temporary_exceptions","workflow_profiles","workflow_tasks","rules","rule_states","audits","device_sessions","linked_devices","settings"];
 fn write_line(out:&mut impl Write,value:&Value)->Result<(),Box<dyn std::error::Error+Send+Sync>>{serde_json::to_writer(&mut *out,value)?;out.write_all(b"\n")?;Ok(())}
 pub fn write_snapshot(db:&Connection,path:&Path)->Result<Value,Box<dyn std::error::Error+Send+Sync>>{
  let tx=db.unchecked_transaction()?;

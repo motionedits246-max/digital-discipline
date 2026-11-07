@@ -18,6 +18,8 @@ mod tracking;
 mod reporting;
 mod data_lifecycle;
 mod export_snapshot;
+mod focus_workflow;
+mod policy_exceptions;
 mod prediction;
 mod devices;
 mod hourly;
@@ -101,7 +103,7 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
 }
 
 fn initialize_schema(db:&Connection)->rusqlite::Result<()>{
-    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>11{return Err(rusqlite::Error::InvalidQuery);}
+    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>12{return Err(rusqlite::Error::InvalidQuery);}
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, idle INTEGER NOT NULL, domain TEXT);
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_ms);
@@ -187,7 +189,7 @@ async fn auth(State(state): State<Arc<AppState>>, request: Request, next: Next) 
 
 async fn health(State(state):State<Arc<AppState>>) -> ApiResult {
     let version:i32=state.db.lock().unwrap().query_row("PRAGMA user_version",[],|r|r.get(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
-    Ok(Json(json!({"ok":true,"application":"digital-discipline-agent","version":env!("CARGO_PKG_VERSION"),"schema_version":domain::SCHEMA_VERSION,"storage_version":version,"stopping":state.stopping.load(Ordering::SeqCst)})))
+    Ok(Json(json!({"ok":true,"application":"digital-discipline-agent","version":env!("CARGO_PKG_VERSION"),"schema_version":domain::SCHEMA_VERSION,"storage_version":version,"tracking_paused":state.paused.load(Ordering::SeqCst),"private_session":data_lifecycle::private_info(&state.db.lock().unwrap(),now_ms()),"stopping":state.stopping.load(Ordering::SeqCst)})))
 }
 async fn shutdown_agent(State(state):State<Arc<AppState>>) -> Json<Value> {
     state.stopping.store(true,Ordering::SeqCst);
@@ -349,7 +351,8 @@ async fn rules(State(state): State<Arc<AppState>>) -> ApiResult {
     let db=state.db.lock().unwrap();let r=get_rules(&db,now_ms()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     Ok(Json(json!({"ok":true,"rules":r})))
 }
-async fn extension_rules(State(state): State<Arc<AppState>>) -> ApiResult {
+async fn extension_rules(State(state): State<Arc<AppState>>) -> ApiResult {extension_rules_for_profile(state,None).await}
+async fn extension_rules_for_profile(state:Arc<AppState>,profile:Option<String>)->ApiResult{
     let mut db=state.db.lock().unwrap();let now=now_ms();let r=get_rules(&db,now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     // Durable transitions only, no per-minute log spam; policies remain deterministic.
     if let Ok(tx)=db.transaction() {
@@ -367,7 +370,9 @@ async fn extension_rules(State(state): State<Arc<AppState>>) -> ApiResult {
         "action":r.config.action(),"reason":r.name,"expires_at_ms":r.effective_until_ms})).collect::<Vec<_>>();
     if let Ok(Some(f))=features::active_focus(&db,now) {
         let end=f["end_ms"].as_i64().unwrap_or(now);
-        let difficulty=f["difficulty"].as_str().unwrap_or("Gentle");
+        let original=f["difficulty"].as_str().unwrap_or("Gentle");
+        let selected=focus_workflow::restrictions(&db,f["id"].as_str().unwrap_or(""),original).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"focus_workflow_storage_failed"))?;
+        let difficulty=selected.as_deref().unwrap_or("Gentle");
         if difficulty!="Gentle" {
             if let Some(domains)=f["block_domains"].as_array(){
                 for d in domains.iter().filter_map(Value::as_str).take(15){
@@ -384,7 +389,8 @@ async fn extension_rules(State(state): State<Arc<AppState>>) -> ApiResult {
             }
         }
     }
-    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000})))
+    let (blocks,next_policy_check)=policy_exceptions::apply(&db,blocks,profile.as_deref(),now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"policy_exception_storage_failed"))?;
+    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"next_policy_check_ms":next_policy_check})))
 }
 async fn preview_rules(State(state):State<Arc<AppState>>,Json(cmd):Json<RuleInput>)->ApiResult {
     let domain=cmd.domain.trim().to_ascii_lowercase();
@@ -586,18 +592,18 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/tracking/doctor",get(tracking::doctor)).route("/tracking/doctor/rendered",post(tracking::rendered)).route("/tracking/profiles/access",post(tracking::access))
         .route("/tracking/pause",post(pause)).route("/rules",get(rules).post(create_rule))
         .route("/rules/{id}",delete(remove_rule)).route("/extension/rules",get(extension_rules))
-        .route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
+        .route("/policy/exceptions",get(policy_exceptions::list).post(policy_exceptions::create)).route("/policy/exceptions/{id}",delete(policy_exceptions::revoke)).route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
         .route("/export",get(export_data)).route("/export/snapshot",post(export_snapshot::create)).route("/data",delete(delete_data)).route("/data/purge",post(data_lifecycle::purge)).route("/privacy/session",get(data_lifecycle::private_status).post(data_lifecycle::private_session))
         .route("/videos",get(features::video_history)).route("/insights",get(features::insights))
         .route("/categories",get(features::list_categories)).route("/categories/override",post(features::override_category))
         .route("/categories/override/{subject}",delete(features::delete_override))
         .route("/workflows",get(workflow::list))
         .route("/workflows/profiles",post(workflow::add_profile))
-        .route("/workflows/profiles/{id}",delete(workflow::archive_profile))
+        .route("/workflows/profiles/{id}",delete(workflow::archive_profile).post(workflow::update_profile))
         .route("/workflows/tasks",post(workflow::add_task))
         .route("/workflows/tasks/{id}",post(workflow::transition_task))
         .route("/goals",get(features::goals).post(features::create_goal)).route("/goals/{id}",delete(features::delete_goal))
-        .route("/focus/start",post(features::start_focus)).route("/focus/end",post(features::end_focus)).route("/focus/hint/choice",post(features::choose_focus_hint))
+        .route("/focus/cycles/{id}",post(focus_workflow::action)).route("/focus/reviews",get(focus_workflow::reviews)).route("/focus/reviews/{id}",post(focus_workflow::save_review)).route("/focus/start",post(features::start_focus)).route("/focus/end",post(features::end_focus)).route("/focus/hint/choice",post(features::choose_focus_hint))
         .route("/settings",get(features::get_settings).post(features::set_settings))
         .route("/coach",post(features::coach))
         .route("/coach/credentials",get(credentials::list).post(credentials::save))

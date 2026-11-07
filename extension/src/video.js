@@ -101,12 +101,14 @@
       (location.hostname===b.domain || location.hostname.endsWith('.'+b.domain)) &&
       (!b.path_prefix || location.pathname.startsWith(b.path_prefix)));
     const hide=relevant.some(b=>b.action==='hide_feed');
+    const parts=new Set(relevant.filter(b=>b.action==='hide_feed').flatMap(b=>Array.isArray(b.feed_parts)?b.feed_parts:['home','related','shorts']));
     const stop=relevant.some(b=>b.action==='stop_autoplay');
     if(!hide){contentStyle?.remove();contentStyle=null;}
-    else if(!contentStyle) {
+    else {
+      contentStyle?.remove();
       contentStyle=document.createElement('style');contentStyle.id='digital-discipline-soft-policy';
       contentStyle.textContent=location.hostname==='www.youtube.com'
-        ? 'ytd-rich-grid-renderer, ytd-reel-shelf-renderer, ytd-rich-shelf-renderer, ytd-watch-next-secondary-results-renderer {display:none!important}'
+        ? [parts.has('home')?'ytd-rich-grid-renderer':'',parts.has('related')?'ytd-watch-next-secondary-results-renderer':'',parts.has('shorts')?'ytd-reel-shelf-renderer, ytd-rich-shelf-renderer':''].filter(Boolean).join(',')+' {display:none!important}'
         : location.pathname==='/'?'main [role="feed"] {display:none!important}':'';
       document.documentElement.appendChild(contentStyle);
     }

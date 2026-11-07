@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "digital-discipline-agent"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "chrono",
@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "digital-discipline-desktop"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

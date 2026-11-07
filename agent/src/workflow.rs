@@ -88,6 +88,11 @@ pub async fn archive_profile(Path(id):Path<String>,State(s):State<Arc<AppState>>
   .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"workflow_storage_failed"))?;
  Ok(Json(json!({"ok":true,"archived":count>0})))
 }
+pub async fn update_profile(Path(id):Path<String>,State(s):State<Arc<AppState>>,Json(p):Json<NewProfile>)->ApiResult{
+ if Uuid::parse_str(&id).is_err()||!valid_name(&p.name,80)||p.apps.len()>40||p.domains.len()>40||p.apps.iter().any(|a|!app_name(a))||p.domains.iter().any(|d|!domain::valid_domain(d)){return Err(err(StatusCode::BAD_REQUEST,"invalid_profile"));}
+ let changed=s.db.lock().unwrap().execute("UPDATE workflow_profiles SET name=?2,apps_json=?3,domains_json=?4,updated_ms=?5 WHERE id=?1 AND archived=0",params![id,p.name.trim(),serde_json::to_string(&p.apps).unwrap(),serde_json::to_string(&p.domains).unwrap(),now_ms()]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"workflow_storage_failed"))?;
+ if changed==0{return Err(err(StatusCode::NOT_FOUND,"profile_not_found"));}Ok(Json(json!({"ok":true,"existing_session_context_preserved":true})))
+}
 pub async fn add_task(State(s):State<Arc<AppState>>,Json(p):Json<NewTask>)->ApiResult{
  if !valid_name(&p.title,160){return Err(err(StatusCode::BAD_REQUEST,"invalid_task_title"));}
  let db=s.db.lock().unwrap();

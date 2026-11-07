@@ -75,3 +75,19 @@ async fn route_visit_and_duplicate_are_not_qualified_playback(){
  assert_eq!(event_ingest(State(s.clone()),Json(event())).await.unwrap().0["disposition"],"duplicate");assert_eq!(rows(&s,"videos"),0);
  assert_eq!(s.db.lock().unwrap().query_row("SELECT COUNT(*) FROM video_visits",[],|r|r.get::<_,i64>(0)).unwrap(),1);
 }
+#[tokio::test]
+async fn task_focus_snapshots_profile_context_and_owner_outcome_remains_separate(){
+ let s=state();let profile=Uuid::new_v4().to_string();let task=Uuid::new_v4().to_string();
+ {let d=s.db.lock().unwrap();d.execute("INSERT INTO workflow_profiles VALUES(?1,'Python Study','[\"new-editor.exe\"]','[\"www.youtube.com\"]',1,1,0)",params![profile]).unwrap();d.execute("INSERT INTO workflow_tasks(id,profile_id,title,created_ms,updated_ms) VALUES(?1,?2,'Finish lesson exercises',1,1)",params![task,profile]).unwrap();}
+ let payload=serde_json::from_value(json!({"goal_id":null,"minutes":25,"difficulty":"Balanced","block_domains":[],"task_id":task,"profile_id":profile,"cycle":{"work_minutes":25,"break_minutes":5,"cycles":2,"break_policy":"soften"}})).unwrap();
+ let result=features::start_focus(State(s.clone()),Json(payload)).await.unwrap().0;
+ {let d=s.db.lock().unwrap();d.execute("UPDATE workflow_profiles SET apps_json='[\"other.exe\"]' WHERE id=?1",params![profile]).unwrap();let f=features::active_focus(&d,now_ms()).unwrap().unwrap();assert_eq!(f["id"],result["id"]);assert_eq!(f["context"]["apps"][0],"new-editor.exe");assert_eq!(f["context"]["domains"][0],"www.youtube.com");assert_eq!(features::category_for(&d,"brave.exe",Some("www.youtube.com")),"Entertainment");assert_eq!(d.query_row("SELECT state FROM workflow_tasks WHERE id=?1",params![task],|r|r.get::<_,String>(0)).unwrap(),"active");}
+ let _=features::end_focus(State(s.clone())).await.unwrap();let review=focus_workflow::reviews(State(s.clone())).await.unwrap().0;
+ assert_eq!(review["reviews"][0]["context"]["intended_outcome"],"Finish lesson exercises");assert_eq!(review["reviews"][0]["coverage"],"no_observations");assert_eq!(review["reviews"][0]["task_state"],"active");
+}
+#[tokio::test]
+async fn invalid_learning_override_rolls_back_the_whole_session_start(){
+ let s=state();let payload=serde_json::from_value(json!({"goal_id":null,"minutes":25,"difficulty":"Strict","block_domains":["www.youtube.com"],"learning":{"video_ids":["Example123"],"override_rule_ids":[Uuid::new_v4().to_string()],"hide_home":true,"hide_related":true,"hide_shorts":true,"stop_autoplay":true}})).unwrap();
+ assert_eq!(features::start_focus(State(s.clone()),Json(payload)).await.unwrap_err().0,StatusCode::BAD_REQUEST);
+ let d=s.db.lock().unwrap();assert_eq!(d.query_row("SELECT COUNT(*) FROM focus_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+}

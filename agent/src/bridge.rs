@@ -84,11 +84,12 @@ async fn hello(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)-
 async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(info):Json<crate::tracking::SyncInfo>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;
  if !is_paired(&state,id){request_approval(&state,id);return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized_open_desktop_setup"));}
+ let profile=info.profile_id.clone();
  let status={let db=state.db.lock().unwrap();let browser=db.query_row("SELECT browser FROM browser_pairs WHERE extension_id=?1",params![id],|r|r.get::<_,String>(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
  crate::tracking::sync(&db,id,&browser,info,now_ms())};
  status.map_err(|code|err(if code=="profile_revoked_authorize_in_desktop"{StatusCode::FORBIDDEN}else if code=="storage_failed"{StatusCode::INTERNAL_SERVER_ERROR}else{StatusCode::BAD_REQUEST},code))?;
  touch(&state,id).await;
- crate::extension_rules(State(state)).await
+ crate::extension_rules_for_profile(state,profile).await
 }
 async fn event(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(mut payload):Json<crate::Event>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;

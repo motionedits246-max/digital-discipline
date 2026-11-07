@@ -1,6 +1,6 @@
 import {shouldNotify} from "./notifications.js";
 import {classifyDelivery, acknowledgement, safeDeliveryReason, pruneQueue, pruneQuarantine, withQuarantine, nextRetryDelay} from './queue-policy.js';
-import {isValidDomain,safePrefix,matchesRule,regexFor} from "./rules.js";
+import {isValidDomain,safePrefix,matchesRule,regexFor,learningAllowRules} from "./rules.js";
 // The master agent token never enters extension storage or browser pages.
 const BRIDGE = 'http://127.0.0.1:48761';
 const RULE_ID_START = 800000;
@@ -22,7 +22,7 @@ async function request(message) {
     let syncBody='{}';
     if(sync){const opts=await storage(),d=opts.queueDiagnostics||{};syncBody=JSON.stringify({profile_id:await profileId(),browser:await browserInfo(),recording_enabled:opts.collectionEnabled===true,queued:(opts.eventQueue||[]).length,
       adapter:opts.collectionEnabled!==true?'recording_off':Date.now()-adapterAt<30000?adapterState:'unknown',qualified_at_ms:opts.videoObserved?.lastAt||0,
-      companion_version:chrome.runtime.getManifest?.().version||'0.3.6',loss_count:(d.expired||0)+(d.overflow||0)+(d.invalid||0)+(d.rejected||0)});}
+      companion_version:chrome.runtime.getManifest?.().version||'0.3.7',loss_count:(d.expired||0)+(d.overflow||0)+(d.invalid||0)+(d.rejected||0)});}
     const response=await fetch(BRIDGE+(sync?'/bridge/sync':'/bridge/event'),{
       method:'POST',headers:{'X-DD-Bridge':'1','Content-Type':'application/json'},
       body:sync?syncBody:JSON.stringify(message.event),cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(6000)
@@ -215,6 +215,8 @@ async function applyBlocks(blocks) {
   const safe=blocks.filter(x=>x && x.expires_at_ms>now && x.expires_at_ms<=now+240000 && domainValid(x.domain) && ['block','hide_feed','stop_autoplay','notify'].includes(x.action||'block')).slice(0,500);
   // Only navigation-deny policies become DNR rules. Visual policies belong to the content adapter.
   const next=safe.filter(b=>(b.action||'block')==='block').map((block,i)=>makeDnrRule(block,RULE_ID_START+i)).filter(Boolean);
+  next.push(...learningAllowRules(safe,RULE_ID_START+1000));
+  if(safe.length)chrome.alarms.create('policy-lease',{when:Math.min(...safe.map(b=>b.expires_at_ms))});
   await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:ownedIds,addRules:next});
   await chrome.storage.local.set({ownedIds:next.map(x=>x.id),blocks:safe});
   // Rule acknowledgement is separate from optional browser activity recording.
@@ -249,6 +251,7 @@ function syncRules({force=false}={}) {
     if (Date.now()>=emergencyUntil && blocks.some(b=>!b.expires_at_ms || b.expires_at_ms<=Date.now())) await applyBlocks(blocks);
     const reply=await request({op:'sync'});
     if (!reply.ok) return reply;
+    if(Number.isFinite(reply.next_policy_check_ms)&&reply.next_policy_check_ms>Date.now())chrome.alarms.create('policy-boundary',{when:reply.next_policy_check_ms});
     if (reply.schema_version==='1.0' && Array.isArray(reply.blocks) && Date.now()>=emergencyUntil) await applyBlocks(reply.blocks);
     await drainQueue({force});
     return reply;
@@ -270,6 +273,7 @@ chrome.runtime.onInstalled.addListener(async()=>{
 chrome.runtime.onStartup.addListener(()=>{chrome.alarms.create('heartbeat',{periodInMinutes:1});tabChanged();syncRules();});
 chrome.alarms.onAlarm.addListener(async alarm=>{
   try {
+    if(['policy-lease','policy-boundary'].includes(alarm.name)){await applyBlocks((await storage()).blocks||[]);await syncRules({force:true});}
     if(alarm.name===RETRY_ALARM)await drainQueue();
     if(alarm.name==='heartbeat'){await tabChanged();await drainQueue();await syncRules();}
   }catch{lastQueueError='queue_storage_failed';}
