@@ -66,6 +66,6 @@ The companion's Delivery & recovery section distinguishes acknowledged events, p
 - Pausing tracking does not disable restrictions. Browser policies use short fail-open leases (at most three minutes without renewal); emergency recovery is available in the companion.
 - Closing the desktop keeps intended background activity; use explicit Quit to stop it. Installed lifecycle/crash acceptance still needs the scenarios in the ledger.
 - Local API authentication protects against ordinary unauthorized calls, not malware running as the same Windows user.
-- Existing exports can be truncated and exclusion does not automatically purge old history. Full backup, scoped purge, verified updates and automatic sync remain roadmap work.
+- The complete local snapshot includes a completion footer and is cancelled if privacy or deletion changes invalidate it. Exclusions apply to future collection; use scoped or full deletion to erase existing history. Full encrypted restore, verified updates and automatic sync remain roadmap work.
 
 The original [blueprint](docs/blueprint/README.md) and its 32 feature definitions are retained as design history. Historical release notes describe their own revisions; use the current ledger and build evidence for this branch.

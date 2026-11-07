@@ -290,6 +290,7 @@ label.check-line,.advanced-card label.check-line,.rule-form label.check-line {
 .dd-presentation-mode .workspace .sidebar-footer .agent-health small {visibility:hidden}
 .dd-presentation-mode .dd-privacy-quick{display:none}
 .dd-presentation-mode .pill-count{opacity:.7}
+.dd-presentation-mode .dd-calendar,.dd-presentation-mode .dd-select-list{display:none!important}
 .dd-privacy-active{border-color:#9c9ca9!important;color:#e5e5ed!important}
 
 .dd-date{display:inline-flex}.dd-date-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#242429;color:#e5e5ec;border:1px solid #44444e;border-radius:9px;padding:9px 12px;font:inherit;cursor:pointer;min-height:37px}

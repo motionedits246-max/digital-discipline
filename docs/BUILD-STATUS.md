@@ -29,6 +29,8 @@ Current work includes custom calendar/time/select controls; a visible privacy sh
 
 Queued AI jobs recheck the current app/domain exclusions when claimed. Excluded reviews and owner overrides do not prevent other eligible services from being classified; exclusion matching includes domain boundaries and case-insensitive Windows app names. Tests cover exclusions added after queuing and later removed, without making provider requests.
 
+Presentation masking also closes portaled calendars/dropdowns when activated without a pointer event, including the native tray, and masks the browser setup screen without discarding its draft. The renderer privacy check covers open calendar/month popups and draft restoration.
+
 Full encrypted backup/restore, trusted updating, automatic multi-device sync, earned entertainment rewards, planner/correction/passive-learning and later expanded roadmap items remain open. Native application intervention is a visible warning capability while foreground recording is active; it does not block or kill apps. Desktop notifications are inbox-only. Resource numbers currently measure the agent process.
 
 Real owner-installed Windows/Brave upgrade/recording, multi-monitor/high-DPI, browser adapter edge cases, long recovery and 24-hour resource soak remain acceptance tasks. CI executables use self-signed development certificates, which do not establish Windows publisher trust.

@@ -18,8 +18,9 @@ export function DatePicker({value,onChange,min='1900-01-01',max='2100-12-31',dis
   const place=()=>{const box=trigger.current?.getBoundingClientRect();if(!box)return;const width=Math.min(296,window.innerWidth-16),height=Math.min(366,window.innerHeight-16);
    const below=window.innerHeight-box.bottom-8;setPosition({width,height,left:Math.max(8,Math.min(box.left,window.innerWidth-width-8)),top:Math.max(8,Math.min(below>=height?box.bottom+6:box.top-height-6,window.innerHeight-height-8))});};
   const outside=(e:PointerEvent)=>{const node=e.target as Node;if(!trigger.current?.contains(node)&&!panel.current?.contains(node)&&!(node instanceof Element&&node.closest('.dd-select-list')))close(false);};
-  place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);document.addEventListener('pointerdown',outside);
-  return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);document.removeEventListener('pointerdown',outside);};
+  const mask=()=>close(false);
+  place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);window.addEventListener('dd:privacy-mask',mask);document.addEventListener('pointerdown',outside);
+  return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);window.removeEventListener('dd:privacy-mask',mask);document.removeEventListener('pointerdown',outside);};
  },[open]);
  useEffect(()=>{if(open){const button=panel.current?.querySelector<HTMLButtonElement>('[data-day="'+active+'"]');button?.focus();button?.scrollIntoView({block:'nearest'});}},[open,active]);
  const current=parseDay(active)!,months=Array.from({length:12},(_,i)=>new Date(2000,i,1).toLocaleDateString(undefined,{month:'long'}));
@@ -37,7 +38,7 @@ export function DatePicker({value,onChange,min='1900-01-01',max='2100-12-31',dis
  </button>{open&&createPortal(<div ref={panel} id={uid} role="dialog" aria-label={label} className="dd-calendar" style={{position:'fixed',left:position.left,top:position.top,width:position.width,maxHeight:position.height}} onKeyDown={key}>
   <div className="calendar-heading"><button type="button" className="icon-btn" aria-label="Previous month" disabled={!valid(shiftMonth(active,-1))} onClick={()=>move(shiftMonth(active,-1))}>‹</button>
    <CustomSelect aria-label="Month" value={current.getMonth()} onChange={e=>move(shiftMonth(active,+e.target.value-current.getMonth()))}>{months.map((name,i)=><option value={i} key={name}>{name}</option>)}</CustomSelect>
-   <CustomSelect aria-label="Year" value={current.getFullYear()} onChange={e=>move(shiftMonth(active,(+e.target.value-current.getFullYear())*12))}>{Array.from({length:211},(_,i)=><option value={1900+i} key={1900+i}>{1900+i}</option>)}</CustomSelect>
+   <CustomSelect aria-label="Year" value={current.getFullYear()} onChange={e=>move(shiftMonth(active,(+e.target.value-current.getFullYear())*12))}>{Array.from({length:201},(_,i)=><option value={1900+i} key={1900+i}>{1900+i}</option>)}</CustomSelect>
    <button type="button" className="icon-btn" aria-label="Next month" disabled={!valid(shiftMonth(active,1))} onClick={()=>move(shiftMonth(active,1))}>›</button></div>
   <div role="grid" aria-label={months[current.getMonth()]+' '+current.getFullYear()} className="calendar-grid"><div role="row" className="calendar-week">{['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=><span role="columnheader" key={d}>{d}</span>)}</div>
    {Array.from({length:6},(_,week)=><div role="row" className="calendar-week" key={week}>{monthDays(active).slice(week*7,week*7+7).map(day=><button role="gridcell" type="button" data-day={day} aria-label={parseDay(day)!.toLocaleDateString(undefined,{dateStyle:'full'})} aria-selected={day===value} aria-current={day===today?'date':undefined} tabIndex={day===active?0:-1} disabled={!valid(day)} className={(day.slice(0,7)!==active.slice(0,7)?'adjacent ':'')+(day===value?'selected ':'')+(day===today?'today':'')} key={day} onClick={()=>choose(day)}>{+day.slice(8)}</button>)}</div>)}</div>

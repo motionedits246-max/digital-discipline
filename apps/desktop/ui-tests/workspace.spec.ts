@@ -2,11 +2,18 @@ import {test,expect} from '@playwright/test';
 test('presentation privacy stays visible and restores the existing form draft',async({page})=>{
  await page.goto('/');await page.getByRole('button',{name:'Activity History',exact:true}).click();
  const model=page.getByLabel('Model ID',{exact:true});await model.fill('draft-model-kept');
- await page.getByRole('button',{name:'Presentation mode',exact:true}).click();
+ await page.getByRole('button',{name:'History date',exact:true}).click();
+ await page.getByRole('combobox',{name:'Month',exact:true}).click();
+ await expect(page.getByRole('listbox',{name:'Month',exact:true})).toBeVisible();
+ // Keyboard/tray activation has no outside pointerdown to dismiss portaled menus.
+ await page.getByRole('button',{name:'Presentation mode',exact:true}).evaluate(el=>el.click());
  await expect(page.getByRole('heading',{name:'Your activity details are hidden'})).toBeVisible();
  await expect(model).not.toBeVisible();
+ await expect(page.locator('.dd-calendar')).toHaveCount(0);
+ await expect(page.locator('.dd-select-list')).toHaveCount(0);
  await page.getByRole('button',{name:'Show my workspace',exact:true}).click();
  await expect(model).toHaveValue('draft-model-kept');
+ await expect(page.locator('.dd-calendar')).toHaveCount(0);
 });
 test('custom calendar supports keyboard dates and Escape restores focus',async({page})=>{
  await page.goto('/');await page.getByRole('button',{name:'Activity History',exact:true}).click();
