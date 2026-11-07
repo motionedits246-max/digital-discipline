@@ -81,9 +81,10 @@ async fn hello(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)-
  if paired{touch(&state,id).await;}else{request_approval(&state,id);}
  Ok(Json(json!({"ok":true,"paired":paired,"transport":"loopback","schema_version":"1.0"})))
 }
-async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(info):Json<crate::tracking::SyncInfo>)->ApiResult {
+async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(mut info):Json<crate::tracking::SyncInfo>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;
  if !is_paired(&state,id){request_approval(&state,id);return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized_open_desktop_setup"));}
+ if crate::data_lifecycle::is_private(&state.db.lock().unwrap(),now_ms()){info.recording_enabled=Some(false);info.adapter=Some("private_session".into());}
  let profile=info.profile_id.clone();
  let status={let db=state.db.lock().unwrap();let browser=db.query_row("SELECT browser FROM browser_pairs WHERE extension_id=?1",params![id],|r|r.get::<_,String>(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
  crate::tracking::sync(&db,id,&browser,info,now_ms())};

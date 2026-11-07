@@ -20,6 +20,7 @@ mod data_lifecycle;
 mod export_snapshot;
 mod focus_workflow;
 mod policy_exceptions;
+mod inbox;
 mod prediction;
 mod devices;
 mod hourly;
@@ -103,7 +104,7 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
 }
 
 fn initialize_schema(db:&Connection)->rusqlite::Result<()>{
-    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>12{return Err(rusqlite::Error::InvalidQuery);}
+    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>13{return Err(rusqlite::Error::InvalidQuery);}
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, idle INTEGER NOT NULL, domain TEXT);
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_ms);
@@ -390,7 +391,7 @@ async fn extension_rules_for_profile(state:Arc<AppState>,profile:Option<String>)
         }
     }
     let (blocks,next_policy_check)=policy_exceptions::apply(&db,blocks,profile.as_deref(),now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"policy_exception_storage_failed"))?;
-    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"next_policy_check_ms":next_policy_check})))
+    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"purge_before_ms":features::read_setting(&db,"activity_deleted_before_ms").parse::<i64>().unwrap_or(0),"private_until_ms":features::read_setting(&db,"private_until_ms").parse::<i64>().unwrap_or(0),"next_policy_check_ms":next_policy_check})))
 }
 async fn preview_rules(State(state):State<Arc<AppState>>,Json(cmd):Json<RuleInput>)->ApiResult {
     let domain=cmd.domain.trim().to_ascii_lowercase();
@@ -603,6 +604,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/workflows/tasks",post(workflow::add_task))
         .route("/workflows/tasks/{id}",post(workflow::transition_task))
         .route("/goals",get(features::goals).post(features::create_goal)).route("/goals/{id}",delete(features::delete_goal))
+        .route("/inbox",get(inbox::list)).route("/inbox/{id}",post(inbox::dismiss))
         .route("/focus/cycles/{id}",post(focus_workflow::action)).route("/focus/reviews",get(focus_workflow::reviews)).route("/focus/reviews/{id}",post(focus_workflow::save_review)).route("/focus/start",post(features::start_focus)).route("/focus/end",post(features::end_focus)).route("/focus/hint/choice",post(features::choose_focus_hint))
         .route("/settings",get(features::get_settings).post(features::set_settings))
         .route("/coach",post(features::coach))

@@ -29,7 +29,7 @@ function Wait-Agent {
 try {
  $first=Start-TestAgent
  $ready=Wait-Agent
- if($ready.health.version -ne $runtimeExpectedVersion -or $ready.health.storage_version -lt 12){throw 'Agent version or migration mismatch'}
+ if($ready.health.version -ne $runtimeExpectedVersion -or $ready.health.storage_version -lt 13){throw 'Agent version or migration mismatch'}
  $duplicate=Start-TestAgent
  if(-not $duplicate.WaitForExit(5000) -or $duplicate.ExitCode -eq 0){throw 'Duplicate agent did not exit without collecting'}
  $auth=@{Authorization="Bearer $($ready.token)"}

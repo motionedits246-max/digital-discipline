@@ -24,7 +24,7 @@ async function worker(state={},deliver){
   declarativeNetRequest:{async updateDynamicRules(){}},notifications:{async create(){}}
  };
  globalThis.fetch=async(url,options)=>{
-  if(url.endsWith('/bridge/sync'))return Response.json({ok:true,schema_version:'1.0',blocks:[]});
+  if(url.endsWith('/bridge/sync'))return Response.json({ok:true,schema_version:'1.0',blocks:[],...(state.syncReply||{})});
   const e=JSON.parse(options.body);
   if(e.kind==='block.ack')return Response.json({ok:true,event_id:e.event_id});
   requests.push(e);
@@ -120,4 +120,15 @@ test('large backlog yields bounded batches and continues on a browser wake',asyn
 test('expired recovery metadata is removed even when there are no new rejections',async()=>{
  const w=await worker({eventQueue:[],eventQuarantine:[{at:Date.now()-8*86400000,event_id:'old-event-id',kind:'video.progress',reason:'expired'}]});
  await w.message({op:'resync'});assert.deepEqual(w.state.eventQuarantine,[]);
+});
+
+test('desktop erasure clears companion history metadata without changing profile or recording consent',async()=>{
+ const cutoff=Date.now()-5000,old=observation(crypto.randomUUID(),cutoff-1),recent=observation(),profile=crypto.randomUUID();
+ const w=await worker({collectionEnabled:true,profileId:profile,eventQueue:[old,recent],videoObserved:{shorts:4},eventQuarantine:[{event_id:old.event_id,kind:old.kind,reason:'invalid_envelope',at:cutoff-100}],syncReply:{purge_before_ms:cutoff}});
+ await w.message({op:'resync'});assert.equal(w.state.profileId,profile);assert.equal(w.state.collectionEnabled,true);assert.equal(w.state.videoObserved.shorts,0);assert.equal(w.state.eventQuarantine.length,0);assert.equal(w.requests.some(e=>e.event_id===old.event_id),false);assert.ok(w.requests.some(e=>e.event_id===recent.event_id));
+});
+test('agent private window suppresses new companion playback without revoking consent',async()=>{
+ const w=await worker({collectionEnabled:true,eventQueue:[],syncReply:{private_until_ms:Date.now()+60000}});await w.message({op:'resync'});
+ const sender={frameId:0,tab:{url:'https://www.youtube.com/shorts/Example123'}};
+ const reply=await w.message({op:'video',kind:'video.qualified_play',page_url:sender.tab.url,instance_id:crypto.randomUUID(),watched_ms:2300},sender);assert.equal(reply.error,'private_session_active');assert.equal(w.state.eventQueue.length,0);assert.equal(w.state.collectionEnabled,true);
 });

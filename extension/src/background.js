@@ -14,15 +14,15 @@ let lastConnectAttemptAt = 0;
 let adapterState='unknown';let adapterAt=0;let foregroundTimer=null;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
-async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved']); }
+async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved','agentPrivateUntil']); }
 async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
   try {
     let syncBody='{}';
-    if(sync){const opts=await storage(),d=opts.queueDiagnostics||{};syncBody=JSON.stringify({profile_id:await profileId(),browser:await browserInfo(),recording_enabled:opts.collectionEnabled===true,queued:(opts.eventQueue||[]).length,
-      adapter:opts.collectionEnabled!==true?'recording_off':Date.now()-adapterAt<30000?adapterState:'unknown',qualified_at_ms:opts.videoObserved?.lastAt||0,
-      companion_version:chrome.runtime.getManifest?.().version||'0.3.7',loss_count:(d.expired||0)+(d.overflow||0)+(d.invalid||0)+(d.rejected||0)});}
+    if(sync){const opts=await storage(),d=opts.queueDiagnostics||{};syncBody=JSON.stringify({profile_id:await profileId(),browser:await browserInfo(),recording_enabled:opts.collectionEnabled===true&&!(opts.agentPrivateUntil>Date.now()),queued:(opts.eventQueue||[]).length,
+      adapter:opts.collectionEnabled!==true?'recording_off':opts.agentPrivateUntil>Date.now()?'private_session':Date.now()-adapterAt<30000?adapterState:'unknown',qualified_at_ms:opts.videoObserved?.lastAt||0,
+      companion_version:chrome.runtime.getManifest?.().version||'0.3.8',loss_count:(d.expired||0)+(d.overflow||0)+(d.invalid||0)+(d.rejected||0)});}
     const response=await fetch(BRIDGE+(sync?'/bridge/sync':'/bridge/event'),{
       method:'POST',headers:{'X-DD-Bridge':'1','Content-Type':'application/json'},
       body:sync?syncBody:JSON.stringify(message.event),cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(6000)
@@ -35,6 +35,7 @@ async function request(message) {
       lastConnectionError=safeDeliveryReason(response.status,reply?.error);
       return {ok:false,error:lastConnectionError,http_status:response.status,delivery:classifyDelivery(response.status)};
     }
+    if(sync){await applyAgentPurge(reply.purge_before_ms);if(Number.isSafeInteger(reply.private_until_ms)&&reply.private_until_ms>=0)await chrome.storage.local.set({agentPrivateUntil:reply.private_until_ms});}
     connected=true;lastConnectionError='';lastNativeReplyAt=Date.now();
     return reply;
   } catch {
@@ -47,6 +48,15 @@ function withQueueLock(fn) {
   const next = queueOps.then(fn, fn);
   queueOps = next.catch(() => {});
   return next;
+}
+async function applyAgentPurge(cutoff){
+ if(!Number.isSafeInteger(cutoff)||cutoff<=0||cutoff>Date.now()+300000)return;
+ await withQueueLock(async()=>{
+  const {lastAgentDeletion=0}=await chrome.storage.local.get(['lastAgentDeletion']);if(cutoff<=lastAgentDeletion)return;
+  const state=await storage(),queue=(state.eventQueue||[]).filter(e=>e?.occurred_at_ms>cutoff||e?.kind==='block.ack');
+  const next=queueUpdate({...state,eventQuarantine:[],queueDiagnostics:{}},queue);
+  await chrome.storage.local.set({...next,lastAgentDeletion:cutoff,videoObserved:{shorts:0,watches:0,reels:0,lastAt:0},navigationRoutes:{}});
+ });
 }
 const count = value => Number.isSafeInteger(value) && value>=0 ? value : 0;
 function queueUpdate(state, input) {
@@ -68,7 +78,7 @@ async function pushEvent(kind, payload) {
   const saved=await withQueueLock(async () => {
     const state=await storage();
     // Check consent in the same serialized operation as the queue write.
-    if(state.collectionEnabled!==true)return false;
+    if(state.collectionEnabled!==true||state.agentPrivateUntil>Date.now())return false;
     await chrome.storage.local.set(queueUpdate(state,[...(state.eventQueue||[]),newEvent(kind,payload,await profileId())]));
     return true;
   });
@@ -170,7 +180,7 @@ function videoRoute(raw){
 async function navigationVisit(tabId,raw){
  const route=videoRoute(raw);if(!route||!Number.isInteger(tabId))return;
  const saved=await withQueueLock(async()=>{
-  const state=await storage();if(state.collectionEnabled!==true)return false;
+  const state=await storage();if(state.collectionEnabled!==true||state.agentPrivateUntil>Date.now())return false;
   const {navigationRoutes={}}=await chrome.storage.local.get(['navigationRoutes']);const now=Date.now(),key=route.platform+':'+route.video_id;
   const prior=navigationRoutes[tabId];if(prior?.key===key&&now-prior.at<2000)return false;
   navigationRoutes[tabId]={key,at:now};const recent=Object.fromEntries(Object.entries(navigationRoutes).sort((a,b)=>b[1].at-a[1].at).slice(0,50));
@@ -180,7 +190,7 @@ async function navigationVisit(tabId,raw){
 async function tabChanged() {
   try {
     const window=await chrome.windows.getLastFocused();
-    const collecting=(await storage()).collectionEnabled===true;
+    const settings=await storage();const collecting=settings.collectionEnabled===true&&!(settings.agentPrivateUntil>Date.now());
     if(window.focused&&collecting&&!foregroundTimer)foregroundTimer=setInterval(()=>{void tabChanged().then(()=>syncRules()).catch(()=>{});},15000);
     if((!window.focused||!collecting)&&foregroundTimer){clearInterval(foregroundTimer);foregroundTimer=null;}
     if (!window.focused || window.id === chrome.windows.WINDOW_ID_NONE) {
@@ -305,8 +315,8 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     const id=watch ? url.searchParams.get('v')?.match(/^[a-zA-Z0-9_-]{5,128}$/)?.[0] : host==='www.youtube.com' ? url.pathname.match(/^\/shorts\/([a-zA-Z0-9_-]+)/)?.[1] : url.pathname.match(/^\/reels?\/([a-zA-Z0-9_-]+)/)?.[1];
     if (!id) {sendResponse({ok:false,error:'unrecognized_video_route'});return;}
     (async()=>{
-      const opts=await chrome.storage.local.get(['collectionEnabled','videoObserved']);
-      if(opts.collectionEnabled!==true){sendResponse({ok:false,error:'recording_off'});return;}
+      const opts=await chrome.storage.local.get(['collectionEnabled','videoObserved','agentPrivateUntil']);
+      if(opts.collectionEnabled!==true||opts.agentPrivateUntil>Date.now()){sendResponse({ok:false,error:opts.agentPrivateUntil>Date.now()?'private_session_active':'recording_off'});return;}
       if(msg.kind==='video.qualified_play'){
         const observed=opts.videoObserved||{shorts:0,watches:0,reels:0,lastAt:0};
         if(plat==='youtube_shorts')observed.shorts=(observed.shorts||0)+1;
@@ -321,7 +331,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
     return true;
   }
   if (msg?.op==='getStatus') {
-    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],eventQuarantine=[],queueDiagnostics={},collectionEnabled=false,videoObserved={}})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,quarantined:eventQuarantine.length,queueDiagnostics,retryAfter:queueDiagnostics.retry_at_ms||0,collectionEnabled,videoObserved,lastQueueError,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"})).catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));return true;
+    storage().then(({blocks=[],emergencyUntil=0,eventQueue=[],eventQuarantine=[],queueDiagnostics={},collectionEnabled=false,videoObserved={},agentPrivateUntil=0})=>sendResponse({connected,blocks,emergencyUntil,queued:eventQueue.length,quarantined:eventQuarantine.length,queueDiagnostics,retryAfter:queueDiagnostics.retry_at_ms||0,collectionEnabled,agentPrivateUntil,videoObserved,lastQueueError,lastConnectionError,lastNativeReplyAt,lastConnectAttemptAt,transport:"Direct localhost"})).catch(()=>sendResponse({ok:false,error:'queue_storage_failed'}));return true;
   }
   if (msg?.op==='checkBlocked') {
     storage().then(({blocks=[],emergencyUntil=0})=>sendResponse({blocked:Date.now()>=emergencyUntil&&blocks.some(b=>b.action==='block' && b.expires_at_ms>Date.now() && ruleMatches(sender.tab?.url || '',b)),blocks:Date.now()>=emergencyUntil?blocks.filter(b=>b.expires_at_ms>Date.now()):[]}));return true;
@@ -361,3 +371,5 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
 });
 chrome.alarms.create('heartbeat',{periodInMinutes:1});
 void restoreRetryAlarm().catch(()=>{lastQueueError='queue_storage_failed';});
+
+chrome.storage.onChanged?.addListener((changes,area)=>{if(area==='local'&&changes.agentPrivateUntil)void tabChanged().catch(()=>{});});

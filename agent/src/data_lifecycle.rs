@@ -27,7 +27,7 @@ pub fn clear_activity(db:&Connection,at:i64)->rusqlite::Result<()>{
  let tx=db.unchecked_transaction()?;
  tx.execute_batch("DELETE FROM sessions;DELETE FROM raw_events;DELETE FROM videos;DELETE FROM video_visits;
   DELETE FROM classifications;DELETE FROM classification_memory;DELETE FROM classification_job_state;DELETE FROM classification_attempts;DELETE FROM classification_requests;
-  DELETE FROM audits;DELETE FROM rule_states;DELETE FROM focus_snoozes;DELETE FROM focus_sessions;DELETE FROM device_sessions;DELETE FROM linked_devices;
+  DELETE FROM local_inbox;DELETE FROM audits;DELETE FROM rule_states;DELETE FROM focus_snoozes;DELETE FROM focus_sessions;DELETE FROM device_sessions;DELETE FROM linked_devices;
   UPDATE browser_instances SET domain=NULL,focused=0,qualified_at_ms=0,accepted_at_ms=0,accepted_count=0,rendered_ms=0,last_activity_ms=0;")?;
  tx.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('activity_deleted_before_ms',?1)",params![at.to_string()])?;
  advance_epoch(&tx)?;tx.commit()
@@ -44,6 +44,7 @@ pub fn erase_subjects(db:&Connection,subjects:&[String],at:i64)->rusqlite::Resul
    if let Some(platform)=platform{db.execute("DELETE FROM raw_events WHERE event_id IN(SELECT event_id FROM video_visits WHERE platform LIKE ?1)",params![platform])?;db.execute("DELETE FROM videos WHERE platform LIKE ?1",params![platform])?;db.execute("DELETE FROM video_visits WHERE platform LIKE ?1",params![platform])?;}
    db.execute("UPDATE browser_instances SET domain=NULL,focused=0 WHERE domain=?1 OR domain LIKE ?2",params![host,format!("%.{host}")])?;
   }
+  db.execute("DELETE FROM local_inbox WHERE subject=?1 OR (?2 IS NOT NULL AND subject LIKE ?3)",params![subject,host,format!("domain:%.{}",host.unwrap_or(""))])?;
   for table in ["classifications","classification_memory","classification_job_state","classification_attempts"]{
    db.execute(&format!("DELETE FROM {table} WHERE lower(subject)=?1 OR (?2 IS NOT NULL AND subject LIKE ?3)"),params![subject,host,format!("domain:%.{}",host.unwrap_or(""))])?;
   }
@@ -68,6 +69,7 @@ pub async fn private_session(State(s):State<Arc<AppState>>,Json(p):Json<PrivateI
  Ok(Json(private_info(&db,now)))
 }
 pub fn prune(db:&Connection,cutoff:i64,now:i64)->rusqlite::Result<()>{
+ db.execute("DELETE FROM local_inbox WHERE updated_ms<?1",params![cutoff])?;
  db.execute("DELETE FROM video_visits WHERE occurred_ms<?1",params![cutoff])?;
  db.execute("DELETE FROM classification_requests WHERE started_ms<?1",params![cutoff])?;
  db.execute("DELETE FROM classification_memory WHERE last_used_ms<?1 AND subject NOT IN(SELECT subject FROM category_overrides)",params![cutoff])?;

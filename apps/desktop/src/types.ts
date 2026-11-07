@@ -15,5 +15,5 @@ export type Snapshot = {
   current:Session|null;sessions:Session[];heatmap:Day[];rules:Rule[];goals?:Goal[];focus?:Focus|null;focus_goal_hint?:{kind:string;text:string;since_ms:number}|null;
   coverage:{windows_collector:string;browser:string;no_data_is_not_zero:boolean};
 };
-export type Page = 'Overview'|'Live Activity'|'Activity History'|'Video Intelligence'|'Focus & Goals'|'Blocking Center'|'Automations'|'Behavior Insights'|'AI Coach'|'Devices'|'Settings & Privacy';
-export const pages:Page[]=['Overview','Live Activity','Activity History','Video Intelligence','Focus & Goals','Blocking Center','Automations','Behavior Insights','AI Coach','Devices','Settings & Privacy'];
+export type Page = 'Overview'|'Live Activity'|'Activity History'|'Video Intelligence'|'Focus & Goals'|'Blocking Center'|'Automations'|'Behavior Insights'|'AI Coach'|'Devices'|'Settings & Privacy'|'Inbox';
+export const pages:Page[]=['Overview','Live Activity','Activity History','Video Intelligence','Focus & Goals','Blocking Center','Automations','Behavior Insights','AI Coach','Devices','Settings & Privacy','Inbox'];

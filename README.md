@@ -2,9 +2,9 @@
 
 Windows-first, local-first activity tracking and reversible browser restrictions, with a Rust agent, Tauri/React desktop and Brave-first MV3 companion.
 
-**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent version: **0.3.9**. Companion: **0.3.5**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
+**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent source version: **0.4.2**. Companion: **0.3.8**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
 
-Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current foundation milestone](docs/FOUNDATION-MILESTONE-2026-11-06.md) for changes, test evidence and remaining acceptance.
+Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current build status](docs/BUILD-STATUS.md) for changes, test evidence and remaining acceptance.
 
 ## Current capabilities
 
@@ -14,7 +14,9 @@ Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F2
 - Domain/path browser restrictions, schedules, usage budgets, automation, goals and browser-only focus sessions.
 - Optional BYOK Coach and separately authorized automatic classification of batches of up to ten public hostnames/application basenames.
 - Current-user Windows DPAPI encryption for explicitly saved provider keys.
-- Local profiles/tasks, presentation display masking and health/Lite Mode foundations; expanded roadmap acceptance remains open.
+- Editable profiles, task-linked focus, persistent work/break cycles, selected-video Learning Mode, scoped temporary unlocks and local session reviews/resume cards.
+- Visible Presentation Mode, timed private sessions, profile-scoped Tracking Doctor, grouped local inbox and warning-only selected native-app interventions.
+- Complete streamed local snapshots with allowlisted preferences; credentials/enrollment omitted. Measured agent resources and Lite scheduling are available. Expanded roadmap acceptance remains open.
 - Manual encrypted exchange of recent device sessions. This is not a full backup or automatic sync.
 
 ## Build and check

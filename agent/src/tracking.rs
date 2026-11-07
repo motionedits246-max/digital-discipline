@@ -39,7 +39,7 @@ fn ensure_instance(db:&Connection,ext:&str,profile:&str,browser:&str,at:i64)->ru
 pub fn sync(db:&Connection,ext:&str,enrolled_browser:&str,p:SyncInfo,at:i64)->Result<(),&'static str>{
  let Some(profile)=p.profile_id else{return Ok(());};
  if !valid_profile(&profile)||p.browser.as_ref().is_some_and(|b|b!=&enrolled_browser.to_ascii_lowercase())||p.queued.is_some_and(|n|n>2000)||
-  p.adapter.as_deref().is_some_and(|a|!["ready","unsupported","unknown","recording_off","no_player"].contains(&a))||p.companion_version.as_ref().is_some_and(|v|v.len()>30||!v.bytes().all(|b|b.is_ascii_digit()||b==b'.'))||p.qualified_at_ms.is_some_and(|t|t<0||t>at+300000){return Err("invalid_profile_status");}
+  p.adapter.as_deref().is_some_and(|a|!["ready","unsupported","unknown","recording_off","private_session","no_player"].contains(&a))||p.companion_version.as_ref().is_some_and(|v|v.len()>30||!v.bytes().all(|b|b.is_ascii_digit()||b==b'.'))||p.qualified_at_ms.is_some_and(|t|t<0||t>at+300000){return Err("invalid_profile_status");}
  if !ensure_instance(db,ext,&profile,&enrolled_browser.to_ascii_lowercase(),at).map_err(|_|"storage_failed")?{return Err("profile_revoked_authorize_in_desktop");}
  db.execute("UPDATE browser_instances SET last_seen_ms=?3,recording=COALESCE(?4,recording),queued=COALESCE(?5,queued),adapter=COALESCE(?6,adapter),
   qualified_at_ms=max(qualified_at_ms,COALESCE(?7,0)),companion_version=COALESCE(?8,companion_version),loss_count=COALESCE(?9,loss_count),
@@ -77,7 +77,7 @@ pub async fn doctor(State(s):State<Arc<AppState>>)->ApiResult{
   Ok(json!({"extension_id":r.get::<_,String>(0)?,"profile_id":r.get::<_,String>(1)?,"browser":r.get::<_,String>(2)?,"last_seen_ms":seen,"recording_enabled":recording.map(|v|v!=0),"queued":r.get::<_,i64>(5)?,"adapter":r.get::<_,String>(6)?,"qualified_at_ms":qualified,"accepted_at_ms":accepted,"rendered_ms":rendered,"policy_ack_ms":ack,"companion_version":r.get::<_,String>(11)?,"loss_count":r.get::<_,i64>(12)?,"revoked":revoked,"accepted_events":r.get::<_,i64>(14)?,
    "online":now-seen<90000,"authorized":!revoked,"dashboard_received":accepted>0&&rendered>=accepted,"policy_acknowledged":ack>now-180000}))
  }).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
- Ok(Json(json!({"ok":true,"checked_at_ms":now,"profiles":profiles,"protocol":"1.0 additive profile identity","play_threshold_ms":2000,"native_attribution":"Conservative matching of browser-reported focus; ambiguous profiles remain Unattributed"})))
+ Ok(Json(json!({"ok":true,"checked_at_ms":now,"profiles":profiles,"agent_version":env!("CARGO_PKG_VERSION"),"expected_companion_version":"0.3.8","protocol":"1.0 additive profile identity","play_threshold_ms":2000,"native_attribution":"Conservative matching of browser-reported focus; ambiguous profiles remain Unattributed"})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct Receipt{extension_id:String,profile_id:String,accepted_at_ms:i64}
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct RenderAck{receipts:Vec<Receipt>}

@@ -14,7 +14,7 @@ async function refresh({preferences=true}={}) {
  $('queued').textContent=r.queued;
  const d=r.queueDiagnostics||{};
  $('delivered').textContent=(d.accepted||0)+(d.duplicate||0);
- $('ignored').textContent=(d.ignored_paused||0)+(d.ignored_excluded||0);
+ $('ignored').textContent=(d.ignored_paused||0)+(d.ignored_excluded||0)+(d.ignored_private||0)+(d.ignored_deleted||0);
  $('rejected').textContent=(d.rejected||0)+(d.invalid||0);
  for(const field of ['expired','overflow','purged'])$(field).textContent=d[field]||0;
  $('purgePending').disabled=!r.queued;
@@ -22,7 +22,7 @@ async function refresh({preferences=true}={}) {
   'Waiting to retry after '+new Date(r.retryAfter).toLocaleTimeString()+' · '+(d.last_error||'Connection unavailable'):
   r.queued?'Pending observations will sync while the browser is awake.':d.last_accepted_at_ms?
   'Last acknowledged event: '+new Date(d.last_accepted_at_ms).toLocaleTimeString():'No acknowledged events recorded yet.';
- $('recordingHint').hidden=r.collectionEnabled===true;
+ $('recordingHint').hidden=r.collectionEnabled===true&&!(r.agentPrivateUntil>Date.now());$('recordingHint').textContent=r.agentPrivateUntil>Date.now()?'Private session until '+new Date(r.agentPrivateUntil).toLocaleTimeString()+'. Browser recording resumes automatically.':'Browser recording is off. Enable it here to record browser activity.';
  $('localShorts').textContent=r.videoObserved?.shorts||0;
  $('localWatches').textContent=r.videoObserved?.watches||0;
  $('localReels').textContent=r.videoObserved?.reels||0;

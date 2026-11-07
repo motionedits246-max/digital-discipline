@@ -43,13 +43,13 @@ All N features remain **not accepted** until data contracts, UI, recovery, tests
 
 | ID | Feature | Status |
 |---|---|---|
-| N01 | Task-based focus profiles | Partial implementation: profiles, self-reported task states, persistence, UI and tests; focus-task linkage acceptance open |
-| N02 | YouTube Learning Mode | Planned / not accepted |
-| N03 | Native Windows interventions | Planned / not accepted |
+| N01 | Task-based focus profiles | Foundations implemented: editable profiles, persisted task/focus context snapshots and separate owner outcomes; expanded profile-policy/runtime acceptance open |
+| N02 | YouTube Learning Mode | Direct-video Learning Mode and selected-rule allowances implemented; other hard rules still apply; real adapter acceptance open |
+| N03 | Native Windows interventions | Warning-only selected native apps implemented with recovery/assistive exclusions; no process blocking or termination |
 | N04 | Earned entertainment ledger | Planned / not accepted |
-| N05 | Scoped temporary unlock | Planned / not accepted |
-| N06 | Focus/break cycles | Planned / not accepted |
-| N07 | End-session review/resume | Planned / not accepted |
+| N05 | Scoped temporary unlock | 2/5/10-minute per-rule/site exceptions and optional profile scope implemented; expiry/conflict tests pass; browser runtime acceptance open |
+| N06 | Focus/break cycles | Persisted work/break/paused/finished state and versioned controls implemented; restart/sleep simulation tested |
+| N07 | End-session review/resume | Observed/planned session review, owner outcome and editable/deletable local bookmark/resume card implemented |
 | N08 | Full encrypted backup | Planned / not accepted |
 | N09 | Verified updater | Planned / not accepted |
 | N10 | Opt-in automatic device sync / phone | Planned / not accepted |
@@ -59,10 +59,10 @@ All N features remain **not accepted** until data contracts, UI, recovery, tests
 | N14 | Manual corrections | Planned / not accepted |
 | N15 | Gentle intervention escalation | Planned / not accepted |
 | N16 | Passive learning/reading | Planned / not accepted |
-| N17 | Quiet notification inbox | Planned / not accepted |
+| N17 | Quiet notification inbox | Grouped local inbox with persistent dismissal and retention implemented; desktop toast delivery unsupported |
 | N18 | Weekly goals and recovery | Planned / not accepted |
-| N19 | Presentation/private sessions | Partial implementation: presentation display masking; timed private session incomplete |
-| N20 | Resource health/Lite Mode | Partial implementation: health panel, SQLite errors, Lite Mode; resource soak/metrics incomplete |
+| N19 | Presentation/private sessions | Visible draft-preserving presentation shield, tray status and timed private sessions with companion suppression implemented; installed acceptance open |
+| N20 | Resource health/Lite Mode | Measured agent resources and Lite UI/history/AI/prediction scheduling implemented; GUI-process metrics and long soak open |
 
 ## Original A1–D8 coverage
 
@@ -202,3 +202,12 @@ Current source advances desktop/agent to 0.4.1, companion to 0.3.7 and schema to
 - N19: private session and presentation state are distinct; privacy shield is visible and tray can display/toggle presentation state alongside recording/private status.
 
 Local evidence for this source checkpoint: 47 JS and 50 Linux Rust tests, TypeScript/Vite build. Added renderer workflow/private/unlock interaction checks and expanded real Windows agent restart/learning/exception/review/snapshot checks; their CI result is pending. No claim that all N features or installed Brave acceptance are complete. Native app intervention, reward ledger, encrypted restore, verified updates/sync, planner, corrections, passive-learning eligibility and later review/notification features remain to be implemented or expanded.
+
+
+## 7 November — approved transfer and integrated 0.4.2 update
+
+The owner explicitly confirmed `motionedits246-max/digital-discipline-windows` as the update/Actions destination and added its connected account. The earlier automatic approval block on the changed owner is resolved by that instruction. Source updates continue on the existing feature branch.
+
+Desktop/agent 0.4.2, companion 0.3.8 and schema 13 add a grouped local inbox, safe warning-only native app selection, independent WAL reads for reviews, corrected Blocking Center unlock placement and mixed-text selector labels. Private-window status reaches the companion; new player observations are suppressed without revoking consent. Global deletion clears prior companion queues/counters/quarantine on successful sync while preserving identity. Snapshot exports allowlist preferences, omit credentials/enrollment/device identity, and cancel if deletion/privacy changes invalidate their source epoch. Lite Mode also pauses optional prediction work.
+
+Current local evidence: 49 JavaScript, 53 Linux Rust, 8 SQLite checks and TypeScript/Vite build pass. Six renderer interactions previously passed in isolated local Chromium; Windows Actions rerun will validate the final source. No entire-spec completion or publicly trusted installer claim is made.

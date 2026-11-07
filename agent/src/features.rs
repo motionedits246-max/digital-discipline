@@ -165,7 +165,7 @@ pub(super) async fn delete_goal(Path(id):Path<String>,State(s):State<Arc<AppStat
     Ok(Json(json!({"ok":true})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>,task_id:Option<String>,profile_id:Option<String>,cycle:Option<crate::focus_workflow::CycleInput>,learning:Option<crate::policy_exceptions::LearningInput>}
+pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>,task_id:Option<String>,profile_id:Option<String>,cycle:Option<crate::focus_workflow::CycleInput>,learning:Option<crate::policy_exceptions::LearningInput>,#[serde(default)] native_apps:Vec<String>}
 pub(super) fn active_focus(db:&Connection,now:i64)->rusqlite::Result<Option<Value>>{
     crate::focus_workflow::advance(db,now)?;
     let mut result=db.query_row("SELECT id,goal_id,start_ms,end_ms,difficulty,domains_json FROM focus_sessions WHERE start_ms<=?1 AND (end_ms>?1 OR EXISTS(SELECT 1 FROM focus_cycles c WHERE c.focus_id=focus_sessions.id AND c.state='paused')) AND ended_ms IS NULL ORDER BY start_ms DESC LIMIT 1",params![now],|r|{
@@ -181,6 +181,7 @@ pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super:
     let active_focus_id=focus["id"].as_str()?;
     let muted=db.query_row("SELECT until_ms FROM focus_snoozes WHERE focus_id=?1",params![active_focus_id],|r|r.get::<_,i64>(0)).unwrap_or(0);
     if muted>now {return None;}
+    if let Some(hint)=crate::inbox::native_hint(db,focus,current,now){return Some(hint);}
     let session=current?;
     if session.idle || now-session.start_ms<60_000{return None;}
     if ["brave.exe","chrome.exe","msedge.exe"].contains(&session.app.as_str()) && session.domain.is_none(){return None;}
@@ -195,7 +196,7 @@ pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super:
 }
 
 pub(super) async fn start_focus(State(s):State<Arc<AppState>>,Json(p):Json<StartFocus>)->ApiResult{
-    if !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d))||p.cycle.as_ref().is_some_and(|c|!c.valid()){
+    if !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d))||p.native_apps.len()>20||p.native_apps.iter().any(|a|!crate::inbox::safe_native_app(a))||p.cycle.as_ref().is_some_and(|c|!c.valid()){
         return Err(err(StatusCode::BAD_REQUEST,"invalid_focus"));
     }
     let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;let now=now_ms();
@@ -205,7 +206,8 @@ pub(super) async fn start_focus(State(s):State<Arc<AppState>>,Json(p):Json<Start
         let enabled=db.query_row("SELECT enabled FROM goals WHERE id=?1",params![id],|r|r.get::<_,i64>(0)).optional().map_err(storage)?;
         if enabled!=Some(1){return Err(err(StatusCode::BAD_REQUEST,"goal_not_found"));}
     }
-    let (profile,context)=crate::focus_workflow::context(db,p.task_id.as_deref(),p.profile_id.as_deref())?;
+    let (profile,mut context)=crate::focus_workflow::context(db,p.task_id.as_deref(),p.profile_id.as_deref())?;
+    context["native_apps"]=json!(p.native_apps);
     let planned=p.cycle.as_ref().map_or(p.minutes as i64*60000,|c|c.planned_ms());
     let id=Uuid::new_v4().to_string();let end=now+planned;
     db.execute("INSERT INTO focus_sessions(id,goal_id,start_ms,end_ms,difficulty,domains_json) VALUES(?1,?2,?3,?4,?5,?6)",params![id,p.goal_id,now,end,p.difficulty,serde_json::to_string(&p.block_domains).unwrap()]).map_err(storage)?;
@@ -329,8 +331,8 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
     let switches=insights::count_switches(&switching,this_start,now);
     let days_with_activity=rows.iter().filter(|r|!r.3).filter_map(|r|chrono::DateTime::<Utc>::from_timestamp_millis(r.0)).map(|dt|dt.with_timezone(&Local).date_naive()).collect::<BTreeSet<_>>().len();
     let selected:Vec<String>=serde_json::from_str(&read_setting(&db,"distraction_categories")).unwrap_or_default();
-    let prediction=crate::prediction::forecast(&db,Local::now(),read_setting(&db,"prediction_opt_in")=="true",&selected,
-        |app,domain|resolved_category(&map,app,domain)).map_err(storage)?;
+    let prediction=if read_setting(&db,"lite_mode")=="true"{json!({"available":false,"reason":"Prediction is paused in Lite Mode"})}else{crate::prediction::forecast(&db,Local::now(),read_setting(&db,"prediction_opt_in")=="true",&selected,
+        |app,domain|resolved_category(&map,app,domain)).map_err(storage)?};
     Ok(Json(json!({"ok":true,"categories":categories,"browser_comparison":browser,"hourly_distribution_ms":hourly,
         "week":{"current_ms":current,"previous_ms":previous,"delta_ms":current-previous,"caution":"Incomplete collector coverage can make comparisons misleading"},
         "attention_switches_this_week":switches,"shorts_longest_streak_90d":max_streak,"streak_last_at_ms":streak_at,

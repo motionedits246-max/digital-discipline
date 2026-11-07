@@ -2,9 +2,9 @@
   // Observe only player telemetry on the user's own, visible short-form page.
   // No messages, credentials, forms, screenshots, transcripts or titles are read.
   let video = null, key = null, id = null, watchedMs = 0, lastClock = 0, lastVideoTime = 0, observedUrl = null, observedKind = null;
-  let collecting = false;
-  chrome.storage.local.get('collectionEnabled').then(x=>{collecting=x.collectionEnabled===true;}).catch(()=>{});
-  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.collectionEnabled){collecting=changes.collectionEnabled.newValue===true; if(!collecting) reset(null,null);}});
+  let collecting = false,privateUntil=0;
+  chrome.storage.local.get(['collectionEnabled','agentPrivateUntil']).then(x=>{collecting=x.collectionEnabled===true;privateUntil=x.agentPrivateUntil||0;}).catch(()=>{});
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.agentPrivateUntil){privateUntil=changes.agentPrivateUntil.newValue||0;if(privateUntil>Date.now())reset(null,null);}if(area==='local'&&changes.collectionEnabled){collecting=changes.collectionEnabled.newValue===true; if(!collecting) reset(null,null);}});
   let qualified = false, lastProgress = 0, lastRoute = location.pathname+location.search, blockedOverlay = null;
   let contentStyle = null,endedObserved=false,seekObserved=false,manualUntil=0,stopAutoplay=false,allowedRoute=null;
   const autoplayOriginal=new Map();
@@ -51,7 +51,7 @@
   }
   let lastAdapterReport=0;
   function tick() {
-    if (!collecting) return;
+    if (!collecting||Date.now()<privateUntil) return;
     const currentId=match();
     const currentVideo=currentId?activeVideo():null;
     if(visible()&&performance.now()-lastAdapterReport>5000){lastAdapterReport=performance.now();chrome.runtime.sendMessage({op:'adapterStatus',status:currentId&&currentVideo?'ready':'no_player'}).catch(()=>{});}

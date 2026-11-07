@@ -86,7 +86,17 @@ pub fn apply_action(db:&Connection,id:&str,p:&Action,now:i64)->ApiResult{
 }
 pub async fn action(Path(id):Path<String>,State(s):State<Arc<AppState>>,Json(p):Json<Action>)->ApiResult{if uuid::Uuid::parse_str(&id).is_err(){return Err(err(StatusCode::BAD_REQUEST,"invalid_id"));}apply_action(&s.db.lock().unwrap(),&id,&p,now_ms())}
 pub async fn reviews(State(s):State<Arc<AppState>>)->ApiResult{
- let db=s.db.lock().unwrap();advance(&db,now_ms()).map_err(storage)?;
+ let path={let db=s.db.lock().unwrap();advance(&db,now_ms()).map_err(storage)?;db.path().filter(|p|!p.is_empty()).map(str::to_owned)};
+ if let Some(path)=path{
+  return tokio::task::spawn_blocking(move||->ApiResult{
+   let db=Connection::open_with_flags(path,rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY|rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(storage)?;
+   db.busy_timeout(std::time::Duration::from_secs(3)).map_err(storage)?;let tx=db.unchecked_transaction().map_err(storage)?;let result=review_body(&tx)?;tx.commit().map_err(storage)?;Ok(result)
+  }).await.map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"review_worker_failed"))?;
+ }
+ if cfg!(test){return review_body(&s.db.lock().unwrap());}
+ Err(err(StatusCode::SERVICE_UNAVAILABLE,"review_snapshot_unavailable"))
+}
+fn review_body(db:&Connection)->ApiResult{
  let mut q=db.prepare("SELECT f.id,f.start_ms,min(f.end_ms,COALESCE(f.ended_ms,f.end_ms)),f.planned_ms,f.context_json,COALESCE(r.outcome,''),COALESCE(r.next_step,''),COALESCE(r.dismissed,0),t.state,t.outcome FROM focus_sessions f LEFT JOIN focus_reviews r ON r.focus_id=f.id LEFT JOIN workflow_tasks t ON t.id=f.task_id WHERE f.ended_ms IS NOT NULL OR (f.end_ms<=?1 AND NOT EXISTS(SELECT 1 FROM focus_cycles c WHERE c.focus_id=f.id AND c.state='paused')) ORDER BY f.start_ms DESC LIMIT 50").map_err(storage)?;
  let mut out=Vec::new();let mut rows=q.query(params![now_ms()]).map_err(storage)?;
  while let Some(row)=rows.next().map_err(storage)?{

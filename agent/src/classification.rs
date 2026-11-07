@@ -209,6 +209,7 @@ pub(super) async fn worker(state:Arc<AppState>){
     }
     crate::classification_store::finish(&tx,&claim,now_ms(),"failed")?;
     request_status(&tx,at,"failed",reason)?;
+    let _=crate::inbox::record(&tx,"classification:provider","health","Automatic classification needs attention",json!({"code":reason}),"Activity History",None,now_ms());
    }
   }
   tx.commit()
