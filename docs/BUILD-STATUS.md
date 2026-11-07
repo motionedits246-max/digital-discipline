@@ -8,7 +8,7 @@ Current source: desktop/agent **0.4.2**, companion **0.3.8**, event protocol **1
 
 | Check | Evidence |
 |---|---|
-| JavaScript policies, queue recovery and adapters | 50 passed |
+| JavaScript policies, queue recovery, adapters and installed companion dependencies | 51 passed |
 | Rust agent on Linux | 55 passed |
 | SQLite legacy migrations | 8 passed |
 | TypeScript and production frontend | Passed |
@@ -30,6 +30,8 @@ Current work includes custom calendar/time/select controls; a visible privacy sh
 Queued AI jobs recheck the current app/domain exclusions when claimed. Excluded reviews and owner overrides do not prevent other eligible services from being classified; exclusion matching includes domain boundaries and case-insensitive Windows app names. Tests cover exclusions added after queuing and later removed, without making provider requests.
 
 Presentation masking also closes portaled calendars/dropdowns when activated without a pointer event, including the native tray, and masks the browser setup screen without discarding its draft. The renderer privacy check covers open calendar/month popups and draft restoration.
+
+The installer resource map includes the new playback model and queue policy modules. A packaging regression walks manifest entry points, HTML assets and local module imports against the installed companion resources; it failed on the missing playback module before the map was corrected.
 
 Full encrypted backup/restore, trusted updating, automatic multi-device sync, earned entertainment rewards, planner/correction/passive-learning and later expanded roadmap items remain open. Native application intervention is a visible warning capability while foreground recording is active; it does not block or kill apps. Desktop notifications are inbox-only. Resource numbers currently measure the agent process.
 

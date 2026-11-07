@@ -55,6 +55,8 @@
       "../../../extension/popup.js": "browser-extension/popup.js",
       "../../../extension/src/background.js": "browser-extension/src/background.js",
       "../../../extension/src/notifications.js": "browser-extension/src/notifications.js",
+      "../../../extension/src/playback-model.js": "browser-extension/src/playback-model.js",
+      "../../../extension/src/queue-policy.js": "browser-extension/src/queue-policy.js",
       "../../../extension/src/rules.js": "browser-extension/src/rules.js",
       "../../../extension/src/video.js": "browser-extension/src/video.js"
     }

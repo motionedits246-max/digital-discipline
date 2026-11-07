@@ -79,7 +79,7 @@ Existing code represents the original 32 product concepts, but detailed per-feat
 - This branch: CI was temporarily gated at `c71592e`. Re-enabled for this integrated source milestone; documentation-only changes are ignored. Follow the exact new Actions run for build and artifact evidence.
 - F04: worker restart/backoff, poison/expiry progression, lost/foreign ACK, local write failure, bounded batches, purge and redaction checks now pass; real MV3 offline/restart acceptance is still required.
 - F07: removed unintended pause of manually playing video; verifying suppression of automatic next playback remains open.
-- F15: recovery of stale Running jobs added; classification budget, provider error states, safe evidence and override tests remain open.
+- F15: durable memory, bounded automatic review, stale-job recovery, request-budget accounting, provider result validation, exclusions and override regression checks pass. Live-provider and installed enable/disable/restart acceptance remain open.
 - CI compilation is not installed RDP/browser acceptance; no synthetic reports or success claims for unimplemented N items.
 - Linux local verification cannot exercise the Windows-only DPAPI round-trip test. It must run in Windows CI and then installed acceptance.
 - Current signing is an ephemeral **self-signed development certificate**, not a trusted publisher identity.
@@ -90,7 +90,7 @@ Existing code represents the original 32 product concepts, but detailed per-feat
 - Core tracking and restrictions remain local-first. Remote classification is opt-in; background network work must never block collection.
 - Do not call the full roadmap complete while any required implementation, privacy, recovery, platform or runtime acceptance gate is open.
 
-## Current feature-branch changes (not production-accepted)
+## Initial 6 November feature-branch checkpoint (historical)
 
 - F01: truthful optional AI classification and credential-state display rather than false static 'Off' claims.
 - F04: queue diagnostics, retry/backoff, terminal event quarantine, keep pending queue when consent is switched off; requires real MV3 offline/acknowledgement validation.
@@ -210,9 +210,11 @@ The owner explicitly confirmed `motionedits246-max/digital-discipline-windows` a
 
 Desktop/agent 0.4.2, companion 0.3.8 and schema 13 add a grouped local inbox, safe warning-only native app selection, independent WAL reads for reviews, corrected Blocking Center unlock placement and mixed-text selector labels. Private-window status reaches the companion; new player observations are suppressed without revoking consent. Global deletion clears prior companion queues/counters/quarantine on successful sync while preserving identity. Snapshot exports allowlist preferences, omit credentials/enrollment/device identity, and cancel if deletion/privacy changes invalidate their source epoch. Lite Mode also pauses optional prediction work.
 
-Current local evidence: 50 JavaScript, 55 Linux Rust, 8 SQLite checks and TypeScript/Vite build pass. Six renderer interactions previously passed in isolated local Chromium; Windows Actions rerun will validate the final source. No entire-spec completion or publicly trusted installer claim is made.
+Current local evidence: 51 JavaScript, 55 Linux Rust, 8 SQLite checks and TypeScript/Vite build pass. Six renderer interactions previously passed in isolated local Chromium; the final Windows Actions run includes seven renderer checks. No entire-spec completion or publicly trusted installer claim is made.
 
 
 Final review also carries presentation masking to companion notification delivery. Browser notifications use a generic message while Presentation Mode is active; the agent's foreground recording and approved rules remain independent. Tracking Doctor explains private-window suppression and shows the expected companion version rather than prompting the owner to re-enable consent during a private session. Added regression checks verify notification label redaction and continued recording under display masking.
 
 The classifier now rechecks exclusions at the request-claim boundary, including old queued jobs. Filtering occurs before the batch limit, and manually categorized review entries cannot starve eligible new jobs. A regression covers app-name case, domain/subdomain exclusions, an unrelated lookalike domain, automatic review and removal of a prior exclusion. No excluded job consumes an attempt in that scenario.
+
+Installer auditing found that the static Tauri resource map omitted the new playback-model and queue-policy modules. Both are now packaged. The new dependency-walk regression checks installed companion manifest entry points, HTML references and module imports, and reproduced the omission before the fix. Tray-driven masking also covers open portaled controls and preserves browser setup drafts.
