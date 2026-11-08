@@ -165,7 +165,9 @@ pub(super) async fn list(State(s):State<Arc<AppState>>)->ApiResult{
    "memory":crate::classification_store::summary(&db,now_ms()).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?,
    "privacy":"Only app executable basenames and public hostnames; never complete URLs, window titles, or file paths"})))
 }
+static WORKER_GATE:tokio::sync::Mutex<()>=tokio::sync::Mutex::const_new(());
 pub(super) async fn worker(state:Arc<AppState>){
+ let Ok(_permit)=WORKER_GATE.try_lock()else{return;};
  if state.stopping.load(std::sync::atomic::Ordering::SeqCst){return;}
  let (provider,model,version,auto_review,limit,epoch)={
   let db=match state.db.lock(){Ok(d)=>d,Err(_)=>return};

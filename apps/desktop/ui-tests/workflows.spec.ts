@@ -71,10 +71,10 @@ test('service overlay expires without approving or sending a classification requ
  expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.command==='set_service_hint_window'&&c.args?.visible===false))).toBe(true);
 });
 test('service overlay saves a manual category without approving AI',async({page})=>{
- await connected(page);await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');await page.getByRole('combobox',{name:'Service type',exact:true}).click();await page.getByRole('option',{name:'Development',exact:true}).click();await page.getByRole('button',{name:'Save',exact:true}).click();
- const calls=await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body));expect(calls).toEqual([{subject:'app:new-helper.exe',action:'category',category:'Development'}]);
+ await connected(page);await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');await page.getByRole('combobox',{name:'Service type',exact:true}).click();await page.getByRole('option',{name:'Development',exact:true}).click();await expect(page.getByRole('combobox',{name:'Service type',exact:true})).toHaveText('Development');await page.getByRole('button',{name:'Save',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body))).toEqual([{subject:'app:new-helper.exe',action:'category',category:'Development'}]);
 });
 test('service overlay requires an explicit action before queueing AI',async({page})=>{
  await connected(page);await page.goto('/?surface=service-hint');await expect(page.getByText('No LLM request until you approve.',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Ask AI',exact:true}).click();
- const calls=await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body));expect(calls).toEqual([{subject:'app:new-helper.exe',action:'approve_ai',category:null}]);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body))).toEqual([{subject:'app:new-helper.exe',action:'approve_ai',category:null}]);
 });

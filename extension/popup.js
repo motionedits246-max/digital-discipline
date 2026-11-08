@@ -1,3 +1,4 @@
+function olderVersion(a,b){const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<4;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}
 const $ = id => document.getElementById(id);
 const browsers=['brave','chrome','edge'];
 async function refresh({preferences=true}={}) {
@@ -83,4 +84,4 @@ $('updateCompanion').addEventListener('click',async()=>{
  try{const reply=await chrome.runtime.sendMessage({op:'companionUpdate'});$('updateStatus').textContent=reply?.ok?'Updated to '+reply.version+'. Reloading; pairing and queue are kept.':'Update unavailable: '+(reply?.error||'open the desktop app')+'. If this extension came from a custom folder, register that existing folder in desktop browser setup.';}
  catch{$('updateStatus').textContent='Could not reach the desktop updater. Open Digital Discipline and retry.';}finally{$('updateCompanion').disabled=false;}
 });
-chrome.runtime.sendMessage({op:'companionStatus'}).then(r=>{$('updateVersion').textContent='Installed '+chrome.runtime.getManifest().version+(r?.ok?' · desktop offers '+r.version:' · open the desktop to check updates');}).catch(()=>{$('updateVersion').textContent='Installed '+chrome.runtime.getManifest().version;});
+chrome.runtime.sendMessage({op:'companionStatus'}).then(r=>{if(r?.ok&&olderVersion(r.version,chrome.runtime.getManifest().version)){$('updateCompanion').disabled=true;$('updateStatus').textContent='A newer companion is already installed. Update the desktop first.';}$('updateVersion').textContent='Installed '+chrome.runtime.getManifest().version+(r?.ok?' · desktop offers '+r.version:' · open the desktop to check updates');}).catch(()=>{$('updateVersion').textContent='Installed '+chrome.runtime.getManifest().version;});

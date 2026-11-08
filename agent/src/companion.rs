@@ -19,6 +19,7 @@ fn safe_path(path:&Path)->Result<(),String>{
  }}Ok(())
 }
 fn recognized(root:&Path)->bool{fs::read(root.join("manifest.json")).ok().and_then(|d|serde_json::from_slice::<Value>(&d).ok()).is_some_and(|m|m["manifest_version"]==3&&m["name"].as_str().is_some_and(|n|n.starts_with("Digital Discipline"))&&m["background"]["service_worker"]=="src/background.js")}
+fn version_numbers(text:&str)->Option<[u32;4]>{let fields=text.split('.').map(str::parse::<u32>).collect::<Result<Vec<_>,_>>().ok()?;if fields.is_empty()||fields.len()>4||fields.iter().any(|v|*v>65535){return None;}let mut result=[0;4];for (i,value) in fields.into_iter().enumerate(){result[i]=value;}Some(result)}
 fn contents(root:&Path,file:&str,bytes:&[u8])->Vec<u8>{
  if file!="manifest.json"{return bytes.to_vec();}
  let old=fs::read(root.join(file)).ok().and_then(|d|serde_json::from_slice::<Value>(&d).ok());
@@ -39,6 +40,8 @@ fn install(root:&Path,new:bool,fail_after:Option<usize>)->Result<(),String>{
  if !root.is_absolute()||root.components().any(|c|matches!(c,std::path::Component::ParentDir)){return Err("Choose an absolute extension folder".into());}
  safe_path(root)?;fs::create_dir_all(root).map_err(|_|"Extension folder is not writable")?;recover(root)?;
  if !new&&!recognized(root){return Err("This folder is not an existing Digital Discipline companion".into());}
+ let installed=fs::read(root.join("manifest.json")).ok().and_then(|d|serde_json::from_slice::<Value>(&d).ok()).and_then(|m|m["version"].as_str().and_then(version_numbers));
+ if installed.is_some_and(|v|v>version_numbers(&version()).unwrap()){return Err("The companion is newer than this desktop bundle; update the desktop first".into());}
  for (file,_) in FILES{safe_path(&root.join(file))?;}
  if FILES.iter().all(|(file,bytes)|fs::read(root.join(file)).is_ok_and(|actual|actual==contents(root,file,bytes))){return Ok(());}
  let work=root.join(".dd-update");fs::create_dir(&work).map_err(|_|"Could not stage companion")?;
@@ -78,5 +81,5 @@ pub async fn prepare(State(s):State<Arc<AppState>>,Json(p):Json<InstallInput>)->
  use super::*;
  #[test]fn update_preserves_owner_files_and_rolls_back_failure(){let root=std::env::temp_dir().join(format!("dd-companion-{}",uuid::Uuid::new_v4()));install(&root,true,None).unwrap();fs::write(root.join("owner-note.txt"),b"keep").unwrap();fs::write(root.join("popup.js"),b"old worker fixture").unwrap();assert!(install(&root,false,Some(6)).is_err());assert_eq!(fs::read(root.join("popup.js")).unwrap(),b"old worker fixture");install(&root,false,None).unwrap();assert_eq!(fs::read(root.join("owner-note.txt")).unwrap(),b"keep");assert!(root.join("src/playback-model.js").exists());fs::remove_dir_all(root).unwrap();}
  #[test]fn unrelated_folder_is_not_an_update_target(){let root=std::env::temp_dir().join(format!("dd-foreign-{}",uuid::Uuid::new_v4()));fs::create_dir(&root).unwrap();fs::write(root.join("manifest.json"),b"{}").unwrap();assert!(install(&root,false,None).is_err());assert_eq!(fs::read(root.join("manifest.json")).unwrap(),b"{}");fs::remove_dir_all(root).unwrap();}
- #[test]fn an_existing_manifest_public_key_is_preserved_for_extension_identity(){let root=std::env::temp_dir().join(format!("dd-key-{}",uuid::Uuid::new_v4()));install(&root,true,None).unwrap();let mut manifest:Value=serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();manifest["key"]=json!("QUJDRA==");manifest["version"]=json!("0.1.0");fs::write(root.join("manifest.json"),serde_json::to_vec(&manifest).unwrap()).unwrap();install(&root,false,None).unwrap();let updated:Value=serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();assert_eq!(updated["key"],"QUJDRA==");assert_eq!(updated["version"],version());fs::remove_dir_all(root).unwrap();}
+ #[test]fn an_existing_manifest_public_key_is_preserved_for_extension_identity(){let root=std::env::temp_dir().join(format!("dd-key-{}",uuid::Uuid::new_v4()));install(&root,true,None).unwrap();let mut manifest:Value=serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();manifest["key"]=json!("QUJDRA==");manifest["version"]=json!("0.1.0");fs::write(root.join("manifest.json"),serde_json::to_vec(&manifest).unwrap()).unwrap();install(&root,false,None).unwrap();let updated:Value=serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();assert_eq!(updated["key"],"QUJDRA==");assert_eq!(updated["version"],version());let mut newer=updated;newer["version"]=json!("999.0.0");fs::write(root.join("manifest.json"),serde_json::to_vec(&newer).unwrap()).unwrap();assert!(install(&root,false,None).is_err());assert_eq!(serde_json::from_slice::<Value>(&fs::read(root.join("manifest.json")).unwrap()).unwrap()["version"],"999.0.0");fs::remove_dir_all(root).unwrap();}
 }

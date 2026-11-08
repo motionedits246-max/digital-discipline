@@ -67,8 +67,8 @@ pub async fn tick(s:Arc<AppState>){
   let subject=db.query_row("SELECT subject FROM service_discovery WHERE checked=0 ORDER BY last_ms DESC LIMIT 1",[],|r|r.get::<_,String>(0)).optional()?;
   Ok(subject.map(|subject|(subject,features::read_setting(&db,"activity_data_epoch"),features::read_setting(&db,"service_public_lookup")=="true")))})();
  let Ok(Some((subject,epoch,lookup)))=work else{return;};
- let mut description=if let Some(app)=subject.strip_prefix("app:"){let app=app.to_string();tokio::time::timeout(Duration::from_secs(2),tokio::task::spawn_blocking(move||crate::windows::application_description(&app))).await.ok().and_then(Result::ok).unwrap_or_default()}else{String::new()};let mut source=if description.is_empty(){"local_rules"}else{"windows_description"};
  let known={let db=s.db.lock().unwrap();if let Some(app)=subject.strip_prefix("app:"){features::category_for(&db,app,None)}else{features::category_for(&db,"",subject.strip_prefix("domain:"))}};
+ let mut description=if known!="Unclassified"{String::new()}else if let Some(app)=subject.strip_prefix("app:"){let app=app.to_string();tokio::time::timeout(Duration::from_secs(2),tokio::task::spawn_blocking(move||crate::windows::application_description(&app))).await.ok().and_then(Result::ok).unwrap_or_default()}else{String::new()};let mut source=if description.is_empty(){"local_rules"}else{"windows_description"};
  if lookup&&known=="Unclassified"&&infer(&description).is_none(){
   if let Some(domain)=subject.strip_prefix("domain:"){
    let allowed={let db=s.db.lock().unwrap();!excluded(&db,&subject)&&features::read_setting(&db,"activity_data_epoch")==epoch&&reserve_lookup(&db,&subject,now_ms()).unwrap_or(false)};
