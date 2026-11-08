@@ -8,6 +8,9 @@ pub(super) fn state()->Arc<AppState>{
   browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(false),stopping:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),
   token:"runtime-test-token".into(),shutdown:Arc::new(tokio::sync::Notify::new())})
 }
+#[tokio::test]async fn classification_review_displays_manual_categories_instead_of_stale_unknown_jobs(){
+ let s=state();s.db.lock().unwrap().execute_batch("INSERT INTO classifications VALUES('app:chosen.exe','awaiting_consent','Unclassified','old queue',1,1);INSERT INTO category_overrides VALUES('app:chosen.exe','Education',2);").unwrap();let report=classification::list(State(s)).await.unwrap().0;assert_eq!(report["jobs"][0]["category"],"Education");assert_eq!(report["jobs"][0]["state"],"owner_assigned");
+}
 fn playback(id:&str,instance:&str)->Event{
  Event{schema_version:"1.0".into(),event_id:id.into(),source:"extension".into(),occurred_at_ms:now_ms(),kind:"video.qualified_play".into(),profile_id:None,extension_id:None,
   payload:json!({"platform":"youtube_shorts","video_id":"Example123","instance_id":instance,"watched_ms":2300})}

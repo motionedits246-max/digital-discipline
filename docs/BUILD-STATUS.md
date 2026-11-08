@@ -15,7 +15,7 @@ The companion can update from the installed desktop bundle and reload the same e
 | Check | Current evidence |
 |---|---|
 | JavaScript policy/queue/update tests | 53 passed locally |
-| Rust agent | 67 passed locally on Linux; Windows pending |
+| Rust agent | 68 passed locally on Linux; Windows pending |
 | SQLite legacy migrations | 8 passed |
 | TypeScript/production frontend | Passed |
 | Renderer interactions | 12 listed; new Windows run pending |

@@ -233,6 +233,6 @@ The approximately 356×156 logical-pixel service window does not take focus, exp
 
 Companion updates use the already-installed desktop bundle. They update known owned locations or a desktop-approved existing companion folder, preserve unrelated files, stage replacements with the manifest last, and roll back write failures. The extension cannot supply arbitrary update destinations. This is not the trusted internet application updater in N09. One initial Reload of an existing 0.3.8 companion is required to load its new update button; removing/re-adding is unnecessary.
 
-Local checks: 53 JavaScript, 67 Linux Rust, 8 SQLite migration checks and the production frontend pass. Twelve renderer checks and expanded Windows runtime/packaging checks are queued for CI. No live owner provider call, installed Brave update, actual Hive metadata or multi-monitor popup acceptance is claimed before those scenarios run.
+Local checks: 53 JavaScript, 68 Linux Rust, 8 SQLite migration checks and the production frontend pass. Twelve renderer checks and expanded Windows runtime/packaging checks are queued for CI. No live owner provider call, installed Brave update, actual Hive metadata or multi-monitor popup acceptance is claimed before those scenarios run.
 
 Primary API references: [Chrome extension runtime lifecycle](https://developer.chrome.com/docs/extensions/reference/api/runtime), [Pollinations authentication](https://gen.pollinations.ai/docs), [Tauri webview-window builder](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindowBuilder.html).

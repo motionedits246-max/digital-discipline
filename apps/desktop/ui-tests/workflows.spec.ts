@@ -67,7 +67,7 @@ test('workspace collapse plays before native resize and ends at the pill',async(
 });
 test('service overlay expires without approving or sending a classification request',async({page})=>{
  await connected(page);await page.clock.install();await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');await expect(page.getByRole('region',{name:'New service suggestion'})).toBeVisible();
- await page.clock.fastForward(6500);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').length)).toBe(0);
+ await page.clock.fastForward(5600);await expect(page.getByRole('region',{name:'New service suggestion'})).toHaveClass(/leaving/);await page.clock.fastForward(250);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').length)).toBe(0);
  expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.command==='set_service_hint_window'&&c.args?.visible===false))).toBe(true);
 });
 test('service overlay saves a manual category without approving AI',async({page})=>{

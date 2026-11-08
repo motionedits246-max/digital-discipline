@@ -148,7 +148,7 @@ pub(super) fn queue_unknowns(db:&Connection)->rusqlite::Result<usize>{
 }
 pub(super) async fn list(State(s):State<Arc<AppState>>)->ApiResult{
  let db=s.db.lock().unwrap();
- let mut stmt=db.prepare("SELECT subject,state,category,reason,updated_ms FROM classifications ORDER BY updated_ms DESC LIMIT 250")
+ let mut stmt=db.prepare("SELECT c.subject,CASE WHEN o.subject IS NOT NULL THEN 'owner_assigned' ELSE c.state END,COALESCE(o.category,c.category),CASE WHEN o.subject IS NOT NULL THEN 'Your saved category override' ELSE c.reason END,c.updated_ms FROM classifications c LEFT JOIN category_overrides o ON lower(o.subject)=lower(c.subject) ORDER BY c.updated_ms DESC LIMIT 250")
      .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
  let jobs=stmt.query_map([],|r|Ok(json!({"subject":r.get::<_,String>(0)?,"state":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?,"reason":r.get::<_,String>(3)?,"updated_ms":r.get::<_,i64>(4)?})))
      .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?.collect::<rusqlite::Result<Vec<_>>>()

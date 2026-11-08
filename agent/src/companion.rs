@@ -68,6 +68,7 @@ pub async fn status(State(s):State<Arc<AppState>>)->ApiResult{let db=s.db.lock()
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct InstallInput{existing_folder:Option<String>}
 pub async fn prepare(State(s):State<Arc<AppState>>,Json(p):Json<InstallInput>)->ApiResult{
  if let Some(folder)=p.existing_folder{let path=PathBuf::from(&folder);if folder.len()>1000||!path.is_absolute()||safe_path(&path).is_err()||!recognized(&path){return Err(err(StatusCode::BAD_REQUEST,"existing_companion_folder_required"));}
+  tokio::task::spawn_blocking(move||{let _lock=UPDATE_LOCK.lock().map_err(|_|"Updater unavailable".to_string())?;install(&path,false,None)}).await.map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"updater_interrupted"))?.map_err(|_|err(StatusCode::CONFLICT,"folder_update_failed_not_registered"))?;
   let db=s.db.lock().unwrap();let mut folders:Vec<String>=serde_json::from_str(&features::read_setting(&db,"companion_update_folders")).unwrap_or_default();if !folders.contains(&folder){if folders.len()>=8{return Err(err(StatusCode::BAD_REQUEST,"too_many_update_folders"));}folders.push(folder);}
   db.execute("INSERT OR REPLACE INTO settings VALUES('companion_update_folders',?1)",params![serde_json::to_string(&folders).unwrap()]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
  }
