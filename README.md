@@ -6,6 +6,8 @@ Windows-first, local-first activity tracking and reversible browser restrictions
 
 Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current build status](docs/BUILD-STATUS.md) for changes, test evidence and remaining acceptance.
 
+The integrated **0.4.2 Windows development build** is available in the [verified Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230/artifacts/13573294448). It uses a self-signed development certificate. See build status for the tested source and SHA-256 checksums.
+
 ## Current capabilities
 
 - Independent local Windows foreground/idle tracking, SQLite history and owner-defined categories.

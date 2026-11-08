@@ -33,7 +33,7 @@ This ledger distinguishes source work from installed Windows/Brave acceptance. A
 | F17 | Analytics and coverage | Partial; full reconciliation/uncertainty tests open | `agent/src/main.rs; analytics.rs` |
 | F18 | Deterministic release | Cargo/npm lockfiles and enforced installs added; Windows CI passed; installed upgrade/compatibility acceptance open | `Cargo.lock; package-lock.json; scripts/build-windows.ps1` |
 | F19 | Trust boundaries | Existing IPC/loopback checks; adversarial coverage open | `agent/src/bridge.rs` |
-| F20 | Tests/runtime acceptance | Checkpoint: 45 JS, 47 Windows Rust, 8 SQLite, 3 Edge renderer tests and Windows lifecycle pass; new workflow checks below | Milestone evidence below |
+| F20 | Tests/runtime acceptance | Current checkpoint: 51 JS, 56 Windows Rust, 8 SQLite, 1 IPC, 7 Edge renderer tests and Windows agent/workflow lifecycle pass; installed acceptance remains open | BUILD-STATUS.md and milestone evidence below |
 | F21 | Storage crash recovery | Ingestion rollback/retry failure injection passes; whole-store crash/disk recovery open | `agent/src/ingestion_tests.rs`; existing health reporting retained |
 | F22 | Overlay/multimonitor | Existing controls; high DPI/recovery tests open | `src-tauri/src/main.rs` |
 
@@ -210,7 +210,7 @@ The owner explicitly confirmed `motionedits246-max/digital-discipline-windows` a
 
 Desktop/agent 0.4.2, companion 0.3.8 and schema 13 add a grouped local inbox, safe warning-only native app selection, independent WAL reads for reviews, corrected Blocking Center unlock placement and mixed-text selector labels. Private-window status reaches the companion; new player observations are suppressed without revoking consent. Global deletion clears prior companion queues/counters/quarantine on successful sync while preserving identity. Snapshot exports allowlist preferences, omit credentials/enrollment/device identity, and cancel if deletion/privacy changes invalidate their source epoch. Lite Mode also pauses optional prediction work.
 
-Current local evidence: 51 JavaScript, 55 Linux Rust, 8 SQLite checks and TypeScript/Vite build pass. Six renderer interactions previously passed in isolated local Chromium; the final Windows Actions run includes seven renderer checks. No entire-spec completion or publicly trusted installer claim is made.
+Current evidence: 51 JavaScript, 56 Windows Rust (55 Linux), 8 SQLite, 1 privileged-route and 7 Edge renderer checks pass. The real Windows agent/workflow restart checks, frontend, Tauri/NSIS installer, development-signature verification and artifact upload also pass. No entire-spec completion or publicly trusted installer claim is made.
 
 
 Final review also carries presentation masking to companion notification delivery. Browser notifications use a generic message while Presentation Mode is active; the agent's foreground recording and approved rules remain independent. Tracking Doctor explains private-window suppression and shows the expected companion version rather than prompting the owner to re-enable consent during a private session. Added regression checks verify notification label redaction and continued recording under display masking.
@@ -218,3 +218,7 @@ Final review also carries presentation masking to companion notification deliver
 The classifier now rechecks exclusions at the request-claim boundary, including old queued jobs. Filtering occurs before the batch limit, and manually categorized review entries cannot starve eligible new jobs. A regression covers app-name case, domain/subdomain exclusions, an unrelated lookalike domain, automatic review and removal of a prior exclusion. No excluded job consumes an attempt in that scenario.
 
 Installer auditing found that the static Tauri resource map omitted the new playback-model and queue-policy modules. Both are now packaged. The new dependency-walk regression checks installed companion manifest entry points, HTML references and module imports, and reproduced the omission before the fix. Tray-driven masking also covers open portaled controls and preserves browser setup drafts.
+
+## Verified 0.4.2 build handoff — 8 November
+
+[Run 42370611230](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230) succeeded for exact source `ea1c89a65acc00f65497bd22240461ae7ff21951`. Artifact `13573294448` includes the corrected companion resources. Downloaded bytes match the recorded artifact digest and all internal checksums; see [build status](BUILD-STATUS.md) for hashes and the download. Documentation-only commits following this source do not rebuild or change those binaries. Main remains untouched. The remaining roadmap and owner-installed Windows/Brave acceptance above remain open.

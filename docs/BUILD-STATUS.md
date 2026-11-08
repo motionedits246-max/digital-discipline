@@ -4,18 +4,31 @@ Repository: `motionedits246-max/digital-discipline-windows`. Branch: `feature/ma
 
 Current source: desktop/agent **0.4.2**, companion **0.3.8**, event protocol **1.0**, database schema **13**. The entire master specification is not accepted; remaining work is recorded in the [implementation ledger](IMPLEMENTATION-LEDGER.md).
 
+Tested source: `ea1c89a65acc00f65497bd22240461ae7ff21951`. [Windows run 42370611230](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230) completed successfully on 7 November 2026. Its downloaded artifact was independently checked on 8 November. Documentation-only follow-ups do not change the tested binaries.
+
 ## Current verification
 
 | Check | Evidence |
 |---|---|
 | JavaScript policies, queue recovery, adapters and installed companion dependencies | 51 passed |
-| Rust agent on Linux | 55 passed |
+| Rust agent | 56 passed on Windows, including DPAPI; 55 passed locally on Linux |
 | SQLite legacy migrations | 8 passed |
+| Privileged desktop route validation | 1 passed |
 | TypeScript and production frontend | Passed |
-| Renderer interactions | Six checks passed in isolated local Chromium processes; latest Windows rerun pending |
-| Latest Windows installer | Build to be run for this source; no 0.4.2 installer is claimed yet |
+| Renderer interactions | 7 passed in Microsoft Edge on Windows |
+| Real agent lifecycle/workflows | Migration, duplicate instance, pause persistence, restart, task/profile, cycle/private recovery, Learning Mode, scoped unlock, complete export, review and graceful shutdown passed |
+| Tauri/NSIS installer and artifact upload | Passed; development signature and checksums verified |
 
-The Linux test browser required isolated processes because its serverless Chromium build cannot reliably reuse contexts in this runtime. Windows CI uses installed Microsoft Edge. No live provider request, real API key or owner browsing history was used by the tests.
+The renderer checks exercise both pointer and native-event privacy activation, draft preservation, calendar keyboard/viewport behavior, saved workflows, private sessions and scoped unlocks. No live provider request, real API key or owner browsing history was used by the tests.
+
+## Verified download
+
+[Download the complete Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230/artifacts/13573294448): `DigitalDiscipline-MasterSpec-Branch-v0.4.2-DEV-SIGNED` (13,874,187 bytes; Actions retention until 7 December 2026).
+
+- Installer: `Digital Discipline_0.4.2_x64-setup.exe`, 5,817,664 bytes. SHA-256: `a6281a93e357956372ce791780d29ac961b50d86b55cb75d981a893015ff0dc2`.
+- Full artifact ZIP SHA-256: `5d0f7f6f5276c744252fd64551f7791def69357c6e903061b49a9cfe25bc343d`.
+- Download verification matched the GitHub artifact digest and every entry in `SHA256SUMS.txt`. The companion ZIP contains both playback-model and queue-policy modules.
+- The bundle includes the installer, agent, desktop executable, companion ZIP and public development certificate. The certificate does not establish Windows publisher trust.
 
 ## Earlier Windows evidence
 
