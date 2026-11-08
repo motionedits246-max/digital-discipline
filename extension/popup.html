@@ -31,6 +31,7 @@
     <p class="note">These are event deliveries for this profile, not video totals. The queue holds up to 2,000 events or 2 MB for 24 hours. Recovery history retains only rejection codes and event IDs, up to 100 entries for 7 days.</p>
     <button id="purgePending" type="button" class="action secondary" disabled>Delete pending observations</button>
   </details>
+  <section class="setting-group"><h2>Companion updates</h2><p class="note" id="updateVersion">Checking the desktop bundle…</p><button type="button" class="action secondary" id="updateCompanion">Update &amp; reload companion</button><p class="note" id="updateStatus" role="status">Updates keep this extension ID, pairing and pending queue.</p></section>
   <section class="setting-group">
     <h2>Privacy & recording</h2>
     <label class="switch-row"><input id="enabled" type="checkbox"><span class="switch-control" aria-hidden="true"></span><span><strong>Record browser activity</strong><small>Local domains, observed Shorts & Reels only.</small></span></label>
@@ -48,6 +49,7 @@
     <p class="note">Extension ID · <button id="copyId" type="button" class="id-copy" title="Copy extension ID"><code id="extensionId"></code><span>Copy</span></button></p>
   </section>
   <button id="recover" class="action secondary" type="button">Emergency unblock · 30 min</button>
-  <script src="popup.js"></script>
+  <script src="popup.js" defer></script>
+<div id="confirmMask" class="confirm-mask" hidden><div class="confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle"><h2 id="confirmTitle">Delete pending observations?</h2><p>Delivered history stays in the desktop app. An observation already being sent may still arrive.</p><div class="confirm-actions"><button id="confirmCancel" type="button" class="action secondary">Cancel</button><button id="confirmDelete" type="button" class="action danger">Delete pending</button></div></div></div>
 </body>
 </html>

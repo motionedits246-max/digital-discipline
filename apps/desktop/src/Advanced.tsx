@@ -1,3 +1,4 @@
+import {useConfirm} from './ConfirmDialog';
 import {TimePicker} from './TimePicker';
 import {FileDropzone} from './FileDropzone';
 import {CustomSelect} from './CustomSelect';
@@ -100,7 +101,7 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
  useEffect(()=>{if(data?.memory&&!reviewDirty){setAutoReview(data.memory.automatic_review);setDailyLimit(data.memory.daily_request_limit);}},[data?.memory?.automatic_review,data?.memory?.daily_request_limit,reviewDirty]);
  useEffect(()=>{if(readonly)return;const t=setInterval(refresh,12000);return()=>clearInterval(t);},[readonly]);
  useEffect(()=>{if(!data)return;if(data.provider){setProvider(data.provider);setModel(data.model);}setAuthorized(data.enabled);},[data?.provider,data?.model,data?.enabled]);
- const models:Record<string,string>={openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini'};
+ const models:Record<string,string>={openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',pollinations:'openai/gpt-4o-mini'};
  async function save(e:FormEvent){
   e.preventDefault();
   if(busy||readonly||key.length<8||!authorized)return;
@@ -129,13 +130,13 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
    <div><span className="classification-counter">{completed}</span><small>Auto-classified</small></div>
    <div><span className={autoEnabled?'classification-state on':'classification-state'}>{autoEnabled?'Background worker on':'Background worker off'}</span><small>Up to 10 per request</small></div>
   </div>
-  <p className="muted-paragraph">Unknown applications and public website hostnames are collected locally. When you explicitly enable this optional feature, a background worker groups up to 10 names into one JSON request. It never sends full URLs, browser history, window titles, file contents, local IP addresses or private hostnames.</p>
+  <p className="muted-paragraph">Unknown applications and public website hostnames are collected locally. After you configure this optional feature and approve a service in its suggestion or Service discovery, a background worker groups up to 10 approved names into one JSON request. It never sends full URLs, browser history, window titles, file contents, local IP addresses or private hostnames.</p>
   <form onSubmit={e=>void save(e)} className="rule-form">
    <div className="form-grid"><label>AI provider<CustomSelect value={provider} onChange={e=>{const p=e.target.value;setProvider(p);setModel(models[p]);}}>{Object.keys(models).map(p=><option key={p} value={p}>{p}</option>)}</CustomSelect></label>
    <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required maxLength={100}/></label></div>
    <label>Classifier API key<input type="password" autoComplete="off" spellCheck={false} placeholder={data?.key_saved?'Enter a new key to replace the saved classifier key':'Enter key to encrypt on this Windows user'} value={key} minLength={8} maxLength={512} onChange={e=>setKey(e.target.value)} required/></label>
    <label className="check-line"><input type="checkbox" checked={authorized} onChange={e=>setAuthorized(e.target.checked)}/> Enable automatic external AI classification of observed public site names and app basenames</label>
-   <p className="form-hint">AI requests may incur charges from your chosen provider. Your approval continues until you disable it. Results are validated and cannot control blocking rules. Uncertain names receive one automatic second review; names that remain unknown stay clearly labeled. Saved decisions are reused locally before any AI request.</p>
+   <p className="form-hint">AI requests may incur charges from your chosen provider. Each unresolved service also requires your approval before its first request. Results are validated and cannot control blocking rules. Uncertain names receive one automatic second review; names that remain unknown stay clearly labeled. Saved decisions are reused locally before any AI request.</p>
    <div className="coach-vault-actions"><button className="primary-btn" disabled={readonly||busy||!authorized||key.length<8}>Save encrypted key &amp; enable</button>
     {data?.key_saved&&<button type="button" className="danger-btn" onClick={()=>void disable()} disabled={readonly||busy}>Disable and delete key</button>}</div>
   </form>
@@ -393,6 +394,7 @@ export function StartupPanel(){
 }
 
 export function DevicesPanel({readonly}:{readonly:boolean}){
+ const confirm=useConfirm();
  const {data,refresh,error}=useRemote<{own_device_id:string;devices:{device_id:string;display_name:string;last_import_ms:number}[];observed_union_ms_7d:number;per_device_observed_ms_7d:Record<string,number>}>('/devices',!readonly,0);
  const [secret,setSecret]=useState('');const [bundle,setBundle]=useState('');
  const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);
@@ -409,6 +411,6 @@ export function DevicesPanel({readonly}:{readonly:boolean}){
    setSecret('');setBundle('');setMessage(`Imported ${reply.imported} sessions. ${reply.duplicates_or_excluded} duplicate or excluded records skipped. Remote records never affect local blocking.`);refresh();
   }catch(e){setMessage(String(e));}finally{setBusy(false);}}
  async function readFile(file:File|undefined){if(!file)return;try{const text=await file.text();if(text.length>650000)throw Error('Encrypted file too large');setBundle(text);setMessage('Encrypted file loaded in memory. Enter its passphrase to import.');}catch(e){setMessage(String(e));}}
- async function forget(id:string){if(!window.confirm('Forget this device and delete all its imported sessions?'))return;setBusy(true);try{await agent('DELETE','/devices/'+id);refresh();setMessage('Linked device data deleted locally.');}catch(e){setMessage(String(e));}finally{setBusy(false);}}
+ async function forget(id:string){if(!await confirm({title:'Forget this device?',description:'Delete its imported sessions from this computer. This cannot be undone.',confirmLabel:'Forget device',danger:true}))return;setBusy(true);try{await agent('DELETE','/devices/'+id);refresh();setMessage('Linked device data deleted locally.');}catch(e){setMessage(String(e));}finally{setBusy(false);}}
  return <div className="advanced-stack"><div className="double-grid"><Card title="Encrypted device exchange · manual"><p className="muted-paragraph">Exchange activity between two Digital Discipline installations using an AES-256-GCM encrypted file. No cloud account or local-network server. Choose a unique 12+ character passphrase and deliver it securely, separately from the file.</p><label>Temporary passphrase<input type="password" autoComplete="new-password" minLength={12} maxLength={300} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="Never saved"/></label><div className="device-actions"><button className="primary-btn" disabled={readonly||busy||secret.length<12} onClick={()=>void makeExport()}>Encrypt and export this device</button><button className="secondary-btn" disabled={!bundle||busy||!secret} onClick={()=>void importBundle()}>Decrypt and import bundle</button></div><FileDropzone disabled={busy||readonly} onFile={readFile}/><details><summary>Show or paste encrypted bundle text</summary><textarea className="device-bundle" value={bundle} onChange={e=>setBundle(e.target.value)} maxLength={650000} rows={3}/></details><Feedback text={message}/><p className="form-hint">Explicit offline exchange, not continuous automatic sync. Every imported session has a device-scoped ID. Duplicate imports are safe; activity overlap is unioned. If a session wasn't observed on another device, it cannot be reconstructed.</p></Card><Card title="Your devices · last 7 days"><p className="muted-paragraph">Own device ID: <code>{data?.own_device_id||'—'}</code></p><h2>{pretty(data?.observed_union_ms_7d||0)} observed union</h2><p className="form-hint">Across available local and imported device sessions. Concurrent sessions are not double-counted.</p><div className="advanced-list">{Object.entries(data?.per_device_observed_ms_7d||{}).map(([id,ms])=><div className="settings-row" key={id}><span>{id==='local'?'This computer':data?.devices.find(d=>d.device_id===id)?.display_name||'Imported device'}</span><strong>{pretty(ms)}</strong></div>)}</div><div className="small-divider"/><h4>Imported devices</h4>{data?.devices.length?data.devices.map(d=><div className="settings-row" key={d.device_id}><div><strong>{d.display_name}</strong><small>Last import {new Date(d.last_import_ms).toLocaleString()}</small></div><button className="secondary-btn" disabled={readonly||busy} onClick={()=>void forget(d.device_id)}>Forget</button></div>):<p className="muted-paragraph">No linked-device records yet.</p>}{error&&<Feedback text={error}/>}</Card></div></div>;
 }

@@ -45,7 +45,7 @@ $('enabled').addEventListener('change',async e=>{
  $('status').textContent=!reply?.ok?'Could not save recording preferences. Check local storage.':enabled?'Recording enabled. Refresh open YouTube/Instagram tabs, then play for 3–5 seconds.':'Recording off. Pending observations are retained for local sync.';
 });
 $('purgePending').addEventListener('click',async()=>{
- if(!window.confirm('Delete observations waiting in this browser profile? Already delivered data stays in the desktop app. An observation being sent may still arrive.'))return;
+ if(!await confirmPendingPurge())return;
  const reply=await chrome.runtime.sendMessage({op:'purgePending'});
  await refresh();
  $('status').textContent=reply?.ok?reply.removed+' pending observations deleted. Recording preference unchanged.':'Could not delete pending observations.';
@@ -71,3 +71,16 @@ $('copyId').addEventListener('click',async()=>{try{await navigator.clipboard.wri
 // Attempt a real handshake on every popup open, not simply port creation.
 chrome.runtime.sendMessage({op:'resync'}).catch(()=>{}).finally(refresh);
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&(changes.eventQueue||changes.queueDiagnostics))void refresh({preferences:false});});
+
+let pendingConfirmation=null;
+function confirmPendingPurge(){return new Promise(resolve=>{pendingConfirmation=resolve;$('confirmMask').hidden=false;$('confirmCancel').focus();});}
+function finishConfirmation(answer){$('confirmMask').hidden=true;pendingConfirmation?.(answer);pendingConfirmation=null;$('purgePending').focus();}
+$('confirmCancel').addEventListener('click',()=>finishConfirmation(false));
+$('confirmDelete').addEventListener('click',()=>finishConfirmation(true));
+$('confirmMask').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();finishConfirmation(false);}if(e.key==='Tab'){e.preventDefault();(document.activeElement===$('confirmCancel')?$('confirmDelete'):$('confirmCancel')).focus();}});
+$('updateCompanion').addEventListener('click',async()=>{
+ $('updateCompanion').disabled=true;$('updateStatus').textContent='Preparing companion files without changing browser storage…';
+ try{const reply=await chrome.runtime.sendMessage({op:'companionUpdate'});$('updateStatus').textContent=reply?.ok?'Updated to '+reply.version+'. Reloading; pairing and queue are kept.':'Update unavailable: '+(reply?.error||'open the desktop app')+'. If this extension came from a custom folder, register that existing folder in desktop browser setup.';}
+ catch{$('updateStatus').textContent='Could not reach the desktop updater. Open Digital Discipline and retry.';}finally{$('updateCompanion').disabled=false;}
+});
+chrome.runtime.sendMessage({op:'companionStatus'}).then(r=>{$('updateVersion').textContent='Installed '+chrome.runtime.getManifest().version+(r?.ok?' · desktop offers '+r.version:' · open the desktop to check updates');}).catch(()=>{$('updateVersion').textContent='Installed '+chrome.runtime.getManifest().version;});

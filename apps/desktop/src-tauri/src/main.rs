@@ -5,7 +5,35 @@ use serde_json::Value;
 use std::{fs, path::PathBuf, time::Duration};
 #[cfg(windows)] use std::io::{Read,Write};
 #[cfg(windows)] use std::{net::{TcpStream,SocketAddr},process::Command};
-use tauri::{Manager, LogicalSize, Size};
+use tauri::{Manager,Emitter, LogicalSize, Size};
+
+#[derive(Default)]struct ServiceHintState{payload:std::sync::Mutex<Option<Value>>}
+fn hints_masked(app:&tauri::AppHandle)->bool{
+ #[cfg(windows)]{return app.try_state::<lifecycle::Supervisor>().is_some_and(|s|s.privacy_mask.load(std::sync::atomic::Ordering::SeqCst));}
+ #[cfg(not(windows))]{let _=app;false}
+}
+#[tauri::command]async fn deliver_service_hint(app:tauri::AppHandle,service:Value)->Result<(),String>{
+ if hints_masked(&app){return Ok(());}if service["subject"].as_str().is_none_or(|s|s.len()>260)||serde_json::to_vec(&service).map_err(|_|"Invalid suggestion")?.len()>4096{return Err("Invalid suggestion".into());}
+ *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Suggestion unavailable")?=Some(service.clone());
+ if app.get_webview_window("service-hint").is_none(){
+  tauri::WebviewWindowBuilder::new(&app,"service-hint",tauri::WebviewUrl::App("index.html?surface=service-hint".into())).title("Digital Discipline service suggestion").inner_size(356.0,156.0).resizable(false).decorations(false).transparent(true).shadow(false).always_on_top(true).skip_taskbar(true).focused(false).visible(false).build().map_err(|_|"Could not open service suggestion")?;
+ }else{app.emit_to("service-hint","dd:service-hint",service).map_err(|_|"Could not deliver suggestion")?;}Ok(())
+}
+#[tauri::command]fn read_service_hint(app:tauri::AppHandle)->Option<Value>{if hints_masked(&app){None}else{app.state::<ServiceHintState>().payload.lock().ok().and_then(|v|v.clone())}}
+#[tauri::command]fn set_service_hint_window(app:tauri::AppHandle,visible:bool,expanded:bool)->Result<(),String>{
+ let Some(w)=app.get_webview_window("service-hint")else{return Ok(());};
+ if !visible||hints_masked(&app){*app.state::<ServiceHintState>().payload.lock().map_err(|_|"Suggestion unavailable")?=None;let _=w.hide();return w.close().map_err(|_|"Could not close suggestion".into());}
+ w.set_size(Size::Logical(LogicalSize::new(356.0,if expanded{420.0}else{156.0}))).map_err(|_|"Could not size suggestion")?;
+ let monitor=app.get_webview_window("main").and_then(|main|main.current_monitor().ok().flatten()).or_else(||w.primary_monitor().ok().flatten());
+ if let Some(m)=monitor{let scale=m.scale_factor();let size=w.outer_size().map_err(|_|"Suggestion size unavailable")?;let x=m.position().x+(m.size().width as i32-size.width as i32-(20.0*scale) as i32).max(0);let y=m.position().y+(m.size().height as i32-size.height as i32-(72.0*scale) as i32).max(0);w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x,y))).map_err(|_|"Could not position suggestion")?;}
+ #[cfg(windows)]{
+  #[link(name="user32")]extern "system"{fn ShowWindow(hwnd:*mut std::ffi::c_void,command:i32)->i32;}
+  let hwnd=w.hwnd().map_err(|_|"Suggestion handle unavailable")?;unsafe{ShowWindow(hwnd.0 as *mut std::ffi::c_void,4);}// SW_SHOWNOACTIVATE: keep typing in the foreground app.
+  Ok(())
+ }
+ #[cfg(not(windows))]{w.show().map_err(|_|"Could not show suggestion".into())}
+}
+#[tauri::command]fn open_service_review(app:tauri::AppHandle)->Result<(),String>{let _=set_service_hint_window(app.clone(),false,false);set_presentation(app.clone(),"full".into())?;if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}app.emit_to("main","dd:open-service-review",()).map_err(|_|"Could not open service review".into())}
 
 fn token_path() -> Result<PathBuf,String> {
     let dir=std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA unavailable")?;
@@ -116,10 +144,11 @@ fn pair_browser(app:tauri::AppHandle,browser:String,extension_id:String)->Result
 /// The extension files ship INSIDE the Windows installer as ordinary Tauri resources.
 /// Chromium prohibits silent/unconsented installation of unpacked extensions.
 #[tauri::command]
-fn open_extension_folder(app: tauri::AppHandle) -> Result<String,String> {
+async fn open_extension_folder(app: tauri::AppHandle) -> Result<String,String> {
     #[cfg(not(windows))] { let _=app; return Err("Windows only".into()); }
     #[cfg(windows)] {
-        let path=app.path().resource_dir().map_err(|e|e.to_string())?.join("browser-extension");
+        let result=agent_request("POST".into(),"/companion".into(),Some(serde_json::json!({}))).await?;
+        let path=PathBuf::from(result["folder"].as_str().ok_or("Companion folder unavailable")?);
         if !path.join("manifest.json").is_file(){return Err("Bundled browser extension not found. Install the updated desktop build.".into());}
         Command::new("explorer.exe").arg(&path).spawn().map_err(|e|format!("Could not open File Explorer: {e}"))?;
         Ok(path.to_string_lossy().into_owned())
@@ -224,6 +253,7 @@ async fn export_activity()->Result<Value,String>{
 fn set_privacy_mask(app:tauri::AppHandle,enabled:bool){
  #[cfg(windows)] {app.state::<lifecycle::Supervisor>().privacy_mask.store(enabled,std::sync::atomic::Ordering::SeqCst);}
  #[cfg(not(windows))] let _=(app,enabled);
+ #[cfg(windows)] if enabled{let _=set_service_hint_window(app,false,false);}
 }
 
 #[tauri::command]
@@ -236,6 +266,7 @@ fn main() {
     #[cfg(windows)] let _single=match lifecycle::SingleInstance::acquire(){Ok(Some(owner))=>owner,Ok(None)=>return,Err(e)=>{eprintln!("{e}");return;}};
     #[cfg(windows)] let activation_event=_single.event();
     tauri::Builder::default()
+      .manage(ServiceHintState::default())
       .setup(move |app| {
           #[cfg(windows)] {
               use tauri::Emitter;
@@ -294,10 +325,10 @@ fn main() {
           Ok(())
       })
       .on_window_event(|window,event| {
-          #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {api.prevent_close();let _=window.hide();}
+          #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {if window.label()=="main"{api.prevent_close();let _=window.app_handle().emit_to("main","dd:collapse-request",());}}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask])
+      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,read_service_hint,set_service_hint_window,open_service_review])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

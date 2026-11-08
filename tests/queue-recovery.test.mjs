@@ -12,7 +12,7 @@ async function worker(state={},deliver){
  const handlers={},alarms=new Map(),requests=[],notifications=[];
  const event=name=>({addListener(fn){handlers[name]=fn;}});
  globalThis.chrome={
-  runtime:{onInstalled:event('install'),onStartup:event('startup'),onMessage:event('message')},
+  runtime:{id:'a'.repeat(32),getURL:p=>'chrome-extension://'+'a'.repeat(32)+'/'+p,getManifest:()=>({version:'0.3.9'}),reload:()=>{state.reloads=(state.reloads||0)+1;},onInstalled:event('install'),onStartup:event('startup'),onMessage:event('message')},
   storage:{local:{async get(keys){return structuredClone(Object.fromEntries(keys.map(k=>[k,state[k]])));},async set(changes){
    if(state.failAckWrite&&changes.eventQueue?.length===0&&changes.queueDiagnostics?.last_delivery_at_ms)throw Error('disk error');
    Object.assign(state,structuredClone(changes));
@@ -24,6 +24,8 @@ async function worker(state={},deliver){
   declarativeNetRequest:{async updateDynamicRules(){}},notifications:{async create(id,body){notifications.push(body);}}
  };
  globalThis.fetch=async(url,options)=>{
+  if(url.endsWith('/bridge/companion/update')){state.updateCalls=(state.updateCalls||0)+1;return Response.json(state.updateReply||{ok:true,version:'0.3.9',reload_ready:true});}
+  if(url.endsWith('/bridge/companion/status'))return Response.json({ok:true,version:'0.3.9'});
   if(url.endsWith('/bridge/sync'))return Response.json({ok:true,schema_version:'1.0',blocks:[],...(state.syncReply||{})});
   const e=JSON.parse(options.body);
   if(e.kind==='block.ack')return Response.json({ok:true,event_id:e.event_id});
@@ -35,7 +37,7 @@ async function worker(state={},deliver){
  const message=(body,sender={})=>new Promise((resolve,reject)=>{
   if(handlers.message(body,sender,resolve)!==true)reject(Error('Response channel was not held'));
  });
- return {state,requests,alarms,notifications,message,alarm:()=>handlers.alarm({name:'queue-retry'})};
+ return {state,requests,alarms,notifications,message,installed:()=>handlers.install({reason:'update'}),alarm:()=>handlers.alarm({name:'queue-retry'})};
 }
 
 test('poison and expired entries do not block later valid observations',async()=>{
@@ -135,4 +137,18 @@ test('agent private window suppresses new companion playback without revoking co
 
 test('presentation mode removes private rule labels from delivered browser notifications',async()=>{
  const w=await worker({notificationsEnabled:true,syncReply:{presentation_private:true,blocks:[{id:'private-rule',domain:'www.youtube.com',action:'notify',reason:'Private rule label',expires_at_ms:Date.now()+60000}]}});await w.message({op:'resync'});assert.equal(w.notifications.length,1);assert.equal(w.notifications[0].message.includes('Private rule label'),false);assert.match(w.notifications[0].message,/approved browser policy/);
+});
+
+test('companion update reloads in place while preserving profile, consent and pending observations',async()=>{
+ const queued=observation(),profile=crypto.randomUUID();const w=await worker({eventQueue:[queued],profileId:profile,collectionEnabled:true},async()=>{throw Error('offline during update');});
+ const reply=await w.message({op:'companionUpdate'},{id:'a'.repeat(32),url:'chrome-extension://'+'a'.repeat(32)+'/popup.html'});
+ assert.equal(reply.reload_ready,true);assert.deepEqual(w.state.eventQueue,[queued]);assert.equal(w.state.profileId,profile);assert.equal(w.state.collectionEnabled,true);
+ await new Promise(resolve=>setTimeout(resolve,500));assert.equal(w.state.reloads,1);await w.installed();assert.ok(w.state.eventQueue.some(e=>e.event_id===queued.event_id));assert.equal(w.state.profileId,profile);assert.equal(w.state.collectionEnabled,true);
+});
+test('content scripts cannot trigger file updates and a failed update never reloads',async()=>{
+ const w=await worker({updateReply:{ok:false,error:'update_failed'}});
+ const blocked=await w.message({op:'companionUpdate'},{id:'a'.repeat(32),url:'https://www.youtube.com/watch?v=example',tab:{id:1}});
+ assert.equal(blocked.error,'popup_action_required');assert.equal(w.state.updateCalls,undefined);
+ const result=await w.message({op:'companionUpdate'},{id:'a'.repeat(32),url:'chrome-extension://'+'a'.repeat(32)+'/popup.html'});
+ assert.equal(result.ok,false);await new Promise(resolve=>setTimeout(resolve,500));assert.equal(w.state.reloads,undefined);
 });

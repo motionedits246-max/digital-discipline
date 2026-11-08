@@ -222,3 +222,17 @@ Installer auditing found that the static Tauri resource map omitted the new play
 ## Verified 0.4.2 build handoff — 8 November
 
 [Run 42370611230](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230) succeeded for exact source `ea1c89a65acc00f65497bd22240461ae7ff21951`. Artifact `13573294448` includes the corrected companion resources. Downloaded bytes match the recorded artifact digest and all internal checksums; see [build status](BUILD-STATUS.md) for hashes and the download. Documentation-only commits following this source do not rebuild or change those binaries. Main remains untouched. The remaining roadmap and owner-installed Windows/Brave acceptance above remain open.
+
+## 8 November — owner-requested 0.4.3 continuation
+
+Desktop/agent 0.4.3, companion 0.3.9 and schema 14 implement custom confirmations, animated workspace collapse, in-place companion refresh and compact service classification prompts. This extends F08/F10/F11/F15/F16/F19/F22; it does not complete the remaining N roadmap.
+
+Classification follows saved/manual choices, Windows executable descriptions and conservative keyword rules, then optional bounded public-root/DuckDuckGo metadata. Public lookups are off until opted in. They use public-address checks, pinned DNS, no redirects/cookies/proxy forwarding, deadlines and response limits. Full URLs, browser page content, window titles and executable paths do not leave the device. Ambiguous app-name web summaries are suggestions until confirmed. All LLM providers, including Pollinations, require a saved encrypted key, classifier consent and per-service approval tied to the current configuration revision. Old queued jobs are not implicitly approved by migration. Existing accepted categories remain reusable.
+
+The approximately 356×156 logical-pixel service window does not take focus, expires after about 5.5 seconds plus its exit animation, pauses while being used and is muted by presentation/private/pause controls. Only one recent service is shown at a time, with a twenty-second cadence cap. Timeout leaves the record in Service discovery. The helper window is created only when needed and closes afterward.
+
+Companion updates use the already-installed desktop bundle. They update known owned locations or a desktop-approved existing companion folder, preserve unrelated files, stage replacements with the manifest last, and roll back write failures. The extension cannot supply arbitrary update destinations. This is not the trusted internet application updater in N09. One initial Reload of an existing 0.3.8 companion is required to load its new update button; removing/re-adding is unnecessary.
+
+Local checks: 53 JavaScript, 67 Linux Rust, 8 SQLite migration checks and the production frontend pass. Twelve renderer checks and expanded Windows runtime/packaging checks are queued for CI. No live owner provider call, installed Brave update, actual Hive metadata or multi-monitor popup acceptance is claimed before those scenarios run.
+
+Primary API references: [Chrome extension runtime lifecycle](https://developer.chrome.com/docs/extensions/reference/api/runtime), [Pollinations authentication](https://gen.pollinations.ai/docs), [Tauri webview-window builder](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindowBuilder.html).

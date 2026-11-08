@@ -2,7 +2,7 @@
 
 Windows-first, local-first activity tracking and reversible browser restrictions, with a Rust agent, Tauri/React desktop and Brave-first MV3 companion.
 
-**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent source version: **0.4.2**. Companion: **0.3.8**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
+**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent source version: **0.4.3**. Companion: **0.3.9**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
 
 Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current build status](docs/BUILD-STATUS.md) for changes, test evidence and remaining acceptance.
 
@@ -14,12 +14,22 @@ The integrated **0.4.2 Windows development build** is available in the [verified
 - Floating pill, quick panel, dashboard overlay, optional separate window and tray controls.
 - Opt-in observed playback for YouTube Shorts, ordinary YouTube videos and Instagram Reels. A play requires **2 seconds of visible playback progression**; route visits are not watched plays.
 - Domain/path browser restrictions, schedules, usage budgets, automation, goals and browser-only focus sessions.
-- Optional BYOK Coach and separately authorized automatic classification of batches of up to ten public hostnames/application basenames.
+- Optional BYOK Coach and a lightweight service-classification ladder. Saved choices and executable descriptions run locally first; public metadata/DuckDuckGo lookups are separately opt-in. LLM batches contain only individually approved service names.
 - Current-user Windows DPAPI encryption for explicitly saved provider keys.
 - Editable profiles, task-linked focus, persistent work/break cycles, selected-video Learning Mode, scoped temporary unlocks and local session reviews/resume cards.
 - Visible Presentation Mode, timed private sessions, profile-scoped Tracking Doctor, grouped local inbox and warning-only selected native-app interventions.
 - Complete streamed local snapshots with allowlisted preferences; credentials/enrollment omitted. Measured agent resources and Lite scheduling are available. Expanded roadmap acceptance remains open.
 - Manual encrypted exchange of recent device sessions. This is not a full backup or automatic sync.
+
+## New in 0.4.3
+
+- Custom confirmation dialogs replace browser-native prompts in the desktop and companion.
+- Workspace close animates into the pill; reduced-motion/Lite preferences are respected.
+- A compact service overlay offers a category for about six seconds. Timeout never approves an LLM request; unresolved items remain in Activity History → Service discovery.
+- Windows File Description/Product Name and conservative keyword rules can identify an AI development environment locally. Optional public lookups are bounded to 20 requests per day. Pollinations is supported as a keyed, explicitly approved LLM provider.
+- The companion popup can update from the installed desktop bundle and reload in place. Browser setup can register a custom existing extension folder. Updates retain extension ID, profile, consent and pending observations; owned files have rollback protection.
+
+**Upgrade from companion 0.3.8:** install the desktop update, then Reload your existing unpacked extension once to get the new Update & reload button. For a custom folder, register that same folder in desktop browser setup first. Keep its existing location. New installations use the stable DigitalDiscipline/browser-extension user folder.
 
 ## Build and check
 

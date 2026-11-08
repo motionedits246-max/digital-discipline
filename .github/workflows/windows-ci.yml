@@ -97,7 +97,7 @@ jobs:
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-MasterSpec-Branch-v0.4.2-DEV-SIGNED
+          name: DigitalDiscipline-MasterSpec-Branch-v0.4.3-DEV-SIGNED
           path: release-output/*
           if-no-files-found: error
           retention-days: 30

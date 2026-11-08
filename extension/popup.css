@@ -25,3 +25,5 @@
 .delivery-counts{margin:12px 0;font-size:11px}.delivery-counts>div{display:flex;justify-content:space-between;gap:12px;padding:4px 0}
 .delivery-counts dt{color:var(--muted)}.delivery-counts dd{margin:0;font-variant-numeric:tabular-nums}
 .action:disabled{opacity:.5;cursor:default}
+
+.confirm-mask{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:#0009;padding:16px;backdrop-filter:blur(4px)}.confirm-mask[hidden]{display:none}.confirm-card{border:1px solid #62626e;border-radius:14px;padding:20px;background:#25252b;color:#e4e4ed}.confirm-card p{font-size:12px;line-height:1.7;color:#b6b6c5}.confirm-actions{display:flex;gap:10px;margin-top:20px}.action.danger{background:#8d373d;color:#fff}

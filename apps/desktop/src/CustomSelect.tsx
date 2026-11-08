@@ -3,19 +3,20 @@ import type {KeyboardEvent,ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 
 type Opt={value:string;label:string;disabled:boolean};
-type Props={value:string|number;onChange:(event:{target:{value:string}})=>void;children:ReactNode;disabled?:boolean;required?:boolean;className?:string;'aria-label'?:string};
+type Props={onOpenChange?:(open:boolean)=>void;value:string|number;onChange:(event:{target:{value:string}})=>void;children:ReactNode;disabled?:boolean;required?:boolean;className?:string;'aria-label'?:string};
 
 function optionText(node:ReactNode):string{
  return Children.toArray(node).map(child=>typeof child==='string'||typeof child==='number'?String(child):isValidElement(child)?optionText((child.props as {children?:ReactNode}).children):'').join('');
 }
 
 /** Portal-backed, keyboard-operable listbox: avoids native Windows dropdown paint and scroll clipping. */
-export function CustomSelect({value,onChange,children,disabled=false,className='',...props}:Props){
+export function CustomSelect({value,onChange,children,disabled=false,className='',onOpenChange,...props}:Props){
  const options=useMemo<Opt[]>(()=>Children.toArray(children).filter(isValidElement).map(child=>{
    const item=child.props as {value?:string|number;children?:ReactNode;disabled?:boolean};
    const label=optionText(item.children);return {value:String(item.value??label),label,disabled:!!item.disabled};
  }),[children]);
  const [open,setOpen]=useState(false);const [position,setPosition]=useState({left:0,top:0,width:0,up:false,maxHeight:230});const [active,setActive]=useState(0);
+ useEffect(()=>{onOpenChange?.(open);},[open]);
  const button=useRef<HTMLButtonElement>(null);const menu=useRef<HTMLDivElement>(null);const uid=useId();
  const current=options.find(o=>o.value===String(value));
  const pos=()=>{const r=button.current?.getBoundingClientRect();if(!r)return;const below=window.innerHeight-r.bottom-12;const above=r.top-12;const up=below<195&&above>below;const height=Math.max(40,Math.min(250,up?above:below,window.innerHeight-16));const width=Math.min(r.width,window.innerWidth-16);setPosition({left:Math.max(8,Math.min(r.left,window.innerWidth-width-8)),top:up?r.top-5:r.bottom+5,width,up,maxHeight:height});};

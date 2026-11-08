@@ -2,7 +2,7 @@
 use rusqlite::Connection;
 pub fn migrate(db:&Connection)->rusqlite::Result<()>{
  let version:i32=db.query_row("PRAGMA user_version",[],|r|r.get(0))?;
- if version>13{return Err(rusqlite::Error::InvalidQuery);}
+ if version>14{return Err(rusqlite::Error::InvalidQuery);}
  if version<9{
   let tx=db.unchecked_transaction()?;
   crate::classification_store::migrate(&tx)?;
@@ -17,6 +17,7 @@ pub fn migrate(db:&Connection)->rusqlite::Result<()>{
  if version<11{let tx=db.unchecked_transaction()?;crate::data_lifecycle::migrate(&tx)?;tx.execute_batch("PRAGMA user_version=11;")?;tx.commit()?;}
  if version<12{let tx=db.unchecked_transaction()?;crate::focus_workflow::migrate(&tx)?;crate::policy_exceptions::migrate(&tx)?;tx.execute_batch("PRAGMA user_version=12;")?;tx.commit()?;}
  if version<13{let tx=db.unchecked_transaction()?;crate::inbox::migrate(&tx)?;tx.execute_batch("PRAGMA user_version=13;")?;tx.commit()?;}
+ if version<14{let tx=db.unchecked_transaction()?;crate::service_discovery::migrate(&tx)?;tx.execute_batch("PRAGMA user_version=14;")?;tx.commit()?;}
  Ok(())
 }
 
@@ -24,9 +25,13 @@ pub fn migrate(db:&Connection)->rusqlite::Result<()>{
  use super::*;
  #[test]fn bootstrap_is_repeatable_and_preserves_owner_data(){
   let d=Connection::open_in_memory().unwrap();crate::initialize_schema(&d).unwrap();d.execute("INSERT INTO category_overrides VALUES('app:editor.exe','Development',42)",[]).unwrap();crate::initialize_schema(&d).unwrap();
-  assert_eq!(d.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0)).unwrap(),13);assert_eq!(d.query_row("SELECT COUNT(*) FROM category_overrides",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+  assert_eq!(d.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0)).unwrap(),14);assert_eq!(d.query_row("SELECT COUNT(*) FROM category_overrides",[],|r|r.get::<_,i64>(0)).unwrap(),1);
  }
  #[test]fn future_schema_is_rejected_before_modifying_its_tables(){
   let d=Connection::open_in_memory().unwrap();d.execute_batch("PRAGMA user_version=999;").unwrap();assert!(crate::initialize_schema(&d).is_err());assert_eq!(d.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+ }
+ #[test]fn upgrade_from_thirteen_preserves_choices_and_does_not_approve_old_ai_jobs(){
+  let db=Connection::open_in_memory().unwrap();crate::initialize_schema(&db).unwrap();db.execute_batch("DROP TABLE service_discovery;DROP TABLE service_lookup_requests;PRAGMA user_version=13;INSERT INTO category_overrides VALUES('app:editor.exe','Design',42);INSERT INTO classifications VALUES('app:unknown.exe','awaiting_consent','Unclassified','old queued job',1,1);").unwrap();
+  crate::initialize_schema(&db).unwrap();assert_eq!(crate::features::category_for(&db,"editor.exe",None),"Design");assert!(crate::classification_store::claim(&db,1000,true,20).unwrap().is_none());assert_eq!(db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0)).unwrap(),14);
  }
 }

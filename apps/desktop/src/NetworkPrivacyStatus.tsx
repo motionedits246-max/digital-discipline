@@ -36,14 +36,14 @@ export function NetworkPrivacyStatus({readonly}:{readonly:boolean}){
  const label=!verified?'Unknown':classifier?.paused_private?'Paused for private session':automatic?'On':classifier?.enabled?'Needs attention':'Off';
  const latest=classifier?.last_attempt_at_ms;
  return <div aria-label="AI privacy status" aria-live="polite">
-  <div className="settings-row"><div><strong>Automatic external classification</strong>
+  <div className="settings-row"><div><strong>Approved service AI reviews</strong>
    <small>{readonly?'Status unavailable while the agent is offline or in sample preview.':error||(!status?'Checking local agent…':automatic?
-    'Enabled · '+classifier?.provider+' · '+classifier?.model:
+    'Configured · per-service approval required · '+classifier?.provider+' · '+classifier?.model:
     classifier?.enabled?'Enabled, but a saved key or valid provider configuration is missing.':'Disabled · no new automatic classification requests')}</small>
    {verified&&<small>Classifier key: {classifier?.key_saved?'encrypted file present; checked when used':'not saved'}. {classifier?.provider?classifier.provider+' / '+classifier.model:''}</small>}
    {verified&&<small>{latest?'Last request: '+new Date(latest).toLocaleString()+' · '+(outcomes[classifier?.last_result||'']||'Result unavailable'):'No automatic request recorded yet.'}
     {classifier?.last_error_code?' '+(failures[classifier.last_error_code]||'The request could not complete; review classification settings.'):''}</small>}
-   <small>Only public hostnames and application basenames may be sent, up to {classifier?.batch_size||10} names per request. No full URLs, document titles or executable paths. Disabling prevents future requests; data already sent cannot be recalled.</small>
+   <small>Only service names you approve may be sent, up to {classifier?.batch_size||10} names per request. No full URLs, document titles or executable paths. Disabling prevents future requests; data already sent cannot be recalled.</small>
   </div><span className={'tag '+(automatic?'tag-on':'')}>{label}</span></div>
   <div className="settings-row"><div><strong>AI Coach sharing and saved keys</strong>
    <small>{verified?(status.coachConsent?'Aggregate sharing preference enabled. Each chat request is initiated by you.':'Aggregate sharing preference disabled.'):

@@ -1,3 +1,5 @@
+import {CompanionUpdater} from './CompanionUpdater';
+import {useConfirm} from './ConfirmDialog';
 import {useEffect,useState} from 'react';
 import {openExtensionFolder,pairBrowser,forgetBrowserPair,getBrowserPairState,isTauri} from './api';
 import type {BrowserPair,PendingBrowser} from './api';
@@ -22,6 +24,7 @@ function Visual({kind}:{kind:number}){
   </div>;
 }
 export function BrowserSetupWizard(){
+ const confirm=useConfirm();
  const [step,setStep]=useState(0);const [browser,setBrowser]=useState<Browser>('Brave');const [id,setId]=useState('');
  const [folder,setFolder]=useState('');const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);
  const [pairs,setPairs]=useState<BrowserPair[]>([]);
@@ -34,7 +37,7 @@ export function BrowserSetupWizard(){
  async function folderOpen(){setBusy(true);try{setFolder(await openExtensionFolder());setNotice('File Explorer opened. In Brave, select this exact folder.');}catch(e){setNotice(String(e));}finally{setBusy(false);}}
  async function pair(){if(!valid)return;setBusy(true);try{const msg=await pairBrowser(browser,id.trim());setNotice(msg);await reloadPairs();}catch(e){setNotice(String(e));}finally{setBusy(false);}}
  async function approvePending(extensionId:string){setBusy(true);try{setNotice(await pairBrowser(browser,extensionId));await reloadPairs();}catch(e){setNotice(String(e));}finally{setBusy(false);}}
- async function unpair(extensionId:string){if(!window.confirm('Remove this browser extension from the local allowlist?'))return;
+ async function unpair(extensionId:string){if(!await confirm({title:'Disconnect this browser?',description:'Remove this extension from the local allowlist. Its browser profile, pending queue and recording preference stay on your device.',confirmLabel:'Disconnect browser',danger:true}))return;
   setBusy(true);try{await forgetBrowserPair(extensionId);await reloadPairs();setNotice('Authorization removed. Extension will disconnect on its next request.');}catch(e){setNotice(String(e));}finally{setBusy(false);}}
  const next=()=>setStep(n=>Math.min(4,n+1));
  return <article className="surface padded wizard-root" aria-label="Browser setup wizard">
@@ -47,6 +50,7 @@ export function BrowserSetupWizard(){
    {step===3&&<><div className="wizard-numbered"><span>1. Open <code>{browser.toLowerCase()==='brave'?'brave://extensions':browser==='Chrome'?'chrome://extensions':'edge://extensions'}</code> and click <b>Reload</b> on the extension.</span><span>2. Open its popup; enable <b>Record browser activity</b> if you want video counts.</span><span>3. Click <b>Connect directly & sync events</b>.</span><span>4. Confirm <b>Connected to local Windows agent</b> and check that queued events decrease.</span></div><button type="button" className="secondary-btn" disabled={!valid||busy} onClick={()=>void reloadPairs()}>Refresh paired devices</button><p className="wizard-caution">Extension popup should say Connected to local Windows agent. If it shows not authorized, check the ID below. If it shows Failed to fetch, confirm the agent is running and Brave allows the extension to connect to 127.0.0.1.</p></>}
    {step===4&&<><div className="wizard-numbered"><span>1. In Brave, open three different <code>youtube.com/shorts/…</code> URLs.</span><span>2. Let each Short visibly play for at least five seconds.</span><span>3. Return to <b>Video Intelligence</b> in the desktop dashboard, then refresh.</span><span>4. If counts stay at zero, reopen the extension popup: the queued count should fall, not keep climbing. Then open two regular watch videos for separate counting.</span></div><p className="wizard-caution">Regular <code>youtube.com/watch?v=…</code> observations now have separate counts. Play two different ordinary videos after checking Shorts and confirm the two categories do not mix.</p></>}
    </div></div>
+   <CompanionUpdater/>
    <div className="wizard-diagnostics" aria-label="Browser connection management">
     <div className="eyebrow">NEW CONNECTION</div>
     <div className="panel-header"><strong>Connect a new browser ({pending.length} waiting)</strong><button type="button" className="secondary-btn" onClick={()=>void reloadPairs()} disabled={busy}>Find extensions</button></div>

@@ -6,9 +6,13 @@ async function connected(page:Page,paired=true){
   const calls:any[]=[];let focus:any=null,privateState={active:false,until_ms:null as number|null,automatic_ai_paused:false,restrictions_continue:true};let exceptions:any[]=[];
   (window as any).__testCalls=calls;const callbacks=new Map<number,(event:any)=>void>(),nativeEvents:Record<string,(event:any)=>void>={};let callbackId=0;
   (window as any).__testNativeEvents=nativeEvents;
+  const service={subject:'app:new-helper.exe',category:'Unclassified',source:'local_rules',description:'Unknown local tool',ai_enabled:true,provider:'pollinations',llm_approved:false};
   (window as any).__TAURI_INTERNALS__={transformCallback:(fn:(event:any)=>void)=>{callbacks.set(++callbackId,fn);return callbackId;},unregisterCallback:()=>{},invoke:async(command:string,args:any)=>{
-   calls.push({command,args});if(command==='plugin:event|listen'){nativeEvents[args.event]=callbacks.get(args.handler)!;return 1;}if(command!=='agent_request')return null;
+   calls.push({command,args});if(command==='read_service_hint')return service;if(command==='plugin:event|listen'){nativeEvents[args.event]=callbacks.get(args.handler)!;return 1;}if(command!=='agent_request')return null;
    const {path,method,body}=args;
+   if(path==='/services/next')return {service:null};
+   if(path==='/services')return {services:[service],public_lookup:false,overlay_enabled:true,ai_enabled:true,provider:'pollinations'};
+   if(path==='/services/decision'){if(body.action==='category')service.category=body.category;return {ok:true};}
    if(path==='/state'||path==='/live')return {ok:true,schema_version:'1.0',observed_at_ms:Date.now(),tracking_paused:false,private_session:privateState,platform_supported:true,browser_connected:true,metrics:{active_ms:0,development_ms:0,entertainment_ms:0,qualified_plays:0,unique_videos:0,replays:0,playback_ms:0},current:null,sessions:[],heatmap:[],rules:[{id:rule,name:'No Shorts',domain:'www.youtube.com',path_prefix:'/shorts/',enabled:true,enforced:true}],goals:[],focus,profile_receipts:[],coverage:{windows_collector:'running',browser:'best_effort',no_data_is_not_zero:true}};
    if(path==='/browser-pairs')return {pairs:paired?[{browser:'Brave',extension_id:'a'.repeat(32)}]:[],pending:[]};
    if(path==='/workflows')return {profiles:[{id:profile,name:'Study',apps:['editor.exe'],domains:['www.youtube.com']}],tasks:[{id:task,profile_id:profile,title:'Finish exercises',state:'draft',outcome:''}]};
@@ -49,4 +53,28 @@ test('private-session controls preserve a declared duration and provide an end a
 });
 test('normal unlock sends a selected rule and site rather than emergency release',async({page})=>{
  await connected(page);await page.getByRole('button',{name:'Blocking Center',exact:true}).click();const panel=page.getByRole('article',{name:'Scoped temporary unlock'});await panel.getByText('Choose a restriction',{exact:true}).click();await page.getByRole('option',{name:'No Shorts · www.youtube.com',exact:true}).click();await panel.getByRole('button',{name:'Create scoped unlock'}).click();await expect(panel.getByRole('button',{name:'End unlock'})).toBeVisible();const body=await page.evaluate(()=>(window as any).__testCalls.find((c:any)=>c.args?.path==='/policy/exceptions'&&c.args?.method==='POST').args.body);expect(body).toEqual({rule_id:rule,domain:'www.youtube.com',minutes:5,reason:'planned_use',profile_id:null});
+});
+test('custom browser disconnect dialog cancels safely and submits only after confirmation',async({page})=>{
+ page.on('dialog',()=>{throw new Error('Native browser dialog appeared');});await connected(page);await page.getByRole('button',{name:'Settings & Privacy',exact:true}).click();
+ const unpair=page.getByRole('button',{name:'Unpair',exact:true});await unpair.click();const dialog=page.getByRole('alertdialog',{name:'Disconnect this browser?'});await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'Cancel',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
+ expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.method==='DELETE'&&c.args?.path?.startsWith('/browser-pairs/')).length)).toBe(0);
+ await unpair.click();await dialog.getByRole('button',{name:'Disconnect browser',exact:true}).click();expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.method==='DELETE'&&c.args?.path?.startsWith('/browser-pairs/')).length)).toBe(1);
+});
+test('workspace collapse plays before native resize and ends at the pill',async({page})=>{
+ await connected(page);await page.clock.install();await page.getByRole('button',{name:'Collapse to pill',exact:true}).click();await expect(page.locator('body')).toHaveClass(/dd-collapsing/);
+ expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.command==='set_presentation'&&c.args?.mode==='pill').length)).toBe(0);
+ await page.clock.fastForward(220);await expect(page.getByRole('button',{name:'Open quick panel',exact:true})).toBeVisible();await expect(page.locator('body')).not.toHaveClass(/dd-collapsing/);
+});
+test('service overlay expires without approving or sending a classification request',async({page})=>{
+ await connected(page);await page.clock.install();await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');await expect(page.getByRole('region',{name:'New service suggestion'})).toBeVisible();
+ await page.clock.fastForward(6500);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').length)).toBe(0);
+ expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.command==='set_service_hint_window'&&c.args?.visible===false))).toBe(true);
+});
+test('service overlay saves a manual category without approving AI',async({page})=>{
+ await connected(page);await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');await page.getByRole('combobox',{name:'Service type',exact:true}).click();await page.getByRole('option',{name:'Development',exact:true}).click();await page.getByRole('button',{name:'Save',exact:true}).click();
+ const calls=await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body));expect(calls).toEqual([{subject:'app:new-helper.exe',action:'category',category:'Development'}]);
+});
+test('service overlay requires an explicit action before queueing AI',async({page})=>{
+ await connected(page);await page.goto('/?surface=service-hint');await expect(page.getByText('No LLM request until you approve.',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Ask AI',exact:true}).click();
+ const calls=await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body));expect(calls).toEqual([{subject:'app:new-helper.exe',action:'approve_ai',category:null}]);
 });

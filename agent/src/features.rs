@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::{collections::{BTreeMap,BTreeSet,HashMap},sync::Arc};
 use uuid::Uuid;
 
-const CATEGORIES: &[&str]=&["Development","Design","Productivity","Communication","Education","Entertainment","Gaming","Social","News","Utility","System","Browser","Unclassified"];
+pub(crate) const CATEGORIES: &[&str]=&["Development","Design","Productivity","Communication","Education","Entertainment","Gaming","Social","News","Utility","System","Browser","Unclassified"];
 
 pub(super) fn migrate(db:&Connection)->rusqlite::Result<()> {
     let version:i32=db.query_row("PRAGMA user_version",[],|r|r.get(0))?;

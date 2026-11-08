@@ -77,7 +77,7 @@ pub async fn doctor(State(s):State<Arc<AppState>>)->ApiResult{
   Ok(json!({"extension_id":r.get::<_,String>(0)?,"profile_id":r.get::<_,String>(1)?,"browser":r.get::<_,String>(2)?,"last_seen_ms":seen,"recording_enabled":recording.map(|v|v!=0),"queued":r.get::<_,i64>(5)?,"adapter":r.get::<_,String>(6)?,"qualified_at_ms":qualified,"accepted_at_ms":accepted,"rendered_ms":rendered,"policy_ack_ms":ack,"companion_version":r.get::<_,String>(11)?,"loss_count":r.get::<_,i64>(12)?,"revoked":revoked,"accepted_events":r.get::<_,i64>(14)?,
    "online":now-seen<90000,"authorized":!revoked,"dashboard_received":accepted>0&&rendered>=accepted,"policy_acknowledged":ack>now-180000}))
  }).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
- Ok(Json(json!({"ok":true,"checked_at_ms":now,"profiles":profiles,"agent_version":env!("CARGO_PKG_VERSION"),"expected_companion_version":"0.3.8","protocol":"1.0 additive profile identity","play_threshold_ms":2000,"native_attribution":"Conservative matching of browser-reported focus; ambiguous profiles remain Unattributed"})))
+ Ok(Json(json!({"ok":true,"checked_at_ms":now,"profiles":profiles,"agent_version":env!("CARGO_PKG_VERSION"),"expected_companion_version":crate::companion::version(),"protocol":"1.0 additive profile identity","play_threshold_ms":2000,"native_attribution":"Conservative matching of browser-reported focus; ambiguous profiles remain Unattributed"})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct Receipt{extension_id:String,profile_id:String,accepted_at_ms:i64}
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct RenderAck{receipts:Vec<Receipt>}

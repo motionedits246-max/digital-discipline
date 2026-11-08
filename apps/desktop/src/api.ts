@@ -51,3 +51,8 @@ export async function lifecycleStatus():Promise<LifecycleStatus>{return isTauri?
 export async function exportActivity():Promise<{saved_path:string;rows:number;complete:boolean}>{return invoke('export_activity',{});}
 
 export async function setPrivacyMask(enabled:boolean):Promise<void>{if(isTauri)await invoke('set_privacy_mask',{enabled});}
+
+export async function deliverServiceHint(service:unknown):Promise<void>{if(isTauri)await invoke('deliver_service_hint',{service});}
+export async function readServiceHint():Promise<import('./ServiceReviewPanel').Service|null>{return invoke('read_service_hint',{});}
+export async function setServiceHintWindow(visible:boolean,expanded=false):Promise<void>{if(isTauri)await invoke('set_service_hint_window',{visible,expanded});}
+export async function openServiceReview():Promise<void>{if(isTauri)await invoke('open_service_review',{});}

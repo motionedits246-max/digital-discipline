@@ -103,11 +103,21 @@ async fn event(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,J
  touch(&state,id).await;
  crate::event_ingest(State(state),Json(payload)).await
 }
+async fn companion_status(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)->ApiResult{
+ let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;if !is_paired(&state,id){return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized"));}
+ Ok(Json(json!({"ok":true,"version":crate::companion::version(),"preserves_profile":true})))
+}
+async fn companion_update(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)->ApiResult{
+ let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;if !is_paired(&state,id){return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized"));}
+ {let db=state.db.lock().unwrap();let last=crate::features::read_setting(&db,"companion_last_update_ms").parse::<i64>().unwrap_or(0);if now_ms()-last<5000{return Err(err(StatusCode::TOO_MANY_REQUESTS,"update_already_requested"));}db.execute("INSERT OR REPLACE INTO settings VALUES('companion_last_update_ms',?1)",params![now_ms().to_string()]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;}
+ Ok(Json(crate::companion::apply(state).await.map_err(|_|err(StatusCode::CONFLICT,"update_failed_previous_files_preserved"))?))
+}
 pub fn routes()->Router<Arc<AppState>> {
  Router::new()
   .route("/bridge/hello",get(hello))
   .route("/bridge/sync",post(sync))
   .route("/bridge/event",post(event))
+  .route("/bridge/companion/status",get(companion_status)).route("/bridge/companion/update",post(companion_update))
   .layer(axum::middleware::from_fn(cors_guard))
 }
 #[cfg(test)] mod tests{
@@ -123,4 +133,10 @@ pub fn routes()->Router<Arc<AppState>> {
   db.execute("INSERT INTO browser_pairs(extension_id,browser,created_ms) VALUES(?1,'Brave',42)",params!["diakokddlmicacfakghilkajnojloick"]).unwrap();
   assert_eq!(db.query_row("SELECT browser FROM browser_pairs",[],|r|r.get::<_,String>(0)).unwrap(),"Brave");
  }
+ #[tokio::test]async fn updater_rejects_web_origins_and_unpaired_extensions_before_filesystem_work(){
+  let state=crate::ingestion_tests::state();let mut headers=axum::http::HeaderMap::new();
+  headers.insert(ORIGIN,HeaderValue::from_static("https://www.youtube.com"));assert_eq!(companion_update(State(Arc::clone(&state)),headers).await.unwrap_err().0,StatusCode::FORBIDDEN);
+  let mut headers=axum::http::HeaderMap::new();headers.insert(ORIGIN,HeaderValue::from_static("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));assert_eq!(companion_update(State(state),headers).await.unwrap_err().0,StatusCode::FORBIDDEN);
+ }
+
 }

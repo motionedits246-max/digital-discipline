@@ -294,6 +294,18 @@ chrome.windows.onFocusChanged.addListener(tabChanged);
 chrome.webNavigation.onHistoryStateUpdated.addListener(d=>{if(d.frameId===0){tabChanged();void navigationVisit(d.tabId,d.url).catch(()=>{});}});
 chrome.webNavigation.onCommitted?.addListener(d=>{if(d.frameId===0)void navigationVisit(d.tabId,d.url).catch(()=>{});});
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
+  if(msg?.op==='companionStatus'||msg?.op==='companionUpdate'){
+    if(sender.tab||sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('popup.html')){sendResponse({ok:false,error:'popup_action_required'});return;}
+    const update=msg.op==='companionUpdate';
+    (async()=>{
+      const response=await fetch(BRIDGE+'/bridge/companion/'+(update?'update':'status'),{method:update?'POST':'GET',headers:{'X-DD-Bridge':'1','Content-Type':'application/json'},...(update?{body:'{}'}:{}),credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(12000)});
+      const reply=await response.json();
+      if(!response.ok||!reply.ok){sendResponse({ok:false,error:reply.error||'companion_update_unavailable'});return;}
+      if(update&&reply.reload_ready){await withQueueLock(async()=>{});sendResponse(reply);setTimeout(()=>chrome.runtime.reload(),450);}
+      else sendResponse(reply);
+    })().catch(()=>sendResponse({ok:false,error:'local_updater_unavailable'}));return true;
+  }
+
   if(msg?.op==='adapterStatus'){
     const tab=sender.tab;
     if(tab?.active===true&&sender.frameId===0&&/^https:\/\/www\.(youtube\.com|instagram\.com)\//.test(tab.url||'')&&['ready','no_player','unsupported'].includes(msg.status)){

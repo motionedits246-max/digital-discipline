@@ -29,7 +29,7 @@ function Wait-Agent {
 try {
  $first=Start-TestAgent
  $ready=Wait-Agent
- if($ready.health.version -ne $runtimeExpectedVersion -or $ready.health.storage_version -lt 13){throw 'Agent version or migration mismatch'}
+ if($ready.health.version -ne $runtimeExpectedVersion -or $ready.health.storage_version -lt 14){throw 'Agent version or migration mismatch'}
  $duplicate=Start-TestAgent
  if(-not $duplicate.WaitForExit(5000) -or $duplicate.ExitCode -eq 0){throw 'Duplicate agent did not exit without collecting'}
  $auth=@{Authorization="Bearer $($ready.token)"}
@@ -45,6 +45,12 @@ try {
  $third=Start-TestAgent
  $ready=Wait-Agent
  function Agent-Post([string]$route,$body){Invoke-RestMethod ("http://127.0.0.1:48761"+$route) -Method Post -Headers $auth -ContentType 'application/json' -Body ($body|ConvertTo-Json -Depth 20 -Compress)}
+ $enrolled=Agent-Post '/browser-pairs' @{browser='Brave';extension_id=('a'*32)}
+ $companion=Agent-Post '/companion' @{}
+ $extensionManifest=Get-Content (Join-Path $companion.folder 'manifest.json') -Raw | ConvertFrom-Json
+ if($extensionManifest.version -ne $companion.version -or -not (Test-Path (Join-Path $companion.folder 'src/queue-policy.js'))){throw 'Managed companion update is incomplete'}
+ $pairedAfterUpdate=Invoke-RestMethod 'http://127.0.0.1:48761/browser-pairs' -Headers $auth
+ if(-not @($pairedAfterUpdate.pairs|Where-Object {$_.extension_id -eq ('a'*32)}).Count){throw 'Companion update lost browser enrollment'}
  $profile=Agent-Post '/workflows/profiles' @{name='CI study';apps=@('new-editor.exe');domains=@('www.youtube.com')}
  $task=Agent-Post '/workflows/tasks' @{title='Finish lesson exercises';profile_id=$profile.id}
  $focus=Agent-Post '/focus/start' @{goal_id=$null;task_id=$task.id;profile_id=$profile.id;minutes=1;difficulty='Strict';block_domains=@('www.youtube.com');cycle=@{work_minutes=1;break_minutes=1;cycles=2;break_policy='soften'};learning=@{video_ids=@('Example123');override_rule_ids=@('focus');hide_home=$true;hide_related=$true;hide_shorts=$true;stop_autoplay=$true}}
@@ -75,7 +81,7 @@ try {
  if($reviews.reviews[0].context.intended_outcome -ne 'Finish lesson exercises'){throw 'Task review context missing'}
  Agent-Post '/shutdown' @{}|Out-Null
  if(-not $fourth.WaitForExit(6000)){throw 'Final workflow agent did not stop'}
- Write-Host 'PASS: migration, duplicate process, pause persistence, task/profile context, focus-cycle/private restart, scoped Learning Mode/unlock, complete snapshot, review and graceful shutdown'
+ Write-Host 'PASS: migration, duplicate process, pause persistence, task/profile context, focus-cycle/private restart, scoped Learning Mode/unlock, managed companion update/enrollment, complete snapshot, review and graceful shutdown'
 } finally {
  foreach($p in $runtimeProcesses){if(-not $p.HasExited){$p.Kill();$p.WaitForExit(3000) | Out-Null};$p.Dispose()}
  Remove-Item $runtimeTemp -Recurse -Force -ErrorAction SilentlyContinue

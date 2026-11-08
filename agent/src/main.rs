@@ -13,6 +13,8 @@ mod analytics;
 mod features;
 mod classification;
 mod classification_store;
+mod companion;
+mod service_discovery;
 mod schema;
 mod tracking;
 mod reporting;
@@ -104,7 +106,7 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
 }
 
 fn initialize_schema(db:&Connection)->rusqlite::Result<()>{
-    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>13{return Err(rusqlite::Error::InvalidQuery);}
+    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>14{return Err(rusqlite::Error::InvalidQuery);}
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, idle INTEGER NOT NULL, domain TEXT);
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_ms);
@@ -560,6 +562,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     let paused=db.query_row("SELECT value FROM settings WHERE key='paused'",[],|r|r.get::<_,String>(0)).unwrap_or_default()=="true";
     let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),stopping:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),token,shutdown:Arc::new(tokio::sync::Notify::new())});
     let classify_state=Arc::clone(&state);
+    let discovery_state=Arc::clone(&state);
+    tokio::spawn(async move{loop{if discovery_state.stopping.load(Ordering::SeqCst){break;}service_discovery::tick(Arc::clone(&discovery_state)).await;let delay=if features::read_setting(&discovery_state.db.lock().unwrap(),"lite_mode")=="true"{12}else{3};tokio::time::sleep(StdDuration::from_secs(delay)).await;}});
     tokio::spawn(async move{
         loop {
             if classify_state.stopping.load(Ordering::SeqCst){break;}
@@ -614,6 +618,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/devices/import",post(devices::import)).route("/devices/{id}",delete(devices::forget))
         .route("/classifications",get(classification::list)).route("/classifications/config",post(classification::configure).delete(classification::remove_config))
         .route("/classifications/preferences",post(classification::preferences))
+        .route("/companion",get(companion::status).post(companion::prepare))
+        .route("/services",get(service_discovery::list)).route("/services/next",post(service_discovery::next)).route("/services/decision",post(service_discovery::decide)).route("/services/preferences",post(service_discovery::preferences))
         .route("/browser-pairs",get(bridge::list).post(bridge::enroll))
         .route("/browser-pairs/{id}",delete(bridge::revoke))
         .layer(middleware::from_fn_with_state(Arc::clone(&state),auth));
