@@ -6,7 +6,7 @@ Windows-first, local-first activity tracking and reversible browser restrictions
 
 Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current build status](docs/BUILD-STATUS.md) for changes, test evidence and remaining acceptance.
 
-The integrated **0.4.2 Windows development build** is available in the [verified Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230/artifacts/13573294448). It uses a self-signed development certificate. See build status for the tested source and SHA-256 checksums.
+The integrated **0.4.3 Windows development build** is available in the [verified Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736/artifacts/13619277149). It uses a self-signed development certificate. See build status for the tested source and SHA-256 checksums.
 
 ## Current capabilities
 
@@ -29,7 +29,7 @@ The integrated **0.4.2 Windows development build** is available in the [verified
 - Windows File Description/Product Name and conservative keyword rules can identify an AI development environment locally. Optional public lookups are bounded to 20 requests per day. Pollinations is supported as a keyed, explicitly approved LLM provider.
 - The companion popup can update from the installed desktop bundle and reload in place. Browser setup can register a custom existing extension folder. Updates retain extension ID, profile, consent and pending observations; owned files have rollback protection.
 
-**Upgrade from companion 0.3.8:** install the desktop update, then Reload your existing unpacked extension once to get the new Update & reload button. For a custom folder, register that same folder in desktop browser setup first. Keep its existing location. New installations use the stable DigitalDiscipline/browser-extension user folder.
+**Upgrade from companion 0.3.8:** install the desktop update, then Reload your existing unpacked extension once to get the new Update & reload button. For a custom folder, register that same folder in desktop browser setup first. Keep its existing location and refresh already-open video tabs after reload. New installations use the stable DigitalDiscipline/browser-extension user folder.
 
 ## Build and check
 
