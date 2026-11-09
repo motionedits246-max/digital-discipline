@@ -1,0 +1,8 @@
+{
+  "name": "digital-discipline-website",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node --check public/site.js && node build.mjs"
+  }
+}

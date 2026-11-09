@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101012">
+  <meta name="description" content="See the Windows apps and videos that fill your day. Set a focus session and review your time with a local-first desktop workspace.">
+  <meta property="og:title" content="Digital Discipline — Where did your time go?">
+  <meta property="og:description" content="A local-first activity and focus workspace for Windows.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/social.png">
+  <meta property="og:image:alt" content="Digital Discipline focus session dial and the words Where did your time go?">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>Digital Discipline — Where did your time go?</title>
+  <link rel="icon" href="mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="site.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav frame">
+    <a class="brand" href="#main"><img src="mark.svg" width="29" height="29" alt="">Digital Discipline</a>
+    <nav aria-label="Main navigation"><a href="#product">Product</a><a href="#privacy">Privacy</a><a href="#source">Source</a></nav>
+    <a class="outline" href="#install">Windows build <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main">
+    <section class="hero frame" aria-labelledby="headline">
+      <div class="intro">
+        <p class="eyebrow"><span class="dot"></span> Local-first / Windows</p>
+        <h1 id="headline">Where did<br>your <em>time</em> go?</h1>
+        <p class="lede">See the apps, videos and little detours that fill your day. Choose what gets the next 25 minutes.</p>
+        <div class="actions"><a class="primary" href="#install"><svg aria-hidden="true"><use href="icons.svg#windows"/></svg>Get the Windows build</a><a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows"><svg aria-hidden="true"><use href="icons.svg#branch"/></svg>View on GitHub ↗</a></div>
+        <p class="footnote">Development build · x64 · Repository access required</p>
+      </div>
+      <div class="instrument">
+        <div class="instrument-head micro"><span><b></b> Focus session</span><span>Demo data</span></div>
+        <div class="dial"><img src="dial.svg" width="360" height="360" alt=""><div class="dial-text"><span class="micro">Writing session</span><strong>18:42</strong><small>remaining of 25 min</small></div></div>
+        <div class="controller">
+          <button type="button" class="pill" id="pill" aria-controls="quick" aria-expanded="false"><span class="status"></span>Writing <span class="time">18:42</span><span class="plus" aria-hidden="true">+</span></button>
+          <div class="quick" id="quick" hidden><strong>Quick panel</strong><p>Writing · Focus profile</p><a href="#product" id="expand">Open demo workspace →</a></div>
+        </div>
+        <div class="instrument-foot"><span>Floating controller</span><span>Click pill to expand ↗</span></div>
+      </div>
+    </section>
+    <section class="band" id="product" aria-labelledby="product-title"><div class="frame section">
+      <p class="eyebrow"><span class="rule"></span>The workspace</p><div class="two heading-row"><h2 id="product-title">Your day, in detail.</h2><p>Move from an activity log to a focus plan, then review how the session went.</p></div>
+      <div class="workspace">
+        <div class="bar"><span><img src="mark.svg" width="18" height="18" alt="">Workspace</span><span class="micro">Demo data</span></div>
+        <div class="work-body"><nav class="modes" aria-label="Demo views">
+          <a href="#activity" data-view="activity"><svg aria-hidden="true"><use href="icons.svg#activity"/></svg>Activity</a>
+          <a href="#focus" data-view="focus"><svg aria-hidden="true"><use href="icons.svg#target"/></svg>Focus</a>
+          <a href="#insights" data-view="insights"><svg aria-hidden="true"><use href="icons.svg#bars"/></svg>Insights</a>
+        </nav><div class="views">
+          <section id="activity" class="view"><div class="view-head"><h3>Activity timeline</h3><span>Today</span></div><p>Follow a morning across apps and browser playback.</p>
+            <ol class="timeline"><li><time>09:00</time><div><strong>Visual Studio Code</strong><small>Development</small></div><span>42 min</span></li><li><time>09:42</time><div><strong>YouTube Shorts</strong><small>Entertainment · 4 plays</small></div><span>8 min</span></li><li><time>09:50</time><div><strong>Obsidian</strong><small>Writing</small></div><span>25 min</span></li></ol>
+          </section>
+          <section id="focus" class="view"><div class="view-head"><h3>Focus profile</h3><span>Writing</span></div><p>A task, a time limit and a break to come back to.</p><div class="session"><span class="micro">Current task</span><strong>Draft the first chapter</strong><progress max="1500" value="378" aria-label="Writing session progress"></progress><div class="split"><span>25 min work</span><span>5 min break</span></div></div></section>
+          <section id="insights" class="view"><div class="view-head"><h3>Session review</h3><span>Today</span></div><p>Compare time spent in each category.</p><div class="summary"><span>Development</span><meter aria-label="Development minutes" min="0" max="75" value="42"></meter><b>42 min</b><span>Writing</span><meter aria-label="Writing minutes" min="0" max="75" value="25"></meter><b>25 min</b><span>Entertainment</span><meter aria-label="Entertainment minutes" min="0" max="75" value="8"></meter><b>8 min</b></div></section>
+        </div></div>
+      </div>
+      <div class="proof"><article><svg aria-hidden="true"><use href="icons.svg#activity"/></svg><h3>Count the plays.</h3><p>With recording enabled, a watched play requires two seconds of visible playback progression. Opening a Shorts URL alone adds no play.</p></article>
+        <article><svg aria-hidden="true"><use href="icons.svg#tag"/></svg><h3>Keep the final say.</h3><p>Choose where a new service belongs. Your saved category applies when it appears again.</p><details><summary>See a category suggestion</summary><p><b>Demo data · Obsidian</b><br>Suggested category: Writing. Review the suggestion in Activity History.</p></details></article>
+        <article><svg aria-hidden="true"><use href="icons.svg#target"/></svg><h3>Give focus a finish line.</h3><p>Link a goal to a session, restrict selected browser paths and take a timed break. Review the session when you return.</p></article>
+      </div>
+    </div></section>
+    <section id="privacy" class="frame section two"><div><p class="eyebrow"><span class="rule"></span>Privacy</p><h2>On your PC.<br><em>In your hands.</em></h2></div>
+      <div class="privacy-list"><article><svg aria-hidden="true"><use href="icons.svg#disk"/></svg><div><h3>Activity stays local by default</h3><p>The Windows agent writes foreground and idle history to SQLite on your device. The activity database is not fully encrypted.</p></div></article>
+        <article><svg aria-hidden="true"><use href="icons.svg#browser"/></svg><div><h3>You connect the browser</h3><p>Pair a profile and enable activity recording to include video observations. The companion talks to the agent over a local connection.</p></div></article>
+        <article><svg aria-hidden="true"><use href="icons.svg#key"/></svg><div><h3>You choose when AI is involved</h3><p>Bring your own provider key for optional AI. Public metadata lookups have a separate opt-in, and remote classification needs approval for each service.</p></div></article>
+      </div>
+    </section>
+    <section id="install" class="band"><div class="frame section two"><div><p class="eyebrow"><span class="rule"></span>Windows setup</p><h2>Start on<br>your desktop.</h2><p class="bodycopy">Version 0.4.3 is a development build for Windows x64. Sign in to GitHub with an account that can access the private repository.</p><a class="primary" href="https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736"><svg aria-hidden="true"><use href="icons.svg#windows"/></svg>Open Windows build ↗</a></div>
+      <ol class="steps"><li><h3>Get the development bundle</h3><p>Download the v0.4.3 artifact from the successful run. Check the installer hash against the <a href="https://github.com/motionedits246-max/digital-discipline-windows/blob/feature/master-spec-complete-2026-11/docs/BUILD-STATUS.md">build record</a>. The installer uses a self-signed development certificate.</p></li><li><h3>Open your workspace</h3><p>Run the x64 setup file from the extracted bundle. Open the workspace from the floating controller or system tray.</p></li><li><h3>Add your browser if you want it</h3><p>In Browser setup, open the companion folder. In Brave or Chrome, enable Developer mode and choose Load unpacked. Authorize the extension ID, then opt in to recording.</p><details><summary>See a connection notice</summary><p><b>Demo data · Browser connected</b><br>Brave is paired with the local agent. Activity recording has its own consent setting.</p></details></li></ol>
+    </div></section>
+    <section id="source" class="frame section two"><div><p class="eyebrow"><span class="rule"></span>Project source</p><h2>Look under the hood.</h2><p class="bodycopy">Explore the Rust agent, Tauri workspace and Chromium companion. Project resources currently require repository access.</p><div class="actions"><a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows">View repository ↗</a><a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows/issues">Report an issue ↗</a></div></div>
+      <div class="faq"><h3>Common questions</h3><details><summary>Can I use it without the extension?</summary><p>Yes. Windows app and idle tracking work independently. The companion adds browser playback observations and restrictions.</p></details><details><summary>Will it block desktop apps?</summary><p>Selected native apps can trigger a warning. The browser companion enforces site and path restrictions.</p></details><details><summary>Does the AI coach need a key?</summary><p>Yes. Configure your own provider key for the coach. Activity history and focus sessions work independently.</p></details><details><summary>Where can I follow development?</summary><p>The <a href="https://github.com/motionedits246-max/digital-discipline-windows/blob/feature/master-spec-complete-2026-11/docs/IMPLEMENTATION-LEDGER.md">implementation ledger</a> lists shipped work, test evidence and features awaiting acceptance.</p></details></div>
+    </section>
+  </main>
+  <footer class="frame"><a class="brand" href="#main"><img src="mark.svg" width="22" height="22" alt="">Digital Discipline</a><div><a href="#install">Windows build ↑</a><a href="https://github.com/motionedits246-max/digital-discipline-windows">GitHub ↗</a></div></footer>
+</body></html>
