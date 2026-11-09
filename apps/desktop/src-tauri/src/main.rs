@@ -346,7 +346,7 @@ fn main() {
           Ok(())
       })
       .on_window_event(|window,event| {
-          if window.label()=="service-hint"&&matches!(event,tauri::WindowEvent::Destroyed){if let Some(state)=window.app_handle().try_state::<ServiceHintState>(){if let Ok(mut payload)=state.payload.lock(){*payload=None;}}}
+          if window.label()=="service-hint"&&matches!(event,tauri::WindowEvent::Destroyed){if let Some(state)=window.app_handle().try_state::<ServiceHintState>(){if let Ok(mut payload)=state.payload.lock(){*payload=None;};}}
           if window.label()=="main"&&matches!(event,tauri::WindowEvent::Moved(_)|tauri::WindowEvent::ScaleFactorChanged{..}){
               let app=window.app_handle();let current=window.current_monitor().ok().flatten().map(|m|monitor_key(&m));
               let requested=app.state::<PresentationState>().current.lock().ok().and_then(|state|(!state.0.is_empty()&&current.is_some()&&state.1!=current).then(||state.0.clone()));
