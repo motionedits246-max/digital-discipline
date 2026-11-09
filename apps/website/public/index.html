@@ -4,77 +4,1264 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101012">
-  <meta name="description" content="See the Windows apps and videos that fill your day. Set a focus session and review your time with a local-first desktop workspace.">
-  <meta property="og:title" content="Digital Discipline — Where did your time go?">
-  <meta property="og:description" content="A local-first activity and focus workspace for Windows.">
+  <meta name="description" content="Digital Discipline: An open-source, local-first productivity workspace for Windows. See your app and video activity, build calmer focus, and restrict distractions without cloud accounts or surveillance.">
+  <meta property="og:title" content="Digital Discipline — Take control of the time that slips away.">
+  <meta property="og:description" content="Open-source, local-first activity tracking and distraction control for Windows. Zero cloud accounts. Local SQLite. Transparent privacy.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="/social.png">
-  <meta property="og:image:alt" content="Digital Discipline focus session dial and the words Where did your time go?">
+  <meta property="og:image:alt" content="Digital Discipline focus dial and local-first workspace on Windows">
   <meta name="twitter:card" content="summary_large_image">
-  <title>Digital Discipline — Where did your time go?</title>
+  <title>Digital Discipline — Take control of the time that slips away.</title>
   <link rel="icon" href="mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script defer src="site.js"></script>
 </head>
 <body>
-  <a class="skip" href="#main">Skip to content</a>
+  <a class="skip" href="#main">Skip to main content</a>
+
+  <!-- Header Navigation -->
   <header class="nav frame">
-    <a class="brand" href="#main"><img src="mark.svg" width="29" height="29" alt="">Digital Discipline</a>
-    <nav aria-label="Main navigation"><a href="#product">Product</a><a href="#privacy">Privacy</a><a href="#source">Source</a></nav>
-    <a class="outline" href="#install">Windows build <span aria-hidden="true">↗</span></a>
+    <a class="brand" href="#hero">
+      <img src="mark.svg" width="28" height="28" alt="Digital Discipline Logo">
+      <span>Digital Discipline</span>
+    </a>
+    <nav class="nav-links" id="primary-nav" aria-label="Main navigation">
+      <a href="#product">Product</a>
+      <a href="#walkthrough">Method</a>
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#install">Install</a>
+      <a href="#source">Open Source</a>
+      <a href="https://github.com/motionedits246-max/digital-discipline-windows" target="_blank" rel="noreferrer" class="nav-gh">
+        GitHub <span aria-hidden="true">↗</span>
+      </a>
+    </nav>
+    <div class="nav-actions">
+      <a class="outline-btn" href="#install">
+        <svg aria-hidden="true"><use href="icons.svg#windows"/></svg>
+        <span>Windows v0.4.4</span>
+      </a>
+      <button type="button" class="mobile-toggle" id="menu-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation menu">
+        <svg class="icon-open" aria-hidden="true"><use href="icons.svg#menu"/></svg>
+        <svg class="icon-close" aria-hidden="true"><use href="icons.svg#close"/></svg>
+      </button>
+    </div>
   </header>
+
+  <!-- Mobile Drawer Overlay -->
+  <div class="mobile-drawer" id="mobile-drawer" hidden>
+    <nav aria-label="Mobile navigation">
+      <a href="#product" class="drawer-link">Product Overview</a>
+      <a href="#walkthrough" class="drawer-link">The Method</a>
+      <a href="#features" class="drawer-link">Interface & Features</a>
+      <a href="#privacy" class="drawer-link">Privacy Architecture</a>
+      <a href="#install" class="drawer-link">Windows Installation</a>
+      <a href="#source" class="drawer-link">Open Source & Roadmap</a>
+      <a href="#faq" class="drawer-link">Frequently Asked Questions</a>
+      <div class="drawer-actions">
+        <a class="primary cta-btn" href="#install">
+          <svg aria-hidden="true"><use href="icons.svg#windows"/></svg>
+          <span>Get Windows Build (v0.4.4)</span>
+        </a>
+        <a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows" target="_blank" rel="noreferrer">
+          <svg aria-hidden="true"><use href="icons.svg#branch"/></svg>
+          <span>View on GitHub ↗</span>
+        </a>
+      </div>
+    </nav>
+  </div>
+
   <main id="main">
-    <section class="hero frame" aria-labelledby="headline">
+    <!-- Hero Section -->
+    <section class="hero frame" id="hero" aria-labelledby="headline">
       <div class="intro">
-        <p class="eyebrow"><span class="dot"></span> Local-first / Windows</p>
-        <h1 id="headline">Where did<br>your <em>time</em> go?</h1>
-        <p class="lede">See the apps, videos and little detours that fill your day. Choose what gets the next 25 minutes.</p>
-        <div class="actions"><a class="primary" href="#install"><svg aria-hidden="true"><use href="icons.svg#windows"/></svg>Get the Windows build</a><a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows"><svg aria-hidden="true"><use href="icons.svg#branch"/></svg>View on GitHub ↗</a></div>
-        <p class="footnote">Development build · x64 · Repository access required</p>
-      </div>
-      <div class="instrument">
-        <div class="instrument-head micro"><span><b></b> Focus session</span><span>Demo data</span></div>
-        <div class="dial"><img src="dial.svg" width="360" height="360" alt=""><div class="dial-text"><span class="micro">Writing session</span><strong>18:42</strong><small>remaining of 25 min</small></div></div>
-        <div class="controller">
-          <button type="button" class="pill" id="pill" aria-controls="quick" aria-expanded="false"><span class="status"></span>Writing <span class="time">18:42</span><span class="plus" aria-hidden="true">+</span></button>
-          <div class="quick" id="quick" hidden><strong>Quick panel</strong><p>Writing · Focus profile</p><a href="#product" id="expand">Open demo workspace →</a></div>
+        <div class="eyebrow">
+          <span class="dot"></span>
+          <span>Open source · Windows-first · Local-first</span>
         </div>
-        <div class="instrument-foot"><span>Floating controller</span><span>Click pill to expand ↗</span></div>
+        <h1 id="headline">Take control of the <em>time that slips away.</em></h1>
+        <p class="lede">
+          Understand where your attention goes, decide what matters, and build a calmer way to focus.
+          A lightweight Rust background agent, a floating desktop controller, and a private workspace with zero cloud surveillance.
+        </p>
+        <div class="actions">
+          <a class="primary cta-btn" href="#install">
+            <svg aria-hidden="true"><use href="icons.svg#windows"/></svg>
+            <span>Get the Windows build</span>
+          </a>
+          <a class="secondary-btn text-link" href="https://github.com/motionedits246-max/digital-discipline-windows" target="_blank" rel="noreferrer">
+            <svg aria-hidden="true"><use href="icons.svg#branch"/></svg>
+            <span>View on GitHub ↗</span>
+          </a>
+        </div>
+        <div class="hero-specs">
+          <span>Verified v0.4.4 x64</span>
+          <span class="sep">·</span>
+          <span>Rust Agent &lt;10MB</span>
+          <span class="sep">·</span>
+          <span>Local SQLite</span>
+          <span class="sep">·</span>
+          <span>No Cloud Login</span>
+        </div>
+      </div>
+
+      <!-- Hero Product Composition: Dial & Floating Controller -->
+      <div class="instrument" aria-label="Interactive Focus Controller Preview">
+        <div class="instrument-head micro">
+          <span><span class="active-pulse"></span> Active Focus Session</span>
+          <span class="demo-tag">Demo data</span>
+        </div>
+
+        <div class="dial-container">
+          <div class="dial">
+            <img src="dial.svg" width="360" height="360" alt="Focus session timer gauge dial" class="dial-img">
+            <div class="dial-text">
+              <span class="micro tag-label">Writing session</span>
+              <strong id="hero-timer" class="timer-display" data-seconds="1122">18:42</strong>
+              <small class="timer-sub">remaining of 25 min</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Floating Controller Pill & Quick Panel -->
+        <div class="controller-mockup" id="controller-mockup">
+          <div class="pill-wrapper">
+            <button type="button" class="pill" id="pill" aria-controls="quick-panel" aria-expanded="false" aria-label="Expand quick focus panel">
+              <span class="pill-dot" aria-hidden="true"></span>
+              <span class="pill-label">Writing</span>
+              <span class="pill-time" id="pill-timer">18:42</span>
+              <span class="pill-icon" id="pill-plus" aria-hidden="true">+</span>
+            </button>
+            <div class="pill-controls">
+              <button type="button" class="mini-control" id="hero-play-pause" title="Pause or Resume Timer" aria-label="Pause or Resume timer">
+                <svg class="icon-pause" aria-hidden="true"><use href="icons.svg#pause"/></svg>
+                <svg class="icon-play" aria-hidden="true" hidden><use href="icons.svg#play"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Expandable Quick Panel -->
+          <div class="quick-panel" id="quick-panel" hidden>
+            <div class="quick-head">
+              <div class="quick-brand">
+                <img src="mark.svg" width="20" height="20" alt="">
+                <strong>Quick Panel</strong>
+              </div>
+              <span class="version-badge">v0.4.4</span>
+            </div>
+            <div class="quick-body">
+              <div class="quick-current">
+                <span class="micro">Current Task</span>
+                <strong>Deep Spec Implementation</strong>
+                <small>Writing · 25 min sprint</small>
+              </div>
+              <div class="quick-stats">
+                <div>
+                  <span>Active Today</span>
+                  <strong>4h 12m</strong>
+                </div>
+                <div>
+                  <span>Focus Ratio</span>
+                  <strong>78%</strong>
+                </div>
+                <div>
+                  <span>Short Plays</span>
+                  <strong>4</strong>
+                </div>
+              </div>
+              <div class="quick-actions">
+                <button type="button" class="quick-btn" id="btn-add-time">+5 Min</button>
+                <a href="#product" class="quick-btn primary-quick" id="btn-open-workspace">Open Workspace →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="instrument-foot micro">
+          <span>Floating Desktop Controller</span>
+          <span class="hint-text">Click pill to expand quick panel ↗</span>
+        </div>
       </div>
     </section>
-    <section class="band" id="product" aria-labelledby="product-title"><div class="frame section">
-      <p class="eyebrow"><span class="rule"></span>The workspace</p><div class="two heading-row"><h2 id="product-title">Your day, in detail.</h2><p>Move from an activity log to a focus plan, then review how the session went.</p></div>
-      <div class="workspace">
-        <div class="bar"><span><img src="mark.svg" width="18" height="18" alt="">Workspace</span><span class="micro">Demo data</span></div>
-        <div class="work-body"><nav class="modes" aria-label="Demo views">
-          <a href="#activity" data-view="activity"><svg aria-hidden="true"><use href="icons.svg#activity"/></svg>Activity</a>
-          <a href="#focus" data-view="focus"><svg aria-hidden="true"><use href="icons.svg#target"/></svg>Focus</a>
-          <a href="#insights" data-view="insights"><svg aria-hidden="true"><use href="icons.svg#bars"/></svg>Insights</a>
-        </nav><div class="views">
-          <section id="activity" class="view"><div class="view-head"><h3>Activity timeline</h3><span>Today</span></div><p>Follow a morning across apps and browser playback.</p>
-            <ol class="timeline"><li><time>09:00</time><div><strong>Visual Studio Code</strong><small>Development</small></div><span>42 min</span></li><li><time>09:42</time><div><strong>YouTube Shorts</strong><small>Entertainment · 4 plays</small></div><span>8 min</span></li><li><time>09:50</time><div><strong>Obsidian</strong><small>Writing</small></div><span>25 min</span></li></ol>
-          </section>
-          <section id="focus" class="view"><div class="view-head"><h3>Focus profile</h3><span>Writing</span></div><p>A task, a time limit and a break to come back to.</p><div class="session"><span class="micro">Current task</span><strong>Draft the first chapter</strong><progress max="1500" value="378" aria-label="Writing session progress"></progress><div class="split"><span>25 min work</span><span>5 min break</span></div></div></section>
-          <section id="insights" class="view"><div class="view-head"><h3>Session review</h3><span>Today</span></div><p>Compare time spent in each category.</p><div class="summary"><span>Development</span><meter aria-label="Development minutes" min="0" max="75" value="42"></meter><b>42 min</b><span>Writing</span><meter aria-label="Writing minutes" min="0" max="75" value="25"></meter><b>25 min</b><span>Entertainment</span><meter aria-label="Entertainment minutes" min="0" max="75" value="8"></meter><b>8 min</b></div></section>
-        </div></div>
-      </div>
-      <div class="proof"><article><svg aria-hidden="true"><use href="icons.svg#activity"/></svg><h3>Count the plays.</h3><p>With recording enabled, a watched play requires two seconds of visible playback progression. Opening a Shorts URL alone adds no play.</p></article>
-        <article><svg aria-hidden="true"><use href="icons.svg#tag"/></svg><h3>Keep the final say.</h3><p>Choose where a new service belongs. Your saved category applies when it appears again.</p><details><summary>See a category suggestion</summary><p><b>Demo data · Obsidian</b><br>Suggested category: Writing. Review the suggestion in Activity History.</p></details></article>
-        <article><svg aria-hidden="true"><use href="icons.svg#target"/></svg><h3>Give focus a finish line.</h3><p>Link a goal to a session, restrict selected browser paths and take a timed break. Review the session when you return.</p></article>
-      </div>
-    </div></section>
-    <section id="privacy" class="frame section two"><div><p class="eyebrow"><span class="rule"></span>Privacy</p><h2>On your PC.<br><em>In your hands.</em></h2></div>
-      <div class="privacy-list"><article><svg aria-hidden="true"><use href="icons.svg#disk"/></svg><div><h3>Activity stays local by default</h3><p>The Windows agent writes foreground and idle history to SQLite on your device. The activity database is not fully encrypted.</p></div></article>
-        <article><svg aria-hidden="true"><use href="icons.svg#browser"/></svg><div><h3>You connect the browser</h3><p>Pair a profile and enable activity recording to include video observations. The companion talks to the agent over a local connection.</p></div></article>
-        <article><svg aria-hidden="true"><use href="icons.svg#key"/></svg><div><h3>You choose when AI is involved</h3><p>Bring your own provider key for optional AI. Public metadata lookups have a separate opt-in, and remote classification needs approval for each service.</p></div></article>
+
+    <!-- Product Walkthrough Section -->
+    <section class="band" id="walkthrough" aria-labelledby="walkthrough-title">
+      <div class="frame section">
+        <div class="eyebrow">
+          <span class="rule"></span>
+          <span>The Method</span>
+        </div>
+        <div class="section-intro">
+          <h2 id="walkthrough-title">A calmer sequence for your day.</h2>
+          <p class="lede">
+            Traditional screen-time apps shame you with notifications or lock your machine with rigid blocks.
+            Digital Discipline takes a local-first, human approach: understand what is happening, decide what matters, and build durable focus habits.
+          </p>
+        </div>
+
+        <div class="walkthrough-grid">
+          <!-- Step 1 -->
+          <article class="walkthrough-card">
+            <div class="step-num">01</div>
+            <div class="card-content">
+              <div class="card-icon"><svg aria-hidden="true"><use href="icons.svg#activity"/></svg></div>
+              <h3>See your day</h3>
+              <p>
+                The Rust background agent quietly observes foreground executables and idle intervals.
+                Sessions are recorded into local SQLite with bounded timelines. No window titles, keystrokes, or clipboard data are ever collected.
+              </p>
+              <div class="card-preview">
+                <div class="mini-timeline-bar">
+                  <span class="seg code" style="width: 55%" title="VS Code: 2h 15m"></span>
+                  <span class="seg docs" style="width: 20%" title="Brave (GitHub): 45m"></span>
+                  <span class="seg video" style="width: 10%" title="YouTube: 25m"></span>
+                  <span class="seg idle" style="width: 15%" title="Idle: 35m"></span>
+                </div>
+                <div class="mini-legend">
+                  <span><i class="c-code"></i> Code</span>
+                  <span><i class="c-docs"></i> Docs</span>
+                  <span><i class="c-video"></i> Video</span>
+                  <span><i class="c-idle"></i> Idle</span>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Step 2 -->
+          <article class="walkthrough-card">
+            <div class="step-num">02</div>
+            <div class="card-content">
+              <div class="card-icon"><svg aria-hidden="true"><use href="icons.svg#bars"/></svg></div>
+              <h3>Understand the pattern</h3>
+              <p>
+                Not all screen time is equal. The optional browser companion distinguishes between a fleeting 5-second tab visit and an actual watched video play on YouTube, Shorts, or Instagram Reels.
+              </p>
+              <div class="card-preview">
+                <div class="video-counter-demo">
+                  <div class="counter-item">
+                    <span class="micro">YouTube Shorts</span>
+                    <strong>4 qualified plays</strong>
+                    <small>8 min total playback</small>
+                  </div>
+                  <div class="counter-item">
+                    <span class="micro">Web Research</span>
+                    <strong>18 pages</strong>
+                    <small>42 min active reading</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Step 3 -->
+          <article class="walkthrough-card">
+            <div class="step-num">03</div>
+            <div class="card-content">
+              <div class="card-icon"><svg aria-hidden="true"><use href="icons.svg#target"/></svg></div>
+              <h3>Choose your focus</h3>
+              <p>
+                Commit to a dedicated focus workflow. Distracting browser routes are restricted using lightweight Declarative Net Request rules with auto-expiring 3-minute leases.
+                Desktop apps receive calm warning shields.
+              </p>
+              <div class="card-preview">
+                <div class="rule-chip-demo">
+                  <span class="rule-badge active">
+                    <svg aria-hidden="true"><use href="icons.svg#shield"/></svg>
+                    Shorts Cooldown (/shorts/*)
+                  </span>
+                  <span class="bypass-badge">Emergency bypass available</span>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Step 4 -->
+          <article class="walkthrough-card">
+            <div class="step-num">04</div>
+            <div class="card-content">
+              <div class="card-icon"><svg aria-hidden="true"><use href="icons.svg#check"/></svg></div>
+              <h3>Review what changed</h3>
+              <p>
+                At the end of your session, review what you completed. Track your deep focus ratio, observe your 52-week activity heatmap, and refine your custom category taxonomies on your own terms.
+              </p>
+              <div class="card-preview">
+                <div class="summary-score-demo">
+                  <div class="score-dial">
+                    <strong>78%</strong>
+                    <span>Deep Focus</span>
+                  </div>
+                  <div class="score-meta">
+                    <span>4h 12m Focused</span>
+                    <span>47m Entertainment</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
       </div>
     </section>
-    <section id="install" class="band"><div class="frame section two"><div><p class="eyebrow"><span class="rule"></span>Windows setup</p><h2>Start on<br>your desktop.</h2><p class="bodycopy">Version 0.4.3 is a development build for Windows x64. Sign in to GitHub with an account that can access the private repository.</p><a class="primary" href="https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736"><svg aria-hidden="true"><use href="icons.svg#windows"/></svg>Open Windows build ↗</a></div>
-      <ol class="steps"><li><h3>Get the development bundle</h3><p>Download the v0.4.3 artifact from the successful run. Check the installer hash against the <a href="https://github.com/motionedits246-max/digital-discipline-windows/blob/feature/master-spec-complete-2026-11/docs/BUILD-STATUS.md">build record</a>. The installer uses a self-signed development certificate.</p></li><li><h3>Open your workspace</h3><p>Run the x64 setup file from the extracted bundle. Open the workspace from the floating controller or system tray.</p></li><li><h3>Add your browser if you want it</h3><p>In Browser setup, open the companion folder. In Brave or Chrome, enable Developer mode and choose Load unpacked. Authorize the extension ID, then opt in to recording.</p><details><summary>See a connection notice</summary><p><b>Demo data · Browser connected</b><br>Brave is paired with the local agent. Activity recording has its own consent setting.</p></details></li></ol>
-    </div></section>
-    <section id="source" class="frame section two"><div><p class="eyebrow"><span class="rule"></span>Project source</p><h2>Look under the hood.</h2><p class="bodycopy">Explore the Rust agent, Tauri workspace and Chromium companion. Project resources currently require repository access.</p><div class="actions"><a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows">View repository ↗</a><a class="text-link" href="https://github.com/motionedits246-max/digital-discipline-windows/issues">Report an issue ↗</a></div></div>
-      <div class="faq"><h3>Common questions</h3><details><summary>Can I use it without the extension?</summary><p>Yes. Windows app and idle tracking work independently. The companion adds browser playback observations and restrictions.</p></details><details><summary>Will it block desktop apps?</summary><p>Selected native apps can trigger a warning. The browser companion enforces site and path restrictions.</p></details><details><summary>Does the AI coach need a key?</summary><p>Yes. Configure your own provider key for the coach. Activity history and focus sessions work independently.</p></details><details><summary>Where can I follow development?</summary><p>The <a href="https://github.com/motionedits246-max/digital-discipline-windows/blob/feature/master-spec-complete-2026-11/docs/IMPLEMENTATION-LEDGER.md">implementation ledger</a> lists shipped work, test evidence and features awaiting acceptance.</p></details></div>
+
+    <!-- Interactive Workspace Showcase Section -->
+    <section class="band" id="product" aria-labelledby="product-title">
+      <div class="frame section">
+        <div class="eyebrow">
+          <span class="rule"></span>
+          <span>The Workspace</span>
+        </div>
+        <div class="heading-row">
+          <div>
+            <h2 id="product-title">Your day, rendered with precision.</h2>
+            <p class="lede">Explore the real desktop workspace views. Switch between Activity, Focus, and Insights below.</p>
+          </div>
+          <div class="demo-notice-chip">
+            <span class="badge-dot"></span>
+            <span>Interactive Demo · Real App Data Structures</span>
+          </div>
+        </div>
+
+        <!-- The Desktop Workspace Shell -->
+        <div class="workspace-shell">
+          <!-- Topbar -->
+          <header class="workspace-topbar">
+            <div class="window-controls" aria-hidden="true">
+              <span class="win-btn win-close"></span>
+              <span class="win-btn win-min"></span>
+              <span class="win-btn win-max"></span>
+            </div>
+            <div class="breadcrumbs">
+              <img src="mark.svg" width="16" height="16" alt="">
+              <span>Digital Discipline</span>
+              <span class="sep">/</span>
+              <strong id="active-breadcrumb">Activity History</strong>
+            </div>
+            <div class="agent-status-badge">
+              <span class="status-indicator live"></span>
+              <span>Agent 127.0.0.1:48761 · Schema v14</span>
+            </div>
+          </header>
+
+          <!-- Workspace Body: Sidebar + Main Views -->
+          <div class="workspace-grid">
+            <!-- Sidebar -->
+            <aside class="workspace-sidebar">
+              <nav class="modes" aria-label="Workspace views navigation">
+                <button type="button" class="mode-tab active" data-view="activity" aria-selected="true" role="tab">
+                  <svg aria-hidden="true"><use href="icons.svg#activity"/></svg>
+                  <span>Activity History</span>
+                </button>
+                <button type="button" class="mode-tab" data-view="focus" aria-selected="false" role="tab">
+                  <svg aria-hidden="true"><use href="icons.svg#target"/></svg>
+                  <span>Focus Profile</span>
+                </button>
+                <button type="button" class="mode-tab" data-view="insights" aria-selected="false" role="tab">
+                  <svg aria-hidden="true"><use href="icons.svg#bars"/></svg>
+                  <span>Insights & Heatmap</span>
+                </button>
+              </nav>
+
+              <div class="sidebar-secondary">
+                <span class="side-heading">Settings & Controls</span>
+                <div class="side-item">
+                  <svg aria-hidden="true"><use href="icons.svg#tag"/></svg>
+                  <span>Categories</span>
+                  <small>14 rules</small>
+                </div>
+                <div class="side-item">
+                  <svg aria-hidden="true"><use href="icons.svg#browser"/></svg>
+                  <span>Browser Companion</span>
+                  <small class="green">Paired</small>
+                </div>
+                <div class="side-item">
+                  <svg aria-hidden="true"><use href="icons.svg#key"/></svg>
+                  <span>Optional AI Keys</span>
+                  <small>BYOK</small>
+                </div>
+              </div>
+
+              <div class="sidebar-footer">
+                <div class="agent-info">
+                  <span class="health-dot on"></span>
+                  <div>
+                    <strong>Rust Agent 0.4.4</strong>
+                    <small>DPAPI Key Storage · Local Only</small>
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            <!-- Main Views Container -->
+            <div class="workspace-views">
+              <!-- View 1: Activity Timeline -->
+              <section id="view-activity" class="workspace-panel" role="tabpanel" aria-labelledby="tab-activity">
+                <div class="view-header">
+                  <div>
+                    <h3>Activity Timeline</h3>
+                    <p class="view-sub">Foreground processes and observed video plays for today</p>
+                  </div>
+                  <div class="date-selector">
+                    <span class="micro">Today · 9 Nov 2026</span>
+                  </div>
+                </div>
+
+                <div class="activity-summary-strip">
+                  <div class="strip-stat">
+                    <span>Observed Active</span>
+                    <strong>6h 18m</strong>
+                  </div>
+                  <div class="strip-stat">
+                    <span>Idle Period</span>
+                    <strong>1h 05m</strong>
+                  </div>
+                  <div class="strip-stat">
+                    <span>Qualified Videos</span>
+                    <strong>10 plays (23m)</strong>
+                  </div>
+                  <div class="strip-stat">
+                    <span>Distraction Share</span>
+                    <strong class="good">12% (Bounded)</strong>
+                  </div>
+                </div>
+
+                <!-- Timeline List -->
+                <ol class="app-timeline" aria-label="Activity entries for today">
+                  <li class="timeline-row">
+                    <time class="time-col">09:00</time>
+                    <div class="app-icon-col">
+                      <span class="app-badge dev">VS</span>
+                    </div>
+                    <div class="app-details-col">
+                      <div class="app-title-line">
+                        <strong>cursor.exe</strong>
+                        <span class="cat-pill dev">Development</span>
+                      </div>
+                      <small class="app-sub">Active coding session · Workspace project</small>
+                    </div>
+                    <div class="app-duration-col">
+                      <div class="duration-bar" style="--bar-w: 75%"></div>
+                      <span>1h 15m</span>
+                    </div>
+                  </li>
+
+                  <li class="timeline-row highlight-row">
+                    <time class="time-col">10:15</time>
+                    <div class="app-icon-col">
+                      <span class="app-badge video">YT</span>
+                    </div>
+                    <div class="app-details-col">
+                      <div class="app-title-line">
+                        <strong>brave.exe</strong>
+                        <span class="cat-pill entertainment">Entertainment</span>
+                        <span class="play-count-badge">4 video plays</span>
+                      </div>
+                      <small class="app-sub">YouTube Shorts · Visible playback progression recorded</small>
+                    </div>
+                    <div class="app-duration-col">
+                      <div class="duration-bar warn" style="--bar-w: 20%"></div>
+                      <span>8m</span>
+                    </div>
+                  </li>
+
+                  <li class="timeline-row">
+                    <time class="time-col">10:25</time>
+                    <div class="app-icon-col">
+                      <span class="app-badge dev">AG</span>
+                    </div>
+                    <div class="app-details-col">
+                      <div class="app-title-line">
+                        <strong>antigravity.exe</strong>
+                        <span class="cat-pill dev">Development</span>
+                      </div>
+                      <small class="app-sub">Architecture implementation & test runs</small>
+                    </div>
+                    <div class="app-duration-col">
+                      <div class="duration-bar" style="--bar-w: 80%"></div>
+                      <span>1h 20m</span>
+                    </div>
+                  </li>
+
+                  <li class="timeline-row">
+                    <time class="time-col">11:45</time>
+                    <div class="app-icon-col">
+                      <span class="app-badge browser">BR</span>
+                    </div>
+                    <div class="app-details-col">
+                      <div class="app-title-line">
+                        <strong>brave.exe</strong>
+                        <span class="cat-pill dev">Development</span>
+                      </div>
+                      <small class="app-sub">github.com/motionedits246-max · Commits and pull requests</small>
+                    </div>
+                    <div class="app-duration-col">
+                      <div class="duration-bar" style="--bar-w: 35%"></div>
+                      <span>25m</span>
+                    </div>
+                  </li>
+
+                  <li class="timeline-row">
+                    <time class="time-col">13:00</time>
+                    <div class="app-icon-col">
+                      <span class="app-badge write">OB</span>
+                    </div>
+                    <div class="app-details-col">
+                      <div class="app-title-line">
+                        <strong>obsidian.exe</strong>
+                        <span class="cat-pill write">Writing</span>
+                      </div>
+                      <small class="app-sub">Design spec drafting & project documentation</small>
+                    </div>
+                    <div class="app-duration-col">
+                      <div class="duration-bar" style="--bar-w: 60%"></div>
+                      <span>50m</span>
+                    </div>
+                  </li>
+                </ol>
+              </section>
+
+              <!-- View 2: Focus Profile & Restrictions -->
+              <section id="view-focus" class="workspace-panel" role="tabpanel" aria-labelledby="tab-focus" hidden>
+                <div class="view-header">
+                  <div>
+                    <h3>Focus Profile & Active Session</h3>
+                    <p class="view-sub">Configured time limits, goals, and reversible distraction controls</p>
+                  </div>
+                  <div class="session-badge active">
+                    <span class="status-indicator live"></span>
+                    <span>Session Active</span>
+                  </div>
+                </div>
+
+                <div class="focus-dashboard-grid">
+                  <!-- Session Card -->
+                  <div class="focus-card main-session-card">
+                    <span class="micro">Active Goal</span>
+                    <h4>Deep Spec Implementation</h4>
+                    <p class="goal-desc">Finish and verify the Windows landing page without social video detours.</p>
+                    
+                    <div class="focus-progress-block">
+                      <div class="progress-labels">
+                        <span>Sprint progress</span>
+                        <strong>18:42 / 25:00</strong>
+                      </div>
+                      <div class="custom-progress">
+                        <div class="progress-fill" style="width: 74%"></div>
+                      </div>
+                    </div>
+
+                    <div class="focus-controls-row">
+                      <button type="button" class="btn-focus pause" id="demo-toggle-pause">
+                        <svg aria-hidden="true"><use href="icons.svg#pause"/></svg>
+                        <span>Pause Session</span>
+                      </button>
+                      <button type="button" class="btn-focus secondary" id="demo-add-break">
+                        <svg aria-hidden="true"><use href="icons.svg#clock"/></svg>
+                        <span>Take 5m Break</span>
+                      </button>
+                      <button type="button" class="btn-focus danger" id="demo-emergency-bypass">
+                        <svg aria-hidden="true"><use href="icons.svg#shield"/></svg>
+                        <span>30-min Emergency Unlock</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Restrictions & Policies Card -->
+                  <div class="focus-card">
+                    <span class="micro">Active Bounded Restrictions</span>
+                    <h4>Browser Route Policies</h4>
+                    <p class="policy-note">Rules auto-expire in 3 minutes if disconnected. No permanent host lockouts.</p>
+
+                    <div class="policy-list">
+                      <div class="policy-item enforced">
+                        <div class="policy-head">
+                          <strong>YouTube Shorts Cooldown</strong>
+                          <span class="status-pill active">Enforced</span>
+                        </div>
+                        <small>www.youtube.com/shorts/* · DeclarativeNetRequest block</small>
+                      </div>
+                      <div class="policy-item enforced">
+                        <div class="policy-head">
+                          <strong>Instagram Reels Restrictor</strong>
+                          <span class="status-pill active">Enforced</span>
+                        </div>
+                        <small>www.instagram.com/reels/* · Redirect to calm pause page</small>
+                      </div>
+                      <div class="policy-item warning">
+                        <div class="policy-head">
+                          <strong>Steam / Gaming Launcher</strong>
+                          <span class="status-pill warn">Warning Only</span>
+                        </div>
+                        <small>steam.exe · Desktop prompt shown, no kernel process kill</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- View 3: Insights & 52-Week Heatmap -->
+              <section id="view-insights" class="workspace-panel" role="tabpanel" aria-labelledby="tab-insights" hidden>
+                <div class="view-header">
+                  <div>
+                    <h3>Attention Insights</h3>
+                    <p class="view-sub">Historical trends and consistency calculated completely on your device</p>
+                  </div>
+                  <div class="date-selector">
+                    <span class="micro">Past 52 Weeks · 365 Days Logged</span>
+                  </div>
+                </div>
+
+                <!-- Metric Cards Grid -->
+                <div class="insights-metrics-grid">
+                  <div class="metric-card">
+                    <span class="micro">Focus Consistency</span>
+                    <strong>84.2%</strong>
+                    <small class="green">↑ 4.1% over last month</small>
+                  </div>
+                  <div class="metric-card">
+                    <span class="micro">Short-Form Reductions</span>
+                    <strong>-68%</strong>
+                    <small class="green">Down from 38 plays/day to 12</small>
+                  </div>
+                  <div class="metric-card">
+                    <span class="micro">Average Focus Sprint</span>
+                    <strong>38 min</strong>
+                    <small>Target: 25–45 min</small>
+                  </div>
+                  <div class="metric-card">
+                    <span class="micro">Total Logged Time</span>
+                    <strong>1,420 hrs</strong>
+                    <small>Stored in 42MB SQLite</small>
+                  </div>
+                </div>
+
+                <!-- 52-Week Interactive Heatmap -->
+                <div class="heatmap-section">
+                  <div class="heatmap-head">
+                    <h4>Annual Activity Heatmap</h4>
+                    <div class="heatmap-legend">
+                      <span>Less</span>
+                      <span class="heat-box lvl-0"></span>
+                      <span class="heat-box lvl-1"></span>
+                      <span class="heat-box lvl-2"></span>
+                      <span class="heat-box lvl-3"></span>
+                      <span class="heat-box lvl-4"></span>
+                      <span>More</span>
+                    </div>
+                  </div>
+
+                  <div class="heatmap-scroll-container">
+                    <div class="heatmap-grid" id="heatmap-grid" aria-label="52-week activity heatmap grid">
+                      <!-- Grid populated via JS with 52 columns × 7 rows -->
+                    </div>
+                  </div>
+
+                  <div class="heatmap-tooltip" id="heatmap-tooltip" hidden>
+                    <strong id="tooltip-date">2026-11-09</strong>
+                    <span id="tooltip-hours">5.4 hours focus</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <!-- Live Simulated v0.4.4 Notice Bar (Interactive Showcase) -->
+          <footer class="workspace-sim-footer">
+            <div class="notice-demo-box" id="notice-demo-box">
+              <div class="notice-icon"><svg aria-hidden="true"><use href="icons.svg#bell"/></svg></div>
+              <div class="notice-text">
+                <strong>Service Suggestion: Obsidian detected</strong>
+                <span>Assigned category: Writing · Click to change</span>
+              </div>
+              <div class="notice-actions">
+                <button type="button" class="notice-btn accept" id="notice-accept">Keep Writing</button>
+                <button type="button" class="notice-btn change" id="notice-change">Change…</button>
+              </div>
+              <div class="notice-timer-bar" id="notice-timer-bar"></div>
+            </div>
+            <div class="footer-meta">
+              <span>v0.4.4 3-Second Notification Contract: Disappears automatically when unattended, holds on hover.</span>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature Proof Section: 5 Deep-Dive Close-ups -->
+    <section class="frame section" id="features" aria-labelledby="features-title">
+      <div class="eyebrow">
+        <span class="rule"></span>
+        <span>Interface Close-Ups</span>
+      </div>
+      <div class="section-intro">
+        <h2 id="features-title">Engineered for your Windows desktop.</h2>
+        <p class="lede">
+          No generic SaaS dashboard. Every surface is designed for Windows 10 &amp; 11 with dark graphite aesthetics, native performance, and quiet operation.
+        </p>
+      </div>
+
+      <div class="proof-grid">
+        <!-- Feature 1: The Floating Controller -->
+        <article class="proof-card">
+          <div class="proof-header">
+            <div class="proof-icon"><svg aria-hidden="true"><use href="icons.svg#target"/></svg></div>
+            <h3>Floating Controller</h3>
+            <span class="proof-tag">52px Pill</span>
+          </div>
+          <p>
+            An unobtrusive pill that floats on your desktop. See your active session countdown and current app category at a glance.
+            Click to expand into quick stats, or open the full workspace with one keystroke (Ctrl+Shift+D).
+          </p>
+          <div class="proof-mockup pill-mockup">
+            <div class="mock-pill">
+              <span class="mock-status"></span>
+              <span class="mock-title">Deep Work</span>
+              <span class="mock-time">21:15</span>
+              <span class="mock-plus">+</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Feature 2: Local Activity History -->
+        <article class="proof-card">
+          <div class="proof-header">
+            <div class="proof-icon"><svg aria-hidden="true"><use href="icons.svg#database"/></svg></div>
+            <h3>Local SQLite History</h3>
+            <span class="proof-tag">Zero Telemetry</span>
+          </div>
+          <p>
+            All records live at <code>%LOCALAPPDATA%\DigitalDiscipline\discipline.sqlite3</code>.
+            Automatic hourly cleanup enforces your 90-day retention schedule. Export your data or purge history completely with a single click.
+          </p>
+          <div class="proof-mockup db-mockup">
+            <div class="db-row">
+              <span class="db-field">Database:</span>
+              <span class="db-val">discipline.sqlite3</span>
+            </div>
+            <div class="db-row">
+              <span class="db-field">Retention:</span>
+              <span class="db-val">90 Days (Auto-cleanup)</span>
+            </div>
+            <div class="db-row">
+              <span class="db-field">Cloud sync:</span>
+              <span class="db-val off">Disabled / Not configured</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Feature 3: Brave & Chromium Companion -->
+        <article class="proof-card">
+          <div class="proof-header">
+            <div class="proof-icon"><svg aria-hidden="true"><use href="icons.svg#browser"/></svg></div>
+            <h3>Brave &amp; Chrome Companion</h3>
+            <span class="proof-tag">Direct Loopback</span>
+          </div>
+          <p>
+            No fragile Windows registry native messaging hacks. The companion pairs directly to the local agent over <code>127.0.0.1:48761</code> with a random bearer token.
+            Restricts routes via Manifest V3 Declarative Net Request.
+          </p>
+          <div class="proof-mockup companion-mockup">
+            <div class="comp-status">
+              <span class="comp-dot"></span>
+              <span>Direct Local Bridge Active</span>
+            </div>
+            <small>Brave Browser paired · Token authenticated</small>
+          </div>
+        </article>
+
+        <!-- Feature 4: Goals & Bounded Workflows -->
+        <article class="proof-card">
+          <div class="proof-header">
+            <div class="proof-icon"><svg aria-hidden="true"><use href="icons.svg#shield"/></svg></div>
+            <h3>Goals &amp; Bounded Leases</h3>
+            <span class="proof-tag">Self-Expiring</span>
+          </div>
+          <p>
+            You are always in control. Distraction restrictions use 3-minute self-expiring leases—if the desktop app closes, browser blocks lift automatically.
+            A 30-minute emergency bypass is always available.
+          </p>
+          <div class="proof-mockup lease-mockup">
+            <div class="lease-timer">
+              <span>Rule Lease:</span>
+              <strong>02:44 remaining</strong>
+            </div>
+            <span class="lease-bar"></span>
+          </div>
+        </article>
+
+        <!-- Feature 5: Editable Taxonomies & BYOK AI -->
+        <article class="proof-card wide-card">
+          <div class="proof-header">
+            <div class="proof-icon"><svg aria-hidden="true"><use href="icons.svg#key"/></svg></div>
+            <div>
+              <h3>Editable Taxonomies &amp; Owner-Controlled AI</h3>
+              <span class="proof-tag">BYOK Only</span>
+            </div>
+          </div>
+          <p>
+            You own the category definitions. Override any executable or website domain with your preferred category (Development, Writing, Entertainment, Utility).
+            Optional AI classification and coaching requires your own provider key (Ollama, Claude, OpenAI, Gemini) and explicit per-request consent.
+            No automated background data harvesting.
+          </p>
+          <div class="proof-mockup taxonomy-mockup">
+            <div class="tax-tag">cursor.exe → Development</div>
+            <div class="tax-tag">github.com → Development</div>
+            <div class="tax-tag">youtube.com/shorts → Entertainment</div>
+            <div class="tax-tag ai-tag">AI Classification: Off until approved</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Privacy Architecture Section -->
+    <section class="band" id="privacy" aria-labelledby="privacy-title">
+      <div class="frame section">
+        <div class="eyebrow">
+          <span class="rule"></span>
+          <span>Privacy Architecture</span>
+        </div>
+        <div class="section-intro">
+          <h2 id="privacy-title">On your PC. Under your control.</h2>
+          <p class="lede">
+            Most productivity software sells your data or uploads your screenshots to a server.
+            Digital Discipline was architected from line one to run strictly on local loopback.
+          </p>
+        </div>
+
+        <!-- Visual Architecture Diagram -->
+        <div class="arch-diagram" aria-label="Privacy architecture boundary diagram">
+          <div class="arch-box local-box">
+            <div class="box-head">
+              <svg aria-hidden="true"><use href="icons.svg#windows"/></svg>
+              <strong>Your Windows Machine (Local Loopback)</strong>
+            </div>
+            <div class="arch-flow">
+              <div class="arch-node">
+                <span class="node-title">Windows Apps &amp; Desktop</span>
+                <small>Active window executable basename</small>
+              </div>
+              <div class="arch-arrow">↓</div>
+              <div class="arch-node center-node">
+                <span class="node-title">Rust Background Agent</span>
+                <small>Local loopback 127.0.0.1:48761</small>
+              </div>
+              <div class="arch-arrow">↓</div>
+              <div class="arch-node">
+                <span class="node-title">SQLite Database</span>
+                <small>%LOCALAPPDATA%\DigitalDiscipline</small>
+              </div>
+            </div>
+            <div class="arch-companion-branch">
+              <div class="arch-node comp-node">
+                <span class="node-title">Brave/Chrome Extension</span>
+                <small>Direct token handshake (No cloud)</small>
+              </div>
+              <div class="arch-bidirectional">⇄ Local Bridge</div>
+            </div>
+          </div>
+
+          <div class="arch-boundary-wall">
+            <span>Airgap / Strict Boundary</span>
+          </div>
+
+          <div class="arch-box cloud-box">
+            <div class="box-head">
+              <svg aria-hidden="true"><use href="icons.svg#key"/></svg>
+              <strong>External Services (Strictly Opt-in)</strong>
+            </div>
+            <div class="cloud-content">
+              <div class="cloud-rule">
+                <strong>No Cloud Accounts</strong>
+                <p>No registration, no user logins, no remote tracking servers.</p>
+              </div>
+              <div class="cloud-rule">
+                <strong>BYOK Optional AI</strong>
+                <p>Send prompts only when you explicitly approve. Your own API key, stored in DPAPI.</p>
+              </div>
+              <div class="cloud-rule">
+                <strong>Local Ollama Loopback</strong>
+                <p>Run models 100% offline on your own GPU via Ollama.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Boundary Comparison Table -->
+        <div class="privacy-comparison">
+          <div class="comp-col collected">
+            <div class="col-head">
+              <svg aria-hidden="true"><use href="icons.svg#check"/></svg>
+              <h3>What Digital Discipline Tracks</h3>
+            </div>
+            <ul>
+              <li><strong>Executable basename:</strong> e.g. <code>code.exe</code>, <code>obsidian.exe</code> (no file paths)</li>
+              <li><strong>Active interval &amp; idle:</strong> Duration of user activity</li>
+              <li><strong>Opted-in browser domains:</strong> Only if browser companion is paired</li>
+              <li><strong>Qualified video playback:</strong> Visible watch time on YouTube Shorts &amp; Reels</li>
+              <li><strong>User categories &amp; goals:</strong> Custom taxonomies you configure</li>
+            </ul>
+          </div>
+
+          <div class="comp-col never-collected">
+            <div class="col-head">
+              <svg aria-hidden="true"><use href="icons.svg#eye-off"/></svg>
+              <h3>What Is NEVER Collected</h3>
+            </div>
+            <ul>
+              <li><strong>NO window titles:</strong> Document names, chat partner names, or URLs</li>
+              <li><strong>NO keystrokes or clipboard:</strong> Never logs typing or copied data</li>
+              <li><strong>NO screenshots or screen capture:</strong> Zero visual surveillance</li>
+              <li><strong>NO cloud telemetry:</strong> Zero analytics or pingbacks to developers</li>
+              <li><strong>NO third-party ads:</strong> Completely free and open-source</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Honest Technical Limitations Disclosure -->
+        <div class="transparency-callout">
+          <h4>Honest Technical Disclosures</h4>
+          <p>
+            <strong>Unencrypted local SQLite:</strong> The activity database is stored in your Windows user profile without disk encryption. If an attacker has filesystem access to your PC, they can inspect the SQLite file.
+            <br>
+            <strong>Self-directed intervention:</strong> Native app interventions are warning prompts, not tamperproof kernel blockers.
+            <br>
+            <strong>Development signature:</strong> Releases are signed with a development certificate; Windows SmartScreen will prompt for confirmation.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Getting Started / Installation Guide -->
+    <section class="frame section" id="install" aria-labelledby="install-title">
+      <div class="eyebrow">
+        <span class="rule"></span>
+        <span>Windows Setup</span>
+      </div>
+      <div class="section-intro">
+        <h2 id="install-title">Get started in three steps.</h2>
+        <p class="lede">
+          Digital Discipline is verified for Windows 10 &amp; 11 x64.
+          Follow the installation guide below to get up and running in minutes.
+        </p>
+      </div>
+
+      <div class="install-grid">
+        <div class="install-steps">
+          <!-- Step 1 -->
+          <div class="install-step">
+            <div class="step-badge">1</div>
+            <div class="step-info">
+              <h3>Download the Verified v0.4.4 Bundle</h3>
+              <p>
+                Download the verified release bundle from GitHub Actions run <code>42574830666</code>.
+                Artifact name: <code>DigitalDiscipline-MasterSpec-Branch-v0.4.4-DEV-SIGNED</code> (14.2 MB).
+              </p>
+              <div class="download-box">
+                <a class="primary cta-btn" href="https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666" target="_blank" rel="noreferrer">
+                  <svg aria-hidden="true"><use href="icons.svg#windows"/></svg>
+                  <span>Open Actions Run 42574830666 ↗</span>
+                </a>
+                <span class="installer-meta">Installer: Digital Discipline_0.4.4_x64-setup.exe (5,981,800 bytes)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="install-step">
+            <div class="step-badge">2</div>
+            <div class="step-info">
+              <h3>Windows Defender SmartScreen Notice</h3>
+              <p>
+                Because Digital Discipline uses a self-signed development certificate rather than an expensive commercial certificate, Windows SmartScreen will display:
+                <em>"Windows protected your PC"</em>.
+              </p>
+              <div class="smartscreen-guidance">
+                <p>Click <strong>"More info"</strong>, then click <strong>"Run anyway"</strong> to start the installer.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="install-step">
+            <div class="step-badge">3</div>
+            <div class="step-info">
+              <h3>Pair Brave or Chrome (Optional)</h3>
+              <p>
+                The installer bundles the browser companion. Open <code>brave://extensions</code> or <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and select the included companion folder.
+                Copy the 32-character extension ID and authorize it in Settings &amp; Privacy.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Checksum Verification Card -->
+        <aside class="checksum-card">
+          <div class="checksum-head">
+            <svg aria-hidden="true"><use href="icons.svg#shield"/></svg>
+            <h4>Verify Checksum</h4>
+          </div>
+          <p>Verify that your downloaded executable matches the official compilation hash:</p>
+          
+          <div class="hash-block">
+            <span class="micro">SHA-256 Checksum</span>
+            <code class="hash-code" id="sha-hash">cee81d66fe23008bc8042de4e762210fc696898ef08575dee5f020298497f9d3</code>
+            <button type="button" class="copy-btn" id="copy-hash-btn">
+              <svg aria-hidden="true"><use href="icons.svg#copy"/></svg>
+              <span id="copy-text">Copy Hash</span>
+            </button>
+          </div>
+
+          <div class="ps-snippet">
+            <span class="micro">PowerShell Verification</span>
+            <pre><code>Get-FileHash -Algorithm SHA256 "Digital Discipline_0.4.4_x64-setup.exe"</code></pre>
+          </div>
+
+          <div class="status-summary">
+            <span class="dot-green"></span>
+            <span>Windows Rust Agent: 69 tests passed</span>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Open Source & Architecture Section -->
+    <section class="band" id="source" aria-labelledby="source-title">
+      <div class="frame section">
+        <div class="eyebrow">
+          <span class="rule"></span>
+          <span>Open Source</span>
+        </div>
+        <div class="section-intro">
+          <h2 id="source-title">Inspect the source. Join the build.</h2>
+          <p class="lede">
+            Digital Discipline is built in the open. Review the implementation ledger, examine the Rust daemon, or contribute improvements.
+          </p>
+        </div>
+
+        <div class="tech-stack-grid">
+          <div class="tech-card">
+            <div class="tech-icon"><svg aria-hidden="true"><use href="icons.svg#terminal"/></svg></div>
+            <h4>Rust Windows Agent</h4>
+            <p>Runs as a sub-10MB background daemon. Handles raw Win32 active window events, idle state, and SQLite persistence.</p>
+            <code>agent/src/</code>
+          </div>
+
+          <div class="tech-card">
+            <div class="tech-icon"><svg aria-hidden="true"><use href="icons.svg#windows"/></svg></div>
+            <h4>Tauri v2 Workspace</h4>
+            <p>Modern desktop GUI powered by WebView2, React 18, and TypeScript. Extremely low memory footprint and high responsiveness.</p>
+            <code>apps/desktop/</code>
+          </div>
+
+          <div class="tech-card">
+            <div class="tech-icon"><svg aria-hidden="true"><use href="icons.svg#browser"/></svg></div>
+            <h4>MV3 Browser Extension</h4>
+            <p>Lightweight content adapters and Declarative Net Request rules for Brave and Chromium browsers. Direct local loopback.</p>
+            <code>extension/</code>
+          </div>
+
+          <div class="tech-card">
+            <div class="tech-icon"><svg aria-hidden="true"><use href="icons.svg#database"/></svg></div>
+            <h4>Local SQLite Schema</h4>
+            <p>Structured relational storage with explicit schema migrations (Schema v14). No external database server required.</p>
+            <code>discipline.sqlite3</code>
+          </div>
+        </div>
+
+        <!-- Roadmap & Status Table -->
+        <div class="roadmap-block">
+          <h3>Transparent Roadmap &amp; Feature Status</h3>
+          <div class="roadmap-table-wrap">
+            <table class="roadmap-table">
+              <thead>
+                <tr>
+                  <th>Capability</th>
+                  <th>Status</th>
+                  <th>Implementation Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Windows Activity &amp; Idle Tracking</td>
+                  <td><span class="badge-done">Shipped (v0.4.4)</span></td>
+                  <td>Lightweight Rust daemon, local SQLite storage</td>
+                </tr>
+                <tr>
+                  <td>Short Video Progression (Shorts &amp; Reels)</td>
+                  <td><span class="badge-done">Shipped (v0.4.4)</span></td>
+                  <td>Visible playback progression via Brave companion</td>
+                </tr>
+                <tr>
+                  <td>Bounded Declarative Net Restrictions</td>
+                  <td><span class="badge-done">Shipped (v0.4.4)</span></td>
+                  <td>3-minute auto-expiring leases, emergency unlock</td>
+                </tr>
+                <tr>
+                  <td>Custom Service Categories &amp; Overrides</td>
+                  <td><span class="badge-done">Shipped (v0.4.4)</span></td>
+                  <td>Manual categories + optional BYOK AI research</td>
+                </tr>
+                <tr>
+                  <td>Trusted Authenticode Windows Certificate</td>
+                  <td><span class="badge-planned">Future Work</span></td>
+                  <td>Currently signed with self-signed dev certificate</td>
+                </tr>
+                <tr>
+                  <td>Continuous Multi-Device Synchronization</td>
+                  <td><span class="badge-planned">Future Work</span></td>
+                  <td>Currently supports manual SQLite session export/import</td>
+                </tr>
+                <tr>
+                  <td>Mobile Companion (Android)</td>
+                  <td><span class="badge-planned">Future Work</span></td>
+                  <td>Architected for local export, mobile client in roadmap</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="source-cta-bar">
+          <div class="source-links">
+            <a class="primary cta-btn" href="https://github.com/motionedits246-max/digital-discipline-windows" target="_blank" rel="noreferrer">
+              <svg aria-hidden="true"><use href="icons.svg#branch"/></svg>
+              <span>Explore GitHub Repository ↗</span>
+            </a>
+            <a class="secondary-btn" href="https://github.com/motionedits246-max/digital-discipline-windows/blob/feature/master-spec-complete-2026-11/docs/IMPLEMENTATION-LEDGER.md" target="_blank" rel="noreferrer">
+              <span>View Implementation Ledger ↗</span>
+            </a>
+            <a class="secondary-btn" href="https://github.com/motionedits246-max/digital-discipline-windows/issues" target="_blank" rel="noreferrer">
+              <span>Report an Issue ↗</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Frequently Asked Questions Section -->
+    <section class="frame section" id="faq" aria-labelledby="faq-title">
+      <div class="eyebrow">
+        <span class="rule"></span>
+        <span>Questions &amp; Answers</span>
+      </div>
+      <div class="section-intro">
+        <h2 id="faq-title">Frequently asked questions.</h2>
+        <p class="lede">Clear answers about security, system impact, and privacy choices.</p>
+      </div>
+
+      <div class="faq-list">
+        <details class="faq-item" open>
+          <summary>Does Digital Discipline require an account or internet connection?</summary>
+          <div class="faq-answer">
+            <p>
+              No. Digital Discipline requires zero accounts, logins, or cloud infrastructure.
+              All tracking and session logic runs completely offline on your PC.
+              The only time an external network connection is made is if you explicitly configure your own API key for the AI Coach or approve a remote category lookup.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>How is video observation different from tracking browser history?</summary>
+          <div class="faq-answer">
+            <p>
+              Standard browser trackers record every full URL you visit. Digital Discipline's companion only observes domain names and checks visible playback progression on short-form video players (YouTube Shorts, regular YouTube videos, and Instagram Reels).
+              It distinguishes between an accidental 3-second link click and an active 30-minute watch streak, without storing video titles or transcripts.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Why does Windows SmartScreen display a warning on install?</summary>
+          <div class="faq-answer">
+            <p>
+              Commercial Windows code-signing certificates cost hundreds of dollars annually and require corporate registration.
+              Because this is an independent open-source project, binaries are signed with a development certificate.
+              To install, click <strong>"More info"</strong> and then <strong>"Run anyway"</strong>. You can verify the exact SHA-256 checksum against GitHub Actions build records before running.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Can Digital Discipline permanently lock me out of my computer?</summary>
+          <div class="faq-answer">
+            <p>
+              No. Distraction restrictions are intentionally bounded. Browser restriction rules use 3-minute self-expiring leases—if the desktop app closes or crashes, browser rules immediately expire.
+              Additionally, a 30-minute emergency bypass is always accessible with one click in the focus interface.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>How do the optional AI features work?</summary>
+          <div class="faq-answer">
+            <p>
+              AI classification and coaching are strictly Bring-Your-Own-Key (BYOK). Supported providers include Ollama (which runs completely offline on local loopback), OpenAI, Anthropic Claude, Google Gemini, and Groq.
+              Keys are encrypted in Windows DPAPI and are never written to unencrypted storage. Each remote classification request requires explicit manual confirmation.
+            </p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>How do I completely remove Digital Discipline and its data?</summary>
+          <div class="faq-answer">
+            <p>
+              Uninstall Digital Discipline normally through Windows Settings → Installed Apps.
+              Because user data belongs to you, Windows uninstallation leaves your local SQLite database intact.
+              To completely erase all recorded history and bearer tokens, delete the folder <code>%LOCALAPPDATA%\DigitalDiscipline</code>.
+            </p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- Closing Call to Action Banner -->
+    <section class="frame cta-banner">
+      <div class="cta-inner">
+        <div class="cta-text">
+          <h2>Ready for a calmer way to focus?</h2>
+          <p>Download the verified Windows build or explore the open-source repository.</p>
+        </div>
+        <div class="cta-buttons">
+          <a class="primary cta-btn" href="#install">
+            <svg aria-hidden="true"><use href="icons.svg#windows"/></svg>
+            <span>Download for Windows (v0.4.4)</span>
+          </a>
+          <a class="secondary-btn" href="https://github.com/motionedits246-max/digital-discipline-windows" target="_blank" rel="noreferrer">
+            <svg aria-hidden="true"><use href="icons.svg#branch"/></svg>
+            <span>View on GitHub ↗</span>
+          </a>
+        </div>
+      </div>
     </section>
   </main>
-  <footer class="frame"><a class="brand" href="#main"><img src="mark.svg" width="22" height="22" alt="">Digital Discipline</a><div><a href="#install">Windows build ↑</a><a href="https://github.com/motionedits246-max/digital-discipline-windows">GitHub ↗</a></div></footer>
-</body></html>
+
+  <!-- Site Footer -->
+  <footer class="site-footer frame">
+    <div class="footer-top">
+      <a class="brand" href="#hero">
+        <img src="mark.svg" width="22" height="22" alt="">
+        <span>Digital Discipline</span>
+      </a>
+      <div class="footer-nav">
+        <a href="#product">Product</a>
+        <a href="#walkthrough">Method</a>
+        <a href="#features">Features</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/motionedits246-max/digital-discipline-windows">GitHub</a>
+        <a href="https://github.com/motionedits246-max/digital-discipline-windows/issues">Issues</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-note">
+        Open-source, local-first productivity software for Windows 10 &amp; 11.
+        No tracking cookies. No third-party analytics. Unencrypted local SQLite storage.
+      </p>
+      <div class="footer-commit">
+        <span>Verified Build: v0.4.4</span>
+        <span class="sep">·</span>
+        <span>Run: 42574830666</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
