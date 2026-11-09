@@ -88,7 +88,7 @@ export default function App(){
  const sample=useMemo(()=>makeDemo(),[]);const shown=demo?sample:data;
  const offline=!demo&&(!data||!!error);
  useEffect(()=>{if(!demo&&!offline)void agent('POST','/privacy/presentation',{enabled:presentationPrivacy}).catch(()=>{});},[demo,offline,presentationPrivacy]);
- useServiceHints(!demo&&!offline&&!presentationPrivacy,liteMode);
+ useServiceHints(!demo&&!offline&&!presentationPrivacy&&!shown?.private_session?.active&&!shown?.tracking_paused,liteMode);
  useEffect(()=>{if(isTauri&&(presentationPrivacy||shown?.private_session?.active||shown?.tracking_paused))void setServiceHintWindow(false).catch(()=>{});},[presentationPrivacy,shown?.private_session?.active,shown?.tracking_paused]);
  const currentMode=useRef(mode);currentMode.current=mode;
  const startTour=()=>{setSetupActive(false);setPage('Overview');setMode('full');void presentation('full');setTourActive(true);};
@@ -142,10 +142,11 @@ export default function App(){
    void import('@tauri-apps/api/event').then(async({listen})=>{
      const openCommand=await listen('dd:global-command',()=>{setMode('full');setCommandQuery('');setCommandOpen(true);});
      const togglePrivacy=await listen('dd:toggle-privacy',()=>setPresentationPrivacy(v=>!v));
+     const openNotice=await listen<Page>('dd:open-notice-page',event=>{if(!['Settings & Privacy','Inbox'].includes(event.payload))return;setSetupActive(false);setMode('full');setPage(event.payload);});
      const openReview=await listen('dd:open-service-review',()=>{setSetupActive(false);setMode('full');setPage('Activity History');});
      const collapse=await listen('dd:collapse-request',()=>window.dispatchEvent(new Event('dd:collapse-request')));
      const openDashboard=await listen('dd:open-dashboard',()=>{setSetupActive(false);setMode('full');setPage('Overview');});
-     return ()=>{openCommand();openDashboard();togglePrivacy();openReview();collapse();};
+     return ()=>{openCommand();openDashboard();togglePrivacy();openReview();openNotice();collapse();};
    }).then(fn=>{if(disposed)fn();else unsubscribe=fn;}).catch(()=>{});
    return()=>{disposed=true;unsubscribe?.();};
  },[]);

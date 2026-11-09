@@ -52,7 +52,9 @@ export async function exportActivity():Promise<{saved_path:string;rows:number;co
 
 export async function setPrivacyMask(enabled:boolean):Promise<void>{if(isTauri)await invoke('set_privacy_mask',{enabled});}
 
-export async function deliverServiceHint(service:unknown):Promise<void>{if(isTauri)await invoke('deliver_service_hint',{service});}
-export async function readServiceHint():Promise<import('./ServiceReviewPanel').Service|null>{return invoke('read_service_hint',{});}
+export async function deliverServiceHint(service:unknown):Promise<boolean>{return isTauri?invoke<boolean>('deliver_service_hint',{service}):false;}
+export async function deliverDesktopNotice(notice:import('./ServiceHint').DesktopNotice):Promise<boolean>{return isTauri?invoke<boolean>('deliver_desktop_notice',{notice}):false;}
+export async function readServiceHint():Promise<import('./ServiceHint').OverlayNotice|null>{return invoke('read_service_hint',{});}
 export async function setServiceHintWindow(visible:boolean,expanded=false):Promise<void>{if(isTauri)await invoke('set_service_hint_window',{visible,expanded});}
 export async function openServiceReview():Promise<void>{if(isTauri)await invoke('open_service_review',{});}
+export async function openNoticePage(page:import('./types').Page):Promise<void>{if(isTauri)await invoke('open_notice_page',{page});}

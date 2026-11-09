@@ -8,13 +8,13 @@ async function connected(page:Page,paired=true){
   (window as any).__testNativeEvents=nativeEvents;
   const service={subject:'app:new-helper.exe',category:'Unclassified',source:'local_rules',description:'Unknown local tool',ai_enabled:true,provider:'pollinations',llm_approved:false};
   (window as any).__TAURI_INTERNALS__={transformCallback:(fn:(event:any)=>void)=>{callbacks.set(++callbackId,fn);return callbackId;},unregisterCallback:()=>{},invoke:async(command:string,args:any)=>{
-   calls.push({command,args});if(command==='read_service_hint')return service;if(command==='plugin:event|listen'){nativeEvents[args.event]=callbacks.get(args.handler)!;return 1;}if(command!=='agent_request')return null;
+   calls.push({command,args});if(command==='read_service_hint')return location.search.includes('service-hint')?((window as any).__testNotice||{kind:'service',service}):((window as any).__testActiveNotice||null);if(command==='deliver_service_hint'||command==='deliver_desktop_notice'){(window as any).__testActiveNotice=args.notice||{kind:'service',service:args.service};return true;}if(command==='plugin:event|listen'){nativeEvents[args.event]=callbacks.get(args.handler)!;return 1;}if(command!=='agent_request')return null;
    const {path,method,body}=args;
    if(path==='/services/next')return {service:null};
    if(path==='/services')return {services:[service],public_lookup:false,overlay_enabled:true,ai_enabled:true,provider:'pollinations'};
    if(path==='/services/decision'){if(body.action==='category')service.category=body.category;return {ok:true};}
    if(path==='/state'||path==='/live')return {ok:true,schema_version:'1.0',observed_at_ms:Date.now(),tracking_paused:false,private_session:privateState,platform_supported:true,browser_connected:true,metrics:{active_ms:0,development_ms:0,entertainment_ms:0,qualified_plays:0,unique_videos:0,replays:0,playback_ms:0},current:null,sessions:[],heatmap:[],rules:[{id:rule,name:'No Shorts',domain:'www.youtube.com',path_prefix:'/shorts/',enabled:true,enforced:true}],goals:[],focus,profile_receipts:[],coverage:{windows_collector:'running',browser:'best_effort',no_data_is_not_zero:true}};
-   if(path==='/browser-pairs')return {pairs:paired?[{browser:'Brave',extension_id:'a'.repeat(32)}]:[],pending:[]};
+   if(path==='/browser-pairs')return (window as any).__testPairs||{pairs:paired?[{browser:'Brave',extension_id:'a'.repeat(32),created_ms:1}]:[],pending:[]};if(path==='/inbox')return {items:(window as any).__testInbox||[]};
    if(path==='/workflows')return {profiles:[{id:profile,name:'Study',apps:['editor.exe'],domains:['www.youtube.com']}],tasks:[{id:task,profile_id:profile,title:'Finish exercises',state:'draft',outcome:''}]};
    if(path==='/focus/reviews')return {reviews:[]};if(path==='/tracking/doctor')return {profiles:[]};if(path==='/reports/heatmap')return {heatmap:[]};
    if(path==='/privacy/session'){if(method==='POST')privateState={active:body.minutes>0,until_ms:body.minutes?Date.now()+body.minutes*60000:null,automatic_ai_paused:body.minutes>0,restrictions_continue:true};return privateState;}
@@ -67,7 +67,7 @@ test('workspace collapse plays before native resize and ends at the pill',async(
 });
 test('service overlay expires without approving or sending a classification request',async({page})=>{
  await connected(page);await page.clock.install();await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');await expect(page.getByRole('region',{name:'New service suggestion'})).toBeVisible();
- await page.clock.fastForward(5600);await expect(page.getByRole('region',{name:'New service suggestion'})).toHaveClass(/leaving/);await page.clock.fastForward(250);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').length)).toBe(0);
+ await page.clock.fastForward(2900);await expect(page.getByRole('region',{name:'New service suggestion'})).toHaveClass(/leaving/);await page.clock.fastForward(250);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').length)).toBe(0);
  expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.command==='set_service_hint_window'&&c.args?.visible===false))).toBe(true);
 });
 test('service overlay saves a manual category without approving AI',async({page})=>{
@@ -77,4 +77,29 @@ test('service overlay saves a manual category without approving AI',async({page}
 test('service overlay requires an explicit action before queueing AI',async({page})=>{
  await connected(page);await page.goto('/?surface=service-hint');await expect(page.getByText('No LLM request until you approve.',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Ask AI',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.args?.path==='/services/decision').map((c:any)=>c.args.body))).toEqual([{subject:'app:new-helper.exe',action:'approve_ai',category:null}]);
+});
+test('service interaction stays open and native focus loss closes its menu and expires despite stale DOM focus',async({page})=>{
+ await connected(page);await page.clock.install();await page.goto('/?surface=service-hint');
+ const card=page.getByRole('region',{name:'New service suggestion'});await expect(card).toBeVisible();
+ await page.getByRole('combobox',{name:'Service type',exact:true}).click();await expect(page.getByRole('listbox')).toBeVisible();
+ await page.clock.fastForward(10000);await expect(card).not.toHaveClass(/leaving/);
+ await page.evaluate(()=>(window as any).__testNativeEvents['dd:notice-away']({event:'dd:notice-away',id:1,payload:null}));
+ await expect(page.getByRole('listbox')).toHaveCount(0);await page.clock.fastForward(2900);await expect(card).toHaveClass(/leaving/);await page.clock.fastForward(150);
+ expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.command==='set_service_hint_window'&&c.args?.visible===false))).toBe(true);
+});
+test('browser connection notification uses the same compact surface and opens browser settings',async({page})=>{
+ await connected(page);await page.addInitScript(()=>{(window as any).__testNotice={kind:'browser',title:'New browser connection',detail:'A browser companion is asking to connect. Review its Extension ID before authorizing it.',page:'Settings & Privacy'};});
+ await page.setViewportSize({width:356,height:156});await page.goto('/?surface=service-hint');
+ const card=page.getByRole('region',{name:'Desktop notification'});await expect(card).toBeVisible();await expect(card.getByText('New browser connection',{exact:true})).toBeVisible();
+ const box=await card.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(156);
+ await page.screenshot({path:'ui-test-output/browser-notice.png'});await card.getByRole('button',{name:'Open details'}).click();
+ expect(await page.evaluate(()=>(window as any).__testCalls.find((c:any)=>c.command==='open_notice_page').args.page)).toBe('Settings & Privacy');
+ expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.args?.method==='POST'&&c.args?.path==='/browser-pairs'))).toBe(false);
+});
+test('new companion request is delivered once and never replaces an active overlay',async({page})=>{
+ await connected(page);await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.args?.path==='/services/next'))).toBe(true);await page.clock.install();
+ await page.evaluate(()=>{(window as any).__testPairs={pairs:[{browser:'Brave',extension_id:'a'.repeat(32),created_ms:1}],pending:[{extension_id:'b'.repeat(32),requested_ms:Date.now()}]};});
+ await page.clock.fastForward(3100);await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.command==='deliver_desktop_notice').length)).toBe(1);
+ await page.clock.fastForward(10000);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.command==='deliver_desktop_notice').length)).toBe(1);
+ await page.evaluate(()=>(window as any).__testActiveNotice=null);await page.clock.fastForward(3100);expect(await page.evaluate(()=>(window as any).__testCalls.filter((c:any)=>c.command==='deliver_desktop_notice').length)).toBe(1);
 });

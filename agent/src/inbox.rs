@@ -18,7 +18,7 @@ pub fn completed(db:&Connection,now:i64)->rusqlite::Result<()>{
 pub async fn list(State(s):State<Arc<AppState>>)->ApiResult{
  let db=s.db.lock().unwrap();completed(&db,now_ms()).map_err(storage)?;let mut q=db.prepare("SELECT id,kind,title,detail,action,created_ms,updated_ms,occurrences,dismissed_ms FROM local_inbox ORDER BY dismissed_ms IS NULL DESC,updated_ms DESC LIMIT 200").map_err(storage)?;
  let items=q.query_map([],|r|{let detail:String=r.get(3)?;Ok(json!({"id":r.get::<_,String>(0)?,"kind":r.get::<_,String>(1)?,"title":r.get::<_,String>(2)?,"detail":serde_json::from_str::<Value>(&detail).unwrap_or(json!({})),"action":r.get::<_,String>(4)?,"created_ms":r.get::<_,i64>(5)?,"updated_ms":r.get::<_,i64>(6)?,"occurrences":r.get::<_,i64>(7)?,"dismissed_ms":r.get::<_,Option<i64>>(8)?}))}).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
- Ok(Json(json!({"ok":true,"items":items,"delivery":"local_inbox_only","lock_screen_text":"Generic status titles; no app names, URLs or notes","may_be_truncated":items.len()==200})))
+ Ok(Json(json!({"ok":true,"items":items,"delivery":"local_inbox_and_desktop_overlay","lock_screen_text":"Generic status titles; no app names, URLs or notes","may_be_truncated":items.len()==200})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct Dismiss{dismissed:bool}
 pub async fn dismiss(Path(id):Path<String>,State(s):State<Arc<AppState>>,Json(p):Json<Dismiss>)->ApiResult{if uuid::Uuid::parse_str(&id).is_err(){return Err(err(StatusCode::BAD_REQUEST,"invalid_id"));}s.db.lock().unwrap().execute("UPDATE local_inbox SET dismissed_ms=?2 WHERE id=?1",params![id,if p.dismissed{Some(now_ms())}else{None}]).map_err(storage)?;Ok(Json(json!({"ok":true})))}

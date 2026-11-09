@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows,not(debug_assertions)), windows_subsystem = "windows")]
 mod ipc_routes;
+mod window_policy;
 #[cfg(windows)] mod lifecycle;
 use serde_json::Value;
 use std::{fs, path::PathBuf, time::Duration};
@@ -7,33 +8,56 @@ use std::{fs, path::PathBuf, time::Duration};
 #[cfg(windows)] use std::{net::{TcpStream,SocketAddr},process::Command};
 use tauri::{Manager,Emitter, LogicalSize, Size};
 
+#[derive(Default)]struct PresentationState{current:std::sync::Mutex<(String,Option<(i32,i32,u32,u32,u64)>)>}
+fn monitor_key(m:&tauri::window::Monitor)->(i32,i32,u32,u32,u64){let a=m.work_area();(a.position.x,a.position.y,a.size.width,a.size.height,m.scale_factor().to_bits())}
 #[derive(Default)]struct ServiceHintState{payload:std::sync::Mutex<Option<Value>>}
 fn hints_masked(app:&tauri::AppHandle)->bool{
- #[cfg(windows)]{return app.try_state::<lifecycle::Supervisor>().is_some_and(|s|s.privacy_mask.load(std::sync::atomic::Ordering::SeqCst));}
+ #[cfg(windows)]{return app.try_state::<lifecycle::Supervisor>().is_some_and(|s|{let status=s.status();s.privacy_mask.load(std::sync::atomic::Ordering::SeqCst)||status["private_session"]["active"]==true||status["tracking_paused"]==true});}
  #[cfg(not(windows))]{let _=app;false}
 }
-#[tauri::command]async fn deliver_service_hint(app:tauri::AppHandle,service:Value)->Result<(),String>{
- if hints_masked(&app){return Ok(());}if service["subject"].as_str().is_none_or(|s|s.len()>260)||serde_json::to_vec(&service).map_err(|_|"Invalid suggestion")?.len()>4096{return Err("Invalid suggestion".into());}
- *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Suggestion unavailable")?=Some(service.clone());
+async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
+ if hints_masked(&app){return Ok(false);}
+ {let state=app.state::<ServiceHintState>();let mut payload=state.payload.lock().map_err(|_|"Notification unavailable")?;if payload.is_some(){return Ok(false);}*payload=Some(notice.clone());}
  if app.get_webview_window("service-hint").is_none(){
-  tauri::WebviewWindowBuilder::new(&app,"service-hint",tauri::WebviewUrl::App("index.html?surface=service-hint".into())).title("Digital Discipline service suggestion").inner_size(356.0,156.0).resizable(false).decorations(false).transparent(true).shadow(false).always_on_top(true).skip_taskbar(true).focused(false).visible(false).build().map_err(|_|"Could not open service suggestion")?;
- }else{app.emit_to("service-hint","dd:service-hint",service).map_err(|_|"Could not deliver suggestion")?;}Ok(())
+  if tauri::WebviewWindowBuilder::new(&app,"service-hint",tauri::WebviewUrl::App("index.html?surface=service-hint".into())).title("Digital Discipline notification").inner_size(356.0,156.0).resizable(false).decorations(false).transparent(true).shadow(false).always_on_top(true).skip_taskbar(true).focused(false).visible(false).build().is_err(){
+   *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Notification unavailable")?=None;return Err("Could not open notification".into());
+  }
+ }else{app.emit_to("service-hint","dd:service-hint",notice).map_err(|_|"Could not deliver notification")?;}Ok(true)
+}
+#[tauri::command]async fn deliver_service_hint(app:tauri::AppHandle,service:Value)->Result<bool,String>{
+ if service["subject"].as_str().is_none_or(|s|s.len()>260)||serde_json::to_vec(&service).map_err(|_|"Invalid suggestion")?.len()>4096{return Err("Invalid suggestion".into());}
+ show_notice(app,serde_json::json!({"kind":"service","service":service})).await
+}
+#[tauri::command]async fn deliver_desktop_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
+ if serde_json::to_vec(&notice).map_err(|_|"Invalid notification")?.len()>4096||!matches!(notice["kind"].as_str(),Some("browser"|"status"))||!matches!(notice["page"].as_str(),Some("Settings & Privacy"|"Inbox"))||notice["title"].as_str().is_none_or(|s|s.is_empty()||s.len()>120)||notice["detail"].as_str().is_none_or(|s|s.len()>400){return Err("Invalid notification".into());}
+ show_notice(app,notice).await
 }
 #[tauri::command]fn read_service_hint(app:tauri::AppHandle)->Option<Value>{if hints_masked(&app){None}else{app.state::<ServiceHintState>().payload.lock().ok().and_then(|v|v.clone())}}
 #[tauri::command]fn set_service_hint_window(app:tauri::AppHandle,visible:bool,expanded:bool)->Result<(),String>{
+ if !visible||hints_masked(&app){
+  *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Notification unavailable")?=None;
+  if let Some(w)=app.get_webview_window("service-hint"){let _=w.hide();return w.close().map_err(|_|"Could not close notification".into());}return Ok(());
+ }
+ if app.state::<ServiceHintState>().payload.lock().map_err(|_|"Notification unavailable")?.is_none(){return Ok(());}
  let Some(w)=app.get_webview_window("service-hint")else{return Ok(());};
- if !visible||hints_masked(&app){*app.state::<ServiceHintState>().payload.lock().map_err(|_|"Suggestion unavailable")?=None;let _=w.hide();return w.close().map_err(|_|"Could not close suggestion".into());}
- w.set_size(Size::Logical(LogicalSize::new(356.0,if expanded{420.0}else{156.0}))).map_err(|_|"Could not size suggestion")?;
  let monitor=app.get_webview_window("main").and_then(|main|main.current_monitor().ok().flatten()).or_else(||w.primary_monitor().ok().flatten());
- if let Some(m)=monitor{let scale=m.scale_factor();let size=w.outer_size().map_err(|_|"Suggestion size unavailable")?;let x=m.position().x+(m.size().width as i32-size.width as i32-(20.0*scale) as i32).max(0);let y=m.position().y+(m.size().height as i32-size.height as i32-(72.0*scale) as i32).max(0);w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x,y))).map_err(|_|"Could not position suggestion")?;}
+ let (width,height)=if let Some(ref m)=monitor{(356.0_f64.min(m.work_area().size.width as f64/m.scale_factor()-16.0),f64::min(if expanded{420.0}else{156.0},m.work_area().size.height as f64/m.scale_factor()-16.0))}else{(356.0,if expanded{420.0}else{156.0})};
+ w.set_size(Size::Logical(LogicalSize::new(width.max(1.0),height.max(1.0)))).map_err(|_|"Could not size notification")?;
+ if let Some(m)=monitor{let scale=m.scale_factor();let size=w.outer_size().map_err(|_|"Notification size unavailable")?;let bounds=m.work_area();let margin=(8.0*scale) as i32;let x=bounds.position.x+(bounds.size.width as i32-size.width as i32-margin).max(0);let y=bounds.position.y+(bounds.size.height as i32-size.height as i32-margin).max(0);w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x,y))).map_err(|_|"Could not position notification")?;}
  #[cfg(windows)]{
   #[link(name="user32")]extern "system"{fn ShowWindow(hwnd:*mut std::ffi::c_void,command:i32)->i32;}
-  let hwnd=w.hwnd().map_err(|_|"Suggestion handle unavailable")?;unsafe{ShowWindow(hwnd.0 as *mut std::ffi::c_void,4);}// SW_SHOWNOACTIVATE: keep typing in the foreground app.
+  let hwnd=w.hwnd().map_err(|_|"Notification handle unavailable")?;unsafe{ShowWindow(hwnd.0 as *mut std::ffi::c_void,4);}// Do not steal focus from the foreground application.
   Ok(())
  }
- #[cfg(not(windows))]{w.show().map_err(|_|"Could not show suggestion".into())}
+ #[cfg(not(windows))]{w.show().map_err(|_|"Could not show notification".into())}
 }
 #[tauri::command]fn open_service_review(app:tauri::AppHandle)->Result<(),String>{let _=set_service_hint_window(app.clone(),false,false);set_presentation(app.clone(),"full".into())?;if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}app.emit_to("main","dd:open-service-review",()).map_err(|_|"Could not open service review".into())}
+#[tauri::command]fn open_notice_page(app:tauri::AppHandle,page:String)->Result<(),String>{
+ if !matches!(page.as_str(),"Settings & Privacy"|"Inbox"){return Err("Unsupported notification destination".into());}
+ set_service_hint_window(app.clone(),false,false)?;set_presentation(app.clone(),"full".into())?;
+ if let Some(w)=app.get_webview_window("main"){w.show().map_err(|e|e.to_string())?;w.set_focus().map_err(|e|e.to_string())?;}
+ app.emit_to("main","dd:open-notice-page",page).map_err(|_|"Could not open notification details".into())
+}
 
 fn token_path() -> Result<PathBuf,String> {
     let dir=std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA unavailable")?;
@@ -57,21 +81,17 @@ async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<V
 #[tauri::command]
 fn set_presentation(app:tauri::AppHandle,mode:String)->Result<(),String> {
     let w=app.get_webview_window("main").ok_or("Window unavailable")?;
-    let (mut width, mut height): (f64, f64) = match mode.as_str() {
-        "pill" => (280.0,56.0), "quick" => (410.0,430.0),
-        "full"|"popout" => (1220.0,790.0), _ => return Err("Unsupported mode".into()),
-    };
-    if mode=="full" || mode=="popout" {
-        if let Some(monitor)=w.current_monitor().map_err(|e|e.to_string())? {
-            let scale=w.scale_factor().map_err(|e|e.to_string())?;
-            width=width.min(monitor.size().width as f64 / scale * 0.90);
-            height=height.min(monitor.size().height as f64 / scale * 0.86);
-        }
-    }
+    let monitor=w.current_monitor().map_err(|e|e.to_string())?.or(w.primary_monitor().map_err(|e|e.to_string())?);
+    let (work_width,work_height)=monitor.as_ref().map(|m|(m.work_area().size.width as f64/m.scale_factor(),m.work_area().size.height as f64/m.scale_factor())).unwrap_or((1920.0,1080.0));
+    let bounds=window_policy::layout(&mode,work_width,work_height).ok_or("Unsupported mode")?;
+    *app.state::<PresentationState>().current.lock().map_err(|_|"Window mode unavailable")?=(mode.clone(),monitor.as_ref().map(monitor_key));
     let popout=mode=="popout";
-    // A real maximize operation is available only for the decorated pop-out window.
-    if !popout {let _=w.unmaximize();}
-    w.set_size(Size::Logical(LogicalSize::new(width,height))).map_err(|e|e.to_string())?;
+    // Clear the previous mode's floor before shrinking back to the controller.
+    w.set_min_size(None::<Size>).map_err(|e|e.to_string())?;
+    w.unmaximize().map_err(|e|e.to_string())?;
+    w.set_resizable(bounds.workspace).map_err(|e|e.to_string())?;
+    w.set_size(Size::Logical(LogicalSize::new(bounds.width,bounds.height))).map_err(|e|e.to_string())?;
+    w.set_min_size(Some(Size::Logical(LogicalSize::new(bounds.min_width,bounds.min_height)))).map_err(|e|e.to_string())?;
     w.set_always_on_top(!popout).map_err(|e|e.to_string())?;
     w.set_skip_taskbar(!popout).map_err(|e|e.to_string())?;
     w.set_decorations(popout).map_err(|e|e.to_string())?;
@@ -81,11 +101,11 @@ fn set_presentation(app:tauri::AppHandle,mode:String)->Result<(),String> {
     if let Some(monitor)=w.current_monitor().map_err(|e|e.to_string())? {
         let current=w.outer_position().map_err(|e|e.to_string())?;
         let size=w.outer_size().map_err(|e|e.to_string())?;
-        let bounds=monitor.size();
-        let left=monitor.position().x+8;
-        let top=monitor.position().y+8;
-        let right=(monitor.position().x+bounds.width as i32-size.width as i32-8).max(left);
-        let bottom=(monitor.position().y+bounds.height as i32-size.height as i32-8).max(top);
+        let bounds=monitor.work_area();
+        let left=bounds.position.x+8;
+        let top=bounds.position.y+8;
+        let right=(bounds.position.x+bounds.size.width as i32-size.width as i32-8).max(left);
+        let bottom=(bounds.position.y+bounds.size.height as i32-size.height as i32-8).max(top);
         let x=current.x.clamp(left,right);
         let y=current.y.clamp(top,bottom);
         if x!=current.x||y!=current.y {
@@ -267,6 +287,7 @@ fn main() {
     #[cfg(windows)] let activation_event=_single.event();
     tauri::Builder::default()
       .manage(ServiceHintState::default())
+      .manage(PresentationState::default())
       .setup(move |app| {
           #[cfg(windows)] {
               use tauri::Emitter;
@@ -325,10 +346,17 @@ fn main() {
           Ok(())
       })
       .on_window_event(|window,event| {
+          if window.label()=="service-hint"&&matches!(event,tauri::WindowEvent::Destroyed){if let Some(state)=window.app_handle().try_state::<ServiceHintState>(){if let Ok(mut payload)=state.payload.lock(){*payload=None;}}}
+          if window.label()=="main"&&matches!(event,tauri::WindowEvent::Moved(_)|tauri::WindowEvent::ScaleFactorChanged{..}){
+              let app=window.app_handle();let current=window.current_monitor().ok().flatten().map(|m|monitor_key(&m));
+              let requested=app.state::<PresentationState>().current.lock().ok().and_then(|state|(!state.0.is_empty()&&current.is_some()&&state.1!=current).then(||state.0.clone()));
+              if let Some(mode)=requested{let _=set_presentation(app.clone(),mode);}
+          }
+          if window.label()=="service-hint"&&matches!(event,tauri::WindowEvent::Focused(false)){let _=window.app_handle().emit_to("service-hint","dd:notice-away",());}
           #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {if window.label()=="main"{api.prevent_close();let _=window.app_handle().emit_to("main","dd:collapse-request",());}}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,read_service_hint,set_service_hint_window,open_service_review])
+      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,deliver_desktop_notice,read_service_hint,set_service_hint_window,open_service_review,open_notice_page])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

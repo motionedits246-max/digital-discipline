@@ -238,3 +238,17 @@ Verified checks: 53 JavaScript, 69 Windows Rust (68 Linux), 8 SQLite migration c
 Primary API references: [Chrome extension runtime lifecycle](https://developer.chrome.com/docs/extensions/reference/api/runtime), [Pollinations authentication](https://gen.pollinations.ai/docs), [Tauri webview-window builder](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindowBuilder.html).
 
 The final 0.4.3 source is 55bb568299fe6d76305c352808bc1b5c469cec19, validated by [run 42485544736](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736). The downloaded artifact and all internal checksums match; see BUILD-STATUS.md for the installer hash. Manual category display, one in-flight AI request, saved-rule precedence, manifest public-key retention and downgrade prevention are included. The initial renderer failures were test timing assertions; the final run waits for asynchronous saves and separately advances timeout/exit animation. Main is unchanged. Remaining roadmap and installed-runtime acceptance remain open.
+
+## 9 November — v0.4.4 workspace sizing and shared notifications
+
+The owner assigned website work to another agent. This continuation changes the desktop/agent feature branch only and extends F10/F22.
+
+Full workspace and popout modes now use a 960×640 logical-pixel minimum. On displays whose usable logical work area is smaller, the available area caps the minimum so the window remains reachable. Pill and quick-panel modes restore their own constraints and cannot be accidentally resized into a broken layout. Placement excludes the taskbar, and crossing monitors or changing DPI reapplies the limits.
+
+Service suggestions, new companion authorization requests/approvals and new grouped inbox items share the compact notification surface. An unattended notice closes within three seconds including its exit animation. Pointer/keyboard interaction holds it open; native window deactivation or an outside click starts a new three-second dismissal period. Native deactivation also closes portaled dropdowns, so stale DOM focus cannot hold a popup indefinitely. Returning during the exit animation cancels the stale close. New notices wait while another is active, and grouped items/pending retries are not repeatedly announced. Timing out leaves service and inbox records available for later review.
+
+Browser events refer to the local companion connection, not website account sign-ins. Notices do not authorize extensions, enable recording or approve AI. Presentation Mode, private sessions and tracking pause suppress delivery. Desktop overlays are separate from the companion's opt-in Windows notifications and its DND/quiet-hours policy.
+
+Local validation: 60 JavaScript checks, 8 SQLite migration checks, all 15 Chromium renderer checks and the production TypeScript/Vite build passed. Three pure Rust sizing tests are required in the Windows build script. Windows compilation, packaging and actual installed Windows/Brave/multi-monitor acceptance are pending at this source checkpoint; the remaining N roadmap is not claimed complete.
+
+API references: [Tauri monitor work area](https://docs.rs/tauri/latest/tauri/window/struct.Monitor.html#method.work_area), [window minimum size](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindow.html#method.set_min_size), [window events](https://docs.rs/tauri/latest/tauri/enum.WindowEvent.html).
