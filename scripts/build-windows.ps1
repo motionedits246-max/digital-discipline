@@ -23,6 +23,12 @@ try {
  & (Join-Path $root 'ipc-route-tests.exe')
  if($LASTEXITCODE -ne 0){throw 'IPC route tests failed'}
  Remove-Item (Join-Path $root 'ipc-route-tests.exe')
+ Write-Host '[1d/6] Native workspace sizing policy'
+ rustc --test apps/desktop/src-tauri/src/window_policy.rs -o (Join-Path $root 'window-policy-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'Window sizing tests did not compile'}
+ & (Join-Path $root 'window-policy-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'Window sizing tests failed'}
+ Remove-Item (Join-Path $root 'window-policy-tests.exe')
  Write-Host '[2/6] Rust unit tests'
  cargo test --locked -p digital-discipline-agent
  if($LASTEXITCODE -ne 0){throw 'Agent tests failed'}

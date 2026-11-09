@@ -25,7 +25,7 @@ fn rows(s:&AppState,table:&str)->i64{
  s.db.lock().unwrap().execute("INSERT OR REPLACE INTO settings VALUES('presentation_privacy','true')",[]).unwrap();assert_eq!(service_discovery::next(State(Arc::clone(&s))).await.unwrap().0["hidden"],true);
  {let db=s.db.lock().unwrap();db.execute("UPDATE settings SET value='false' WHERE key='presentation_privacy'",[]).unwrap();db.execute("UPDATE settings SET value=?1 WHERE key='private_until_ms'",params![(now_ms()+60000).to_string()]).unwrap();}
  assert_eq!(service_discovery::next(State(Arc::clone(&s))).await.unwrap().0["hidden"],true);s.db.lock().unwrap().execute("UPDATE settings SET value='0' WHERE key='private_until_ms'",[]).unwrap();
- let prompt=service_discovery::next(State(Arc::clone(&s))).await.unwrap().0;assert_eq!(prompt["service"]["subject"],"app:unknown.exe");assert_eq!(prompt["duration_ms"],5500);assert!(service_discovery::next(State(Arc::clone(&s))).await.unwrap().0["service"].is_null());
+ let prompt=service_discovery::next(State(Arc::clone(&s))).await.unwrap().0;assert_eq!(prompt["service"]["subject"],"app:unknown.exe");assert_eq!(prompt["duration_ms"],3000);assert!(service_discovery::next(State(Arc::clone(&s))).await.unwrap().0["service"].is_null());
  assert_eq!(s.db.lock().unwrap().query_row("SELECT llm_approved FROM service_discovery",[],|r|r.get::<_,i64>(0)).unwrap(),0);
 }
 #[tokio::test]

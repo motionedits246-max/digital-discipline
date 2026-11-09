@@ -2,11 +2,11 @@
 
 Windows-first, local-first activity tracking and reversible browser restrictions, with a Rust agent, Tauri/React desktop and Brave-first MV3 companion.
 
-**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent source version: **0.4.3**. Companion: **0.3.9**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
+**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent source version: **0.4.4**. Companion: **0.3.9**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
 
 Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current build status](docs/BUILD-STATUS.md) for changes, test evidence and remaining acceptance.
 
-The integrated **0.4.3 Windows development build** is available in the [verified Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736/artifacts/13619277149). It uses a self-signed development certificate. See build status for the tested source and SHA-256 checksums.
+The integrated **0.4.4 Windows development build** is available in the [verified Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666/artifacts/13655195843). It uses a self-signed development certificate. See build status for the tested source and SHA-256 checksums.
 
 ## Current capabilities
 
@@ -21,11 +21,12 @@ The integrated **0.4.3 Windows development build** is available in the [verified
 - Complete streamed local snapshots with allowlisted preferences; credentials/enrollment omitted. Measured agent resources and Lite scheduling are available. Expanded roadmap acceptance remains open.
 - Manual encrypted exchange of recent device sessions. This is not a full backup or automatic sync.
 
-## New in 0.4.3
+## Recent improvements — 0.4.3–0.4.4
 
 - Custom confirmation dialogs replace browser-native prompts in the desktop and companion.
 - Workspace close animates into the pill; reduced-motion/Lite preferences are respected.
-- A compact service overlay offers a category for about six seconds. Timeout never approves an LLM request; unresolved items remain in Activity History → Service discovery.
+- Full GUI mode has a native 960×640 minimum, bounded by the usable display area; compact controls retain their own sizes.
+- Shared service/browser/inbox overlays expire within three seconds, stay open during interaction and dismiss after app/window switches or outside clicks. Timeout never approves an LLM request; unresolved service items remain in Activity History → Service discovery.
 - Windows File Description/Product Name and conservative keyword rules can identify an AI development environment locally. Optional public lookups are bounded to 20 requests per day. Pollinations is supported as a keyed, explicitly approved LLM provider.
 - The companion popup can update from the installed desktop bundle and reload in place. Browser setup can register a custom existing extension folder. Updates retain extension ID, profile, consent and pending observations; owned files have rollback protection.
 

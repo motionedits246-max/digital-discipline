@@ -1,8 +1,47 @@
 # Current build and acceptance status
 
-Repository: `motionedits246-max/digital-discipline-windows`. Branch: `feature/master-spec-complete-2026-11`. Main remains unchanged.
+Repository: `motionedits246-max/digital-discipline-windows`. Branch: `feature/master-spec-complete-2026-11`. Main and the separate website branch are unchanged by this app update.
 
-Current source: desktop/agent **0.4.3**, companion **0.3.9**, protocol **1.0**, schema **14**. [Windows run 42485544736](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736) passed for exact source 55bb568299fe6d76305c352808bc1b5c469cec19 on 8 November 2026. Documentation-only follow-ups do not change the tested binaries. The full roadmap remains open in the [implementation ledger](IMPLEMENTATION-LEDGER.md).
+Current desktop/agent: **0.4.4**. Companion: **0.3.9**. Protocol: **1.0**. Schema: **14**. [Windows run 42574830666](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666) passed for exact source `f1248d2e14837c664da29eda5ecfc94e7d6e45ef` on 9 November 2026. Documentation-only follow-ups preserve these tested binaries. The remaining roadmap is recorded in the [implementation ledger](IMPLEMENTATION-LEDGER.md).
+
+## 0.4.4 changes
+
+- Full GUI and popout modes enforce a 960×640 logical-pixel minimum, capped by the usable work area on small/high-DPI displays. Compact modes restore their own limits. Taskbar-aware positioning and monitor/DPI changes keep the workspace reachable.
+- Service suggestions, new local companion connection requests/approvals and new grouped inbox items use one compact notification surface.
+- Unattended overlays close within three seconds including exit animation. Interaction holds them open. Native deactivation or an outside click closes open dropdowns and starts a new three-second dismissal period, including when DOM focus remains stale.
+- An engaged notice is not replaced by another; repeated pending requests and grouped updates do not create repeated overlays. Timeout leaves the underlying service/inbox record available.
+- Extension authorization, browser recording consent and individual AI approval remain separate explicit actions. Browser events refer to the local companion, not website account logins. Presentation Mode, private sessions and tracking pause suppress these desktop overlays.
+
+## Verified checks
+
+| Check | Evidence for exact 0.4.4 source |
+|---|---|
+| JavaScript policy/queue/update/notice tests | 60 passed |
+| Windows Rust agent, including DPAPI | 69 passed |
+| Native window sizing policy | 3 passed, including 100–200% scaling calculations |
+| SQLite migration checks | 8 passed |
+| Privileged desktop route test | 1 passed |
+| Renderer interactions in Microsoft Edge | All 15 passed |
+| TypeScript/Vite production frontend | Passed |
+| Real agent lifecycle/workflows, private restart, snapshot, companion update/enrollment | Passed |
+| Tauri/NSIS installer and development signature checks | Passed |
+| Downloaded artifact and every internal checksum | Independently verified |
+
+Renderer tests use native-IPC fixtures. Actual installed Windows resize/focus behavior on physical monitors, owner-installed Brave playback/reload and provider calls still require runtime acceptance. CI executables use self-signed development certificates and do not have publicly trusted Windows publisher signing. This update does not complete the entire master specification.
+
+## Verified 0.4.4 download
+
+[Complete Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666/artifacts/13655195843): DigitalDiscipline-MasterSpec-Branch-v0.4.4-DEV-SIGNED, 14,260,126 bytes.
+
+- Installer: `Digital Discipline_0.4.4_x64-setup.exe`, 5,981,800 bytes. SHA-256: `cee81d66fe23008bc8042de4e762210fc696898ef08575dee5f020298497f9d3`.
+- Artifact ZIP SHA-256: `84a14a8a16f7ebea8b7389a848cc1d506fa41dd536d29da9ce9964de713ed3b2`.
+- Downloaded bytes match the Actions digest and every entry in SHA256SUMS.txt. The installer was also saved under the equivalent download filename `Digital-Discipline-0.4.4-x64-setup.exe`; its bytes are unchanged.
+
+Quit the old application through its tray menu before installing the update. Existing pairing, profile and recording preferences are retained. The companion code remains at 0.3.9; the 0.4.3 upgrade instructions below apply when an older companion is still installed.
+
+## Previous verified builds
+
+The previous 0.4.3 build used exact source `55bb568299fe6d76305c352808bc1b5c469cec19` on 8 November 2026. The following records describe those earlier binaries.
 
 ## 0.4.3 changes and local verification
 
@@ -12,7 +51,7 @@ Saved/manual categories and small local rules run before Windows File Descriptio
 
 The companion can update from the installed desktop bundle and reload the same extension. Browser setup supports registering an existing custom folder; user data, profile ID, consent and pending events stay in browser storage. Owned-file rollback and dependency packaging checks cover the update. A one-time Reload of 0.3.8 is necessary to get its new button; removing the extension is unnecessary.
 
-| Check | Current evidence |
+| Check | Evidence for 0.4.3 |
 |---|---|
 | JavaScript policy/queue/update tests | 53 passed locally |
 | Rust agent | 69 passed on Windows including DPAPI; 68 passed locally on Linux |
