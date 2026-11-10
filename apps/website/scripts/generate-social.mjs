@@ -1,0 +1,44 @@
+import sharp from "sharp";
+import { writeFile } from "node:fs/promises";
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<rect width="1200" height="630" fill="#111113"/>
+<g fill="#eeeef2" font-family="Inter,DejaVu Sans,sans-serif">
+<circle cx="66" cy="62" r="15" fill="none" stroke="#eeeef2" stroke-width="2"/><path d="M66 47a15 15 0 0 0 0 30Z"/>
+<text x="94" y="69" font-size="21" font-weight="600" letter-spacing="-1">digital discipline</text>
+<text x="50" y="235" font-size="81" font-weight="600" letter-spacing="-5">Your time.</text>
+<text x="50" y="325" font-size="81" font-weight="600" letter-spacing="-5" fill="#9999a5">Back in your</text>
+<text x="50" y="415" font-size="81" font-weight="600" letter-spacing="-5">hands<tspan fill="#df6d67">.</tspan></text>
+<text x="55" y="488" font-size="18" fill="#9a9aa6">A more intentional day.</text>
+<text x="55" y="518" font-size="18" fill="#9a9aa6">A local-first Windows app.</text>
+<g transform="translate(640 140)">
+<rect width="640" height="430" rx="15" fill="#1a1a1e" stroke="#4a4a55"/>
+<path d="M15 0H625Q640 0 640 15V44H0V15Q0 0 15 0" fill="#24242b"/>
+<text x="23" y="28" font-size="12">digital discipline</text>
+<path d="M135 44v386" stroke="#36363f"/>
+<rect x="13" y="84" width="110" height="34" rx="5" fill="#303038"/>
+<text x="26" y="105" font-size="10">Overview</text>
+<text x="26" y="151" font-size="10" fill="#9999a7">Focus &amp; Goals</text>
+<text x="26" y="193" font-size="10" fill="#9999a7">Behavior Insights</text>
+<text x="158" y="103" font-size="29" font-weight="500" letter-spacing="-1">Overview</text>
+<text x="158" y="127" font-size="10" fill="#8a8a9c">A little clarity for your day.</text>
+<rect x="158" y="149" width="164" height="99" rx="7" fill="#222228" stroke="#36363e"/>
+<rect x="333" y="149" width="164" height="99" rx="7" fill="#222228" stroke="#36363e"/>
+<text x="174" y="173" font-size="10" fill="#aaaab6">Active today</text>
+<text x="174" y="214" font-size="32" font-weight="500">6h 38m</text>
+<text x="349" y="173" font-size="10" fill="#aaaab6">Development</text>
+<text x="349" y="214" font-size="32" font-weight="500">3h 41m</text>
+<rect x="158" y="261" width="427" height="135" rx="7" fill="#202026" stroke="#34343d"/>
+<text x="174" y="285" font-size="11">Activity timeline</text>
+<text x="174" y="305" font-size="8" fill="#777785">Foreground sessions · Sample day</text>
+<rect x="174" y="329" width="126" height="14" rx="2" fill="#b1b1c0"/>
+<rect x="302" y="329" width="46" height="14" rx="2" fill="#a75c5b"/>
+<rect x="350" y="329" width="36" height="14" rx="2" fill="#51515f"/>
+<rect x="388" y="329" width="135" height="14" rx="2" fill="#b1b1c0"/>
+<text x="174" y="371" font-size="8" fill="#858594">Development   ·   Entertainment   ·   Other</text>
+<text x="486" y="416" font-size="6" fill="#777785" letter-spacing="1">SAMPLE DATA</text>
+</g></g></svg>`;
+await writeFile(new URL("../public/social.svg", import.meta.url), svg);
+await sharp(Buffer.from(svg))
+  .png()
+  .toFile(new URL("../public/social.png", import.meta.url).pathname);
