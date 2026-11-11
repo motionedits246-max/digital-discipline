@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Clock3,
   Code2,
-  Download,
   EyeOff,
   LayoutDashboard,
   LockKeyhole,
@@ -30,6 +29,7 @@ import {
   X,
   Plus,
 } from "lucide-react";
+import { MotionTour } from "./motion-tour";
 
 const DOWNLOAD = "/downloads/Digital-Discipline-0.4.4-x64-setup.exe";
 const CHECKSUM =
@@ -133,7 +133,11 @@ function Timeline() {
           <span
             key={i}
             className={"timeline-segment " + s.type}
-            style={{ left: s.start / 6 + "%", width: s.minutes / 6 + "%" }}
+            style={{
+              left: s.start / 6 + "%",
+              width: s.minutes / 6 + "%",
+              animationDelay: `${0.95 + i * 0.09}s`,
+            }}
           />
         ))}
       </div>
@@ -425,9 +429,17 @@ function InsightsScreen() {
     </>
   );
 }
-function AppPreview() {
-  const [view, setView] = useState<View>("overview"),
-    [privateMode, setPrivateMode] = useState(false);
+function AppPreview({
+  view,
+  selectView,
+  privateMode,
+  setPrivateMode,
+}: {
+  view: View;
+  selectView: (view: View) => void;
+  privateMode: boolean;
+  setPrivateMode: (value: boolean) => void;
+}) {
   return (
     <div className="product-window" id="product-preview">
       <div className="product-titlebar">
@@ -459,10 +471,7 @@ function AppPreview() {
                 aria-label={item.title}
                 aria-pressed={view === item.id}
                 className={view === item.id ? "active" : ""}
-                onClick={() => {
-                  setView(item.id as View);
-                  setPrivateMode(false);
-                }}
+                onClick={() => selectView(item.id as View)}
               >
                 <item.icon size={14} />
                 <span>{item.title}</span>
@@ -473,7 +482,7 @@ function AppPreview() {
           <div className="sidebar-bottom">
             <button
               aria-pressed={privateMode}
-              onClick={() => setPrivateMode((n) => !n)}
+              onClick={() => setPrivateMode(!privateMode)}
             >
               <EyeOff size={14} />
               Privacy preview
@@ -582,51 +591,6 @@ function PillDemo() {
     </div>
   );
 }
-function BrowserBoundary() {
-  const [limited, setLimited] = useState(true);
-  return (
-    <div className="boundary-preview">
-      <div className="boundary-toolbar">
-        <span>
-          <Shield size={14} />
-          Your browser limits
-        </span>
-        <span className="soft-badge">SAMPLE</span>
-      </div>
-      <div className="boundary-rule">
-        <span className="video-symbol">
-          <Video size={19} />
-        </span>
-        <div>
-          <strong>YouTube Shorts</strong>
-          <small>youtube.com/shorts</small>
-        </div>
-        <button
-          className={"sample-switch " + (limited ? "enabled" : "")}
-          aria-label="Toggle sample Shorts restriction"
-          role="switch"
-          aria-checked={limited}
-          onClick={() => setLimited((n) => !n)}
-        >
-          <span />
-        </button>
-      </div>
-      <div className="budget-description">
-        <span>{limited ? "11 of 15 minutes used" : "Sample limit paused"}</span>
-        <strong>{limited ? "4m left" : "Your choice"}</strong>
-      </div>
-      <div className={"budget-meter " + (!limited ? "inactive" : "")}>
-        <span />
-      </div>
-      <div className="boundary-result">
-        <Check size={12} />
-        {limited
-          ? "Regular videos stay available."
-          : "You can change your boundaries anytime."}
-      </div>
-    </div>
-  );
-}
 const faqs = [
   {
     question: "Does my activity leave my computer?",
@@ -657,6 +621,14 @@ const faqs = [
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false),
     [copied, setCopied] = useState(false);
+  const [previewView, setPreviewView] = useState<View>("overview");
+  const [privateMode, setPrivateMode] = useState(false);
+
+  function selectPreviewView(view: View) {
+    setPreviewView(view);
+    setPrivateMode(false);
+  }
+
   useEffect(() => {
     if (!menuOpen) return;
     const handle = (e: KeyboardEvent) => {
@@ -719,7 +691,8 @@ export default function Home() {
         <section className="hero">
           <div className="hero-copy">
             <a href="#download" className="release-tag">
-              <span className="tag-dot" />A LITTLE MORE INTENTION
+              <span className="tag-dot" />
+              WINDOWS EARLY ACCESS
               <span className="tag-divider" />
               v0.4.4
               <ArrowUpRight size={12} />
@@ -738,8 +711,10 @@ export default function Home() {
             <div className="hero-actions">
               <DownloadLink />
               <a href="#features" className="explore-link">
-                Take a closer look
-                <ArrowRight size={15} />
+                <span className="demo-play-icon">
+                  <Play size={11} fill="currentColor" />
+                </span>
+                Watch the demo
               </a>
             </div>
             <p className="hero-meta">
@@ -753,167 +728,16 @@ export default function Home() {
           </div>
           <div className="hero-product">
             <div className="product-aura" />
-            <AppPreview />
+            <AppPreview
+              view={previewView}
+              selectView={selectPreviewView}
+              privateMode={privateMode}
+              setPrivateMode={setPrivateMode}
+            />
             <PillDemo />
           </div>
-          <div className="hero-bottom">
-            <span>
-              Less autopilot.
-              <br />
-              <strong>More of your day.</strong>
-            </span>
-            <a
-              href="#features"
-              aria-label="Explore Digital Discipline features"
-            >
-              <ArrowDown size={18} />
-            </a>
-            <p>
-              Made for the moments between
-              <br />
-              “one more video” and what comes next.
-            </p>
-          </div>
         </section>
-        <section id="features" className="features section-shell">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">
-                <span />A QUIETER KIND OF CONTROL
-              </span>
-              <h2>
-                Not another thing
-                <br />
-                to keep track of.
-              </h2>
-            </div>
-            <p>
-              A clear picture of your habits.
-              <br />A few thoughtful boundaries.
-              <br />
-              Then, back to your day.
-            </p>
-          </div>
-          <div className="feature-grid">
-            <article className="feature-card attention-card">
-              <div className="card-index">01 / UNDERSTAND</div>
-              <h3>
-                Know where
-                <br />
-                the hours go.
-              </h3>
-              <p>
-                Apps, active time and the little detours. See the patterns that
-                are easy to miss while you’re in them.
-              </p>
-              <div className="activity-graphic">
-                <div className="activity-caption">
-                  <span>YOUR AFTERNOON</span>
-                  <span>Sample activity</span>
-                </div>
-                <div className="activity-stack">
-                  <div>
-                    <span className="activity-initial">C</span>
-                    <span>
-                      <strong>Building something good</strong>
-                      <small>Code · Development</small>
-                    </span>
-                    <span>3h 41m</span>
-                  </div>
-                  <div>
-                    <span className="activity-initial youtube-initial">
-                      <Play size={12} fill="currentColor" />
-                    </span>
-                    <span>
-                      <strong>A break, on your terms</strong>
-                      <small>Brave · Entertainment</small>
-                    </span>
-                    <span>1h 12m</span>
-                  </div>
-                  <div>
-                    <span className="activity-initial">F</span>
-                    <span>
-                      <strong>Making ideas visible</strong>
-                      <small>Figma · Design</small>
-                    </span>
-                    <span>1h 45m</span>
-                  </div>
-                </div>
-                <div className="activity-footer">
-                  <i />
-                  <span>Recorded locally. Understood by you.</span>
-                </div>
-              </div>
-            </article>
-            <article className="feature-card boundary-card">
-              <div className="card-index">02 / SET A BOUNDARY</div>
-              <h3>
-                A little less
-                <br />
-                “just one more.”
-              </h3>
-              <p>
-                Set website limits and short-feed boundaries. Keep an
-                intentional break from becoming the rest of your evening.
-              </p>
-              <BrowserBoundary />
-              <p className="feature-footnote">
-                Browser companion required. Try the sample switch.
-              </p>
-            </article>
-          </div>
-          <div className="focus-story">
-            <div className="focus-story-copy">
-              <span className="eyebrow">03 / MAKE SOME SPACE</span>
-              <h3>
-                One task.
-                <br />A little breathing room.
-              </h3>
-              <p>
-                Choose a goal, start a focus session, and take breaks that
-                actually feel like breaks. Your desktop keeps track while you
-                get on with it.
-              </p>
-              <a
-                href="#product-preview"
-                onClick={() =>
-                  document
-                    .querySelector<HTMLButtonElement>(
-                      ".product-sidebar button:nth-child(2)",
-                    )
-                    ?.click()
-                }
-              >
-                Explore the focus preview
-                <ArrowUpRight size={15} />
-              </a>
-            </div>
-            <div
-              className="focus-visual"
-              aria-label="Illustrative focus session"
-            >
-              <div className="focus-orbit orbit-one" />
-              <div className="focus-orbit orbit-two" />
-              <div className="focus-center">
-                <Target size={20} />
-                <strong>25:00</strong>
-                <span>ONE THING AT A TIME</span>
-              </div>
-              <span className="orbit-label label-work">
-                <Code2 size={13} />
-                Your next big idea
-              </span>
-              <span className="orbit-label label-break">
-                <Clock3 size={13} />
-                Space for a break
-              </span>
-              <span className="orbit-label label-block">
-                <Shield size={13} />
-                Fewer interruptions
-              </span>
-            </div>
-          </div>
-        </section>
+        <MotionTour onOpenFocus={() => selectPreviewView("focus")} />
         <section id="privacy" className="privacy-section">
           <div className="privacy-inner section-shell">
             <div>
