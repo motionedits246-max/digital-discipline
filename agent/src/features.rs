@@ -139,7 +139,7 @@ pub(super) fn read_goals(db:&Connection)->rusqlite::Result<Vec<Value>>{
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     let start=super::midnight_local_ms(Local::now().date_naive());
     let now=now_ms();
-    let mut sessions=db.prepare("SELECT start_ms,end_ms,app,domain FROM sessions WHERE idle=0 AND end_ms>?1 AND start_ms<?2")?;
+    let mut sessions=db.prepare("SELECT start_ms,end_ms,app,domain FROM report_sessions WHERE idle=0 AND end_ms>?1 AND start_ms<?2")?;
     let recorded=sessions.query_map(params![start,now],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(goals.into_iter().map(|(id,name,target_minutes,apps,domains,enabled,created_ms)|{
         let intervals=recorded.iter().filter(|(_,_,app,domain)|apps.iter().any(|a|a==app)||domain.as_deref().is_some_and(|d|domains.iter().any(|t|d==t||d.ends_with(&format!(".{t}")))))
@@ -165,7 +165,7 @@ pub(super) async fn delete_goal(Path(id):Path<String>,State(s):State<Arc<AppStat
     Ok(Json(json!({"ok":true})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>,task_id:Option<String>,profile_id:Option<String>,cycle:Option<crate::focus_workflow::CycleInput>,learning:Option<crate::policy_exceptions::LearningInput>,#[serde(default)] native_apps:Vec<String>}
+pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>,task_id:Option<String>,profile_id:Option<String>,cycle:Option<crate::focus_workflow::CycleInput>,learning:Option<crate::policy_exceptions::LearningInput>,#[serde(default)] native_apps:Vec<String>,#[serde(default)] minimize_selected_apps:bool}
 pub(super) fn active_focus(db:&Connection,now:i64)->rusqlite::Result<Option<Value>>{
     crate::focus_workflow::advance(db,now)?;
     let mut result=db.query_row("SELECT id,goal_id,start_ms,end_ms,difficulty,domains_json FROM focus_sessions WHERE start_ms<=?1 AND (end_ms>?1 OR EXISTS(SELECT 1 FROM focus_cycles c WHERE c.focus_id=focus_sessions.id AND c.state='paused')) AND ended_ms IS NULL ORDER BY start_ms DESC LIMIT 1",params![now],|r|{
@@ -196,25 +196,36 @@ pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super:
 }
 
 pub(super) async fn start_focus(State(s):State<Arc<AppState>>,Json(p):Json<StartFocus>)->ApiResult{
-    if !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d))||p.native_apps.len()>20||p.native_apps.iter().any(|a|!crate::inbox::safe_native_app(a))||p.cycle.as_ref().is_some_and(|c|!c.valid()){
+    let db=s.db.lock().unwrap();
+    let tx=db.unchecked_transaction().map_err(storage)?;
+    let result=start_focus_in(&tx,p,now_ms())?;
+    tx.commit().map_err(storage)?;
+    Ok(Json(result))
+}
+
+pub(crate) fn start_planned_focus(db:&Connection,minutes:u32,profile_id:Option<String>,now:i64)->Result<Value,(StatusCode,String)> {
+    start_focus_in(db,StartFocus{goal_id:None,minutes,difficulty:"Gentle".into(),block_domains:Vec::new(),
+        task_id:None,profile_id,cycle:None,learning:None,native_apps:Vec::new(),minimize_selected_apps:false},now)
+}
+
+pub(crate) fn start_focus_in(db:&Connection,p:StartFocus,now:i64)->Result<Value,(StatusCode,String)>{
+    if p.minimize_selected_apps && (p.difficulty!="Strict"||p.native_apps.is_empty()) || !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d))||p.native_apps.len()>20||p.native_apps.iter().any(|a|!crate::inbox::safe_native_app(a))||p.cycle.as_ref().is_some_and(|c|!c.valid()){
         return Err(err(StatusCode::BAD_REQUEST,"invalid_focus"));
     }
-    let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;let now=now_ms();
-    let db=&tx;
-    if active_focus(&db,now).map_err(storage)?.is_some(){return Err(err(StatusCode::CONFLICT,"focus_already_active"));}
+    if active_focus(db,now).map_err(storage)?.is_some(){return Err(err(StatusCode::CONFLICT,"focus_already_active"));}
     if let Some(id)=&p.goal_id {
         let enabled=db.query_row("SELECT enabled FROM goals WHERE id=?1",params![id],|r|r.get::<_,i64>(0)).optional().map_err(storage)?;
         if enabled!=Some(1){return Err(err(StatusCode::BAD_REQUEST,"goal_not_found"));}
     }
     let (profile,mut context)=crate::focus_workflow::context(db,p.task_id.as_deref(),p.profile_id.as_deref())?;
     context["native_apps"]=json!(p.native_apps);
+    context["minimize_selected_apps"]=json!(p.minimize_selected_apps);
     let planned=p.cycle.as_ref().map_or(p.minutes as i64*60000,|c|c.planned_ms());
     let id=Uuid::new_v4().to_string();let end=now+planned;
     db.execute("INSERT INTO focus_sessions(id,goal_id,start_ms,end_ms,difficulty,domains_json) VALUES(?1,?2,?3,?4,?5,?6)",params![id,p.goal_id,now,end,p.difficulty,serde_json::to_string(&p.block_domains).unwrap()]).map_err(storage)?;
     crate::focus_workflow::attach(db,&id,p.task_id.as_deref(),profile.as_deref(),&context,p.cycle.as_ref(),now,planned).map_err(storage)?;
     if let Some(learning)=&p.learning{let _=crate::policy_exceptions::start_learning(db,&id,learning)?;}
-    tx.commit().map_err(storage)?;
-    Ok(Json(json!({"ok":true,"id":id,"end_ms":end,"safety":"emergency_unblock_available"})))
+    Ok(json!({"ok":true,"id":id,"end_ms":end,"safety":"emergency_unblock_available"}))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
 pub(super) struct FocusHintChoice { choice:String }
@@ -305,15 +316,15 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
     let today=Local::now().date_naive();let this_week=today-Duration::days(today.weekday().number_from_monday() as i64-1);
     let this_start=midnight_local_ms(this_week);let last_start=midnight_local_ms(this_week-Duration::days(7));
     let start=midnight_local_ms(today-Duration::days(90));
-    let mut q=db.prepare("SELECT start_ms,end_ms,app,idle,domain,profile_id FROM sessions WHERE end_ms>?1 ORDER BY start_ms ASC LIMIT 200000").map_err(storage)?;
-    let rows=q.query_map(params![start],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?>0,r.get::<_,Option<String>>(4)?,r.get::<_,Option<String>>(5)?))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
+    let mut q=db.prepare("SELECT start_ms,end_ms,app,idle,domain,profile_id,corrected_category FROM report_sessions WHERE end_ms>?1 ORDER BY start_ms ASC LIMIT 200000").map_err(storage)?;
+    let rows=q.query_map(params![start],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?>0,r.get::<_,Option<String>>(4)?,r.get::<_,Option<String>>(5)?,r.get::<_,Option<String>>(6)?))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
     let map=load_categories(&db).map_err(storage)?;
     let mut categories:BTreeMap<String,i64>=BTreeMap::new();let mut browser:BTreeMap<String,i64>=BTreeMap::new();
     let(mut current,mut previous)=(0,0);
     let mut switching=Vec::new();let mut hourly=[0_i64;24];
-    for (a,b,app,idle,domain,profile_id) in &rows {
+    for (a,b,app,idle,domain,profile_id,correction) in &rows {
         if *idle {continue;}
-        let cat=resolved_category(&map,app,domain.as_deref());
+        let cat=correction.clone().unwrap_or_else(||resolved_category(&map,app,domain.as_deref()));
         let delta=(b-a).max(0);
         *categories.entry(cat).or_default()+=delta;
         if ["brave.exe","chrome.exe","msedge.exe"].contains(&app.as_str()) {
@@ -324,7 +335,7 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
         switching.push((app.clone(),*a,*b,false));
         crate::hourly::add_to_hours(&mut hourly,*a,*b);
     }
-    current=rows.iter().filter(|r|!r.3).map(|(a,b,_,_,_,_)|(*b).min(now).saturating_sub((*a).max(this_start))).sum();
+    current=rows.iter().filter(|r|!r.3).map(|(a,b,_,_,_,_,_)|(*b).min(now).saturating_sub((*a).max(this_start))).sum();
     let mut video_stmt=db.prepare("SELECT occurred_ms FROM videos WHERE platform!='youtube_watch' AND qualified=1 AND occurred_ms>=?1 ORDER BY occurred_ms").map_err(storage)?;
     let video_times=video_stmt.query_map(params![start],|r|r.get::<_,i64>(0)).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
     let (max_streak,streak_at)=insights::longest_streak(video_times,120_000);

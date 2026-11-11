@@ -24,7 +24,7 @@ pub async fn list(State(s):State<Arc<AppState>>)->ApiResult{
 pub async fn dismiss(Path(id):Path<String>,State(s):State<Arc<AppState>>,Json(p):Json<Dismiss>)->ApiResult{if uuid::Uuid::parse_str(&id).is_err(){return Err(err(StatusCode::BAD_REQUEST,"invalid_id"));}s.db.lock().unwrap().execute("UPDATE local_inbox SET dismissed_ms=?2 WHERE id=?1",params![id,if p.dismissed{Some(now_ms())}else{None}]).map_err(storage)?;Ok(Json(json!({"ok":true})))}
 fn storage(_:rusqlite::Error)->(StatusCode,String){err(StatusCode::INTERNAL_SERVER_ERROR,"inbox_storage_failed")}
 pub fn safe_native_app(app:&str)->bool{
- !app.is_empty()&&app.len()<=100&&app.ends_with(".exe")&&app.bytes().all(|b|b.is_ascii_alphanumeric()||b"-_.".contains(&b))&&!["explorer.exe","taskmgr.exe","digital-discipline-desktop.exe","digital-discipline-agent.exe","narrator.exe","nvda.exe","jfw.exe","utilman.exe","osk.exe","logonui.exe","lockapp.exe","msmpeng.exe","securityhealthservice.exe","securityhealthsystray.exe","cmd.exe","powershell.exe","pwsh.exe","windowsterminal.exe"].contains(&app)
+ !app.is_empty()&&app.len()<=100&&app.ends_with(".exe")&&app.bytes().all(|b|b.is_ascii_alphanumeric()||b"-_.".contains(&b))&&!["explorer.exe","taskmgr.exe","digital-discipline-desktop.exe","digital-discipline-agent.exe","narrator.exe","nvda.exe","jfw.exe","utilman.exe","osk.exe","logonui.exe","lockapp.exe","msmpeng.exe","securityhealthservice.exe","securityhealthsystray.exe","cmd.exe","powershell.exe","pwsh.exe","windowsterminal.exe","systemsettings.exe","mmc.exe","services.exe","winlogon.exe","csrss.exe","sihost.exe","msra.exe","magnify.exe","sethc.exe","atbroker.exe","ctfmon.exe"].contains(&app)
 }
 pub fn native_hint(db:&Connection,focus:&Value,current:Option<&crate::SessionDto>,now:i64)->Option<Value>{
  if crate::data_lifecycle::is_private(db,now)||focus["cycle"]["state"]=="paused"||focus["cycle"]["state"]=="break"{return None;}
@@ -32,7 +32,16 @@ pub fn native_hint(db:&Connection,focus:&Value,current:Option<&crate::SessionDto
  if !focus["context"]["native_apps"].as_array().is_some_and(|apps|apps.iter().any(|a|a.as_str()==Some(session.app.as_str()))){return None;}
  let id=focus["id"].as_str()?;let topic=format!("native:{id}:{}",session.app);
  let seen=db.query_row("SELECT EXISTS(SELECT 1 FROM local_inbox WHERE topic=?1)",params![topic],|r|r.get::<_,bool>(0)).unwrap_or(true);
- if !seen{let _=record(db,&topic,"native_warning","Selected app warning",json!({"focus_id":id,"capability":"warning_only"}),"Focus & Goals",Some(&format!("app:{}",session.app)),now);}
+ if !seen{
+  let selected=focus["context"]["minimize_selected_apps"]==true;
+  let detail=json!({"focus_id":id,"capability":if selected{"minimize_once"}else{"warning_only"}});
+  // Persist the single attempt before acting, so retries cannot keep minimizing a reopened window.
+  if record(db,&topic,"native_warning",if selected{"Selected app focus intervention"}else{"Selected app warning"},detail,"Focus & Goals",Some(&format!("app:{}",session.app)),now).is_ok() && selected {
+   let minimized=crate::windows::minimize_foreground(&session.app);
+   let _=db.execute("UPDATE local_inbox SET detail=?2 WHERE topic=?1",params![topic,
+       json!({"focus_id":id,"capability":"minimize_once","minimized":minimized}).to_string()]);
+  }
+ }
  Some(json!({"kind":"native_app_warning","since_ms":session.start_ms,"text":"You selected this app for a focus warning. Return to your chosen task when ready.","capability":"warning_only_overlay_visible","not_enforced":true}))
 }
 #[cfg(test)]mod tests{

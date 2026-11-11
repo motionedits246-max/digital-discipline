@@ -45,7 +45,8 @@ export type BrowserDiagnostics={manifest_exists:boolean;manifest_valid:boolean;r
 export async function openExtensionFolder():Promise<string>{return invoke<string>('open_extension_folder',{});}
 export async function browserDiagnostics(browser:'Brave'|'Chrome'|'Edge',extensionId:string):Promise<BrowserDiagnostics>{return invoke<BrowserDiagnostics>('browser_pair_diagnostics',{browser,extensionId});}
 
-export type LifecycleStatus={state:string;restart_count?:number;expected_version?:string;wanted?:boolean};
+export type ProcessResources={available:boolean;working_set_bytes?:number;cpu_percent_one_core_basis?:number|null;sampled_at_ms?:number;scope?:string};
+export type LifecycleStatus={state:string;restart_count?:number;expected_version?:string;wanted?:boolean;resources?:ProcessResources};
 export async function lifecycleStatus():Promise<LifecycleStatus>{return isTauri?invoke<LifecycleStatus>('lifecycle_status',{}):{state:'preview'};}
 
 export async function exportActivity():Promise<{saved_path:string;rows:number;complete:boolean}>{return invoke('export_activity',{});}
@@ -58,3 +59,5 @@ export async function readServiceHint():Promise<import('./ServiceHint').OverlayN
 export async function setServiceHintWindow(visible:boolean,expanded=false):Promise<void>{if(isTauri)await invoke('set_service_hint_window',{visible,expanded});}
 export async function openServiceReview():Promise<void>{if(isTauri)await invoke('open_service_review',{});}
 export async function openNoticePage(page:import('./types').Page):Promise<void>{if(isTauri)await invoke('open_notice_page',{page});}
+
+export async function openDataFolder(area:'backups'|'updates'){const {invoke}=await import('@tauri-apps/api/core');return invoke('open_data_folder',{area});}

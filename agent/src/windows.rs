@@ -54,17 +54,26 @@ pub fn observe(_at_ms: i64, _idle_limit_ms: u32) -> Option<Observation> { None }
  }
 }
 
+/// Minimize a selected foreground window once. A switch during the check cancels the action.
 #[cfg(windows)]
-pub fn process_resources()->Option<(u64,u64)>{
- use windows_sys::Win32::{System::{Threading::{GetCurrentProcess,GetProcessTimes},ProcessStatus::{GetProcessMemoryInfo,PROCESS_MEMORY_COUNTERS}},Foundation::FILETIME};
- unsafe{
-  let handle=GetCurrentProcess();let mut created:FILETIME=std::mem::zeroed();let mut ended:FILETIME=std::mem::zeroed();let mut kernel:FILETIME=std::mem::zeroed();let mut user:FILETIME=std::mem::zeroed();
-  if GetProcessTimes(handle,&mut created,&mut ended,&mut kernel,&mut user)==0{return None;}
-  let mut memory:PROCESS_MEMORY_COUNTERS=std::mem::zeroed();memory.cb=std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-  let memory_size=memory.cb;
-  if GetProcessMemoryInfo(handle,&mut memory,memory_size)==0{return None;}
-  let ticks=|t:FILETIME|((t.dwHighDateTime as u64)<<32)|t.dwLowDateTime as u64;
-  Some((ticks(kernel).saturating_add(ticks(user)),memory.WorkingSetSize as u64))
- }
+pub fn minimize_foreground(expected:&str)->bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, ShowWindowAsync, SW_MINIMIZE,
+    };
+    if !crate::inbox::safe_native_app(expected){return false;}
+    unsafe {
+        let hwnd=GetForegroundWindow();
+        if hwnd.is_null(){return false;}
+        let mut before=0;
+        GetWindowThreadProcessId(hwnd,&mut before);
+        if before==0 || before==std::process::id() {return false;}
+        if observe(crate::now_ms(),u32::MAX).is_none_or(|sample|sample.app!=expected){
+            return false;
+        }
+        let mut after=0;
+        GetWindowThreadProcessId(hwnd,&mut after);
+        hwnd==GetForegroundWindow() && before==after && ShowWindowAsync(hwnd,SW_MINIMIZE)!=0
+    }
 }
-#[cfg(not(windows))]pub fn process_resources()->Option<(u64,u64)>{None}
+#[cfg(not(windows))]
+pub fn minimize_foreground(_expected:&str)->bool {false}

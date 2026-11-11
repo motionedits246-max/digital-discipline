@@ -29,7 +29,7 @@ function Wait-Agent {
 try {
  $first=Start-TestAgent
  $ready=Wait-Agent
- if($ready.health.version -ne $runtimeExpectedVersion -or $ready.health.storage_version -lt 14){throw 'Agent version or migration mismatch'}
+ if($ready.health.version -ne $runtimeExpectedVersion -or $ready.health.storage_version -lt 15){throw 'Agent version or migration mismatch'}
  $duplicate=Start-TestAgent
  if(-not $duplicate.WaitForExit(5000) -or $duplicate.ExitCode -eq 0){throw 'Duplicate agent did not exit without collecting'}
  $auth=@{Authorization="Bearer $($ready.token)"}
@@ -79,6 +79,16 @@ try {
  Agent-Post '/focus/end' @{}|Out-Null
  $reviews=Invoke-RestMethod 'http://127.0.0.1:48761/focus/reviews' -Headers $auth
  if($reviews.reviews[0].context.intended_outcome -ne 'Finish lesson exercises'){throw 'Task review context missing'}
+ $details=Invoke-RestMethod 'http://127.0.0.1:48761/health/details' -Headers $auth
+ if(-not $details.resources.available -or $details.resources.working_set_bytes -le 0){throw 'Windows process resource measurement unavailable'}
+ $backupSecret='test backup passphrase'
+ Agent-Post '/backup/schedule' @{enabled=$true;passphrase=$backupSecret;history=$false}|Out-Null
+ Agent-Post '/backup/schedule' @{enabled=$false;history=$false}|Out-Null
+ $backup=Agent-Post '/backup' @{passphrase=$backupSecret;history=$false}
+ $preview=Agent-Post '/backup/preview' @{filename=$backup.filename;passphrase=$backupSecret}
+ if($preview.digest.Length -ne 64 -or $preview.history){throw 'Encrypted backup preview invalid'}
+ $restored=Agent-Post '/backup/restore' @{filename=$backup.filename;passphrase=$backupSecret;digest=$preview.digest}
+ if(-not $restored.recovery){throw 'Encrypted restore did not record its recovery copy'}
  Agent-Post '/shutdown' @{}|Out-Null
  if(-not $fourth.WaitForExit(6000)){throw 'Final workflow agent did not stop'}
  Write-Host 'PASS: migration, duplicate process, pause persistence, task/profile context, focus-cycle/private restart, scoped Learning Mode/unlock, managed companion update/enrollment, complete snapshot, review and graceful shutdown'

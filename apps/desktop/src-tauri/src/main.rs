@@ -1,5 +1,7 @@
 #![cfg_attr(all(windows,not(debug_assertions)), windows_subsystem = "windows")]
 mod ipc_routes;
+#[path = "../../../../shared/process_resources.rs"]
+mod process_resources;
 mod window_policy;
 #[cfg(windows)] mod lifecycle;
 use serde_json::Value;
@@ -70,11 +72,18 @@ async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<V
     let allowed=ipc_routes::allowed(&method,&path);
     if !allowed { return Err("Command or route not allowed".into()); }
     let token=fs::read_to_string(token_path()?).map_err(|_|"Agent not started; token unavailable".to_owned())?;
-    let client=reqwest::Client::builder().timeout(Duration::from_secs(if path=="/coach" {58}else{6})).build().map_err(|e|e.to_string())?;
+    let client=reqwest::Client::builder().timeout(Duration::from_secs(if path=="/coach" {58}else if path.starts_with("/backup")||path.starts_with("/sync")||path.starts_with("/updates/"){180}else{6})).build().map_err(|e|e.to_string())?;
     let mut request=client.request(method.parse().map_err(|_|"Invalid HTTP method")?,format!("http://127.0.0.1:48761{}",path)).bearer_auth(token.trim());
     if method=="POST" {request=request.json(&body.unwrap_or(Value::Null));}
     let response=request.send().await.map_err(|_|"Local agent unavailable".to_owned())?;
-    if !response.status().is_success() {return Err(format!("Agent reported {}",response.status()));}
+    if !response.status().is_success() {
+        let status=response.status();
+        let detail=response.text().await.unwrap_or_default();
+        if detail.len()<=100 && detail.bytes().all(|byte|byte.is_ascii_alphanumeric()||byte==b'_') {
+            return Err(format!("Agent reported {}: {}",status,detail.replace('_'," ")));
+        }
+        return Err(format!("Agent reported {}",status));
+    }
     response.json::<Value>().await.map_err(|_|"Invalid agent response".into())
 }
 
@@ -270,6 +279,18 @@ async fn export_activity()->Result<Value,String>{
 }
 
 #[tauri::command]
+fn open_data_folder(area:String)->Result<(),String>{
+    if !matches!(area.as_str(),"backups"|"updates"){return Err("Unsupported data folder".into());}
+    let path=token_path()?.parent().ok_or("Data directory unavailable")?.join(area);
+    fs::create_dir_all(&path).map_err(|_|"Data folder unavailable")?;
+    #[cfg(windows)] {
+        Command::new("explorer.exe").arg(path).spawn().map_err(|_|"Could not open folder")?;
+        Ok(())
+    }
+    #[cfg(not(windows))] {let _=path;Err("Windows folder unavailable".into())}
+}
+
+#[tauri::command]
 fn set_privacy_mask(app:tauri::AppHandle,enabled:bool){
  #[cfg(windows)] {app.state::<lifecycle::Supervisor>().privacy_mask.store(enabled,std::sync::atomic::Ordering::SeqCst);}
  #[cfg(not(windows))] let _=(app,enabled);
@@ -278,8 +299,12 @@ fn set_privacy_mask(app:tauri::AppHandle,enabled:bool){
 
 #[tauri::command]
 fn lifecycle_status(app:tauri::AppHandle)->Value{
- #[cfg(windows)] {return app.state::<lifecycle::Supervisor>().status();}
- #[cfg(not(windows))] {let _=app;serde_json::json!({"state":"unsupported","note":"Windows desktop supervisor"})}
+ #[cfg(windows)]
+ let mut status=app.state::<lifecycle::Supervisor>().status();
+ #[cfg(not(windows))]
+ let mut status={let _=app;serde_json::json!({"state":"unsupported"})};
+ status["resources"]=process_resources::sample("desktop_host_process_only");
+ status
 }
 
 fn main() {
@@ -356,7 +381,7 @@ fn main() {
           #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {if window.label()=="main"{api.prevent_close();let _=window.app_handle().emit_to("main","dd:collapse-request",());}}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,deliver_desktop_notice,read_service_hint,set_service_hint_window,open_service_review,open_notice_page])
+      .invoke_handler(tauri::generate_handler![agent_request,open_data_folder,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,deliver_desktop_notice,read_service_hint,set_service_hint_window,open_service_review,open_notice_page])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

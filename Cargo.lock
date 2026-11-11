@@ -670,13 +670,14 @@ dependencies = [
 
 [[package]]
 name = "digital-discipline-agent"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "axum",
  "chrono",
  "hex",
  "rand 0.8.8",
  "reqwest 0.12.28",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",
@@ -690,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "digital-discipline-desktop"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -698,6 +699,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -12,7 +12,7 @@ export function TrackingDoctor({readonly}:{readonly:boolean}){
   void read();const timer=setInterval(()=>void read(),5000);return()=>{disposed=true;clearInterval(timer);};
  },[readonly]);
  async function access(p:Profile){setBusy(true);try{await agent('POST','/tracking/profiles/access',{extension_id:p.extension_id,profile_id:p.profile_id,authorized:!p.authorized});setReport(await agent<Report>('GET','/tracking/doctor'));setError('');}catch{setError('Could not change this profile connection.');}finally{setBusy(false);}}
- return <article className="surface padded advanced-card tracking-doctor" aria-label="Tracking Doctor">
+ return <article className="surface padded advanced-card tracking-doctor" id="tracking-doctor" aria-label="Tracking Doctor">
   <div className="panel-header"><div><h3>Tracking Doctor</h3><p>Follow an observation from this browser profile to the dashboard.</p></div><button type="button" className="secondary-btn" disabled={readonly||busy} onClick={()=>void refresh()}>Check now</button></div>
   {report?.expected_companion_version&&<p className="form-hint">Agent {report.agent_version} · current companion {report.expected_companion_version} · protocol 1.0. Upgrade the companion in place to retain pairing and pending events.</p>}
   {readonly?<p className="form-hint">Live checks require the local Windows agent.</p>:!report?<p className="form-hint">{error||'Checking authorized browser profiles…'}</p>:null}

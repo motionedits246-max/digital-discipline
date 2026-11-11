@@ -6,6 +6,8 @@ mod bridge;
 mod credentials;
 mod workflow;
 mod health;
+#[path = "../../shared/process_resources.rs"]
+mod process_resources;
 mod windows;
 mod policy;
 mod insights;
@@ -26,6 +28,14 @@ mod inbox;
 mod prediction;
 mod devices;
 mod hourly;
+mod planning;
+mod history_adjustments;
+mod earned;
+mod attention;
+mod backup;
+mod device_sync;
+mod updates;
+mod presets;
 #[cfg(test)]
 mod ingestion_tests;
 
@@ -106,7 +116,7 @@ fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
 }
 
 fn initialize_schema(db:&Connection)->rusqlite::Result<()>{
-    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>14{return Err(rusqlite::Error::InvalidQuery);}
+    if db.query_row("PRAGMA user_version",[],|r|r.get::<_,i32>(0))?>schema::STORAGE_VERSION{return Err(rusqlite::Error::InvalidQuery);}
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, idle INTEGER NOT NULL, domain TEXT);
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_ms);
@@ -392,8 +402,15 @@ async fn extension_rules_for_profile(state:Arc<AppState>,profile:Option<String>)
             }
         }
     }
+    let (reward_blocks,reward_check)=earned::browser_policy(&db,now)
+        .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"reward_storage_failed"))?;
+    blocks.extend(reward_blocks);
+    let (attention_blocks,attention_check)=attention::browser_policy(&db,now)
+        .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"attention_storage_failed"))?;
+    blocks.extend(attention_blocks);
     let (blocks,next_policy_check)=policy_exceptions::apply(&db,blocks,profile.as_deref(),now).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"policy_exception_storage_failed"))?;
-    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"presentation_private":features::read_setting(&db,"presentation_privacy")=="true","purge_before_ms":features::read_setting(&db,"activity_deleted_before_ms").parse::<i64>().unwrap_or(0),"private_until_ms":features::read_setting(&db,"private_until_ms").parse::<i64>().unwrap_or(0),"next_policy_check_ms":next_policy_check})))
+    let next_policy_check=next_policy_check.into_iter().chain(reward_check).chain(attention_check).min();
+    Ok(Json(json!({"ok":true,"schema_version":domain::SCHEMA_VERSION,"blocks":blocks,"checked_at_ms":now,"lease_ms":180000,"presentation_private":features::read_setting(&db,"presentation_privacy")=="true","purge_before_ms":features::read_setting(&db,"activity_deleted_before_ms").parse::<i64>().unwrap_or(0),"private_until_ms":features::read_setting(&db,"private_until_ms").parse::<i64>().unwrap_or(0),"notifications_muted":attention::muted(&db),"next_policy_check_ms":next_policy_check})))
 }
 async fn preview_rules(State(state):State<Arc<AppState>>,Json(cmd):Json<RuleInput>)->ApiResult {
     let domain=cmd.domain.trim().to_ascii_lowercase();
@@ -459,10 +476,10 @@ async fn remove_rule(Path(id): Path<String>,State(state): State<Arc<AppState>>) 
 struct SessionDto { id:String, start_ms:i64,end_ms:i64,app:String,idle:bool,domain:Option<String>,profile_id:Option<String>,category:String }
 fn get_sessions(db: &Connection, earliest: i64, latest: i64, cap: usize) -> rusqlite::Result<Vec<SessionDto>> {
     let overrides=features::load_categories(db)?;
-    let mut q=db.prepare("SELECT id,start_ms,end_ms,app,idle,domain,profile_id FROM sessions WHERE end_ms>=?1 AND start_ms<=?2 ORDER BY start_ms DESC LIMIT ?3")?;
+    let mut q=db.prepare("SELECT id,start_ms,end_ms,app,idle,domain,profile_id,corrected_category FROM report_sessions WHERE end_ms>?1 AND start_ms<?2 ORDER BY start_ms DESC LIMIT ?3")?;
     let items=q.query_map(params![earliest,latest,cap as i64],|r|{
         let app:String=r.get(3)?;let domain:Option<String>=r.get(5)?;
-        Ok(SessionDto {id:r.get(0)?,start_ms:r.get(1)?,end_ms:r.get(2)?,category:features::resolved_category(&overrides,&app,domain.as_deref()),app,idle:r.get::<_,i64>(4)?!=0,domain,profile_id:r.get(6)?})
+        Ok(SessionDto {id:r.get(0)?,start_ms:r.get(1)?,end_ms:r.get(2)?,category:r.get::<_,Option<String>>(7)?.unwrap_or_else(||features::resolved_category(&overrides,&app,domain.as_deref())),app,idle:r.get::<_,i64>(4)?!=0,domain,profile_id:r.get(6)?})
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(items)
 }
@@ -495,7 +512,7 @@ async fn snapshot_inner(state:Arc<AppState>,compact:bool) -> ApiResult {
     let focus=features::active_focus(&db,now).ok().flatten();
     let focus_hint=focus.as_ref().and_then(|f|features::focus_goal_hint(&db,f,current,now));
     Ok(Json(json!({
-        "ok":true,"schema_version":domain::SCHEMA_VERSION,"observed_at_ms":now,
+        "ok":true,"schema_version":domain::SCHEMA_VERSION,"observed_at_ms":now,"notifications_muted":attention::muted(&db),
         "private_session":data_lifecycle::private_info(&db,now),"tracking_paused":state.paused.load(Ordering::SeqCst),"platform_supported":cfg!(windows),
         "browser_connected":db.query_row("SELECT EXISTS(SELECT 1 FROM browser_instances WHERE revoked=0 AND last_seen_ms>?1)",params![now-90000],|r|r.get::<_,bool>(0)).unwrap_or(false),
         "browser_rules_acknowledged":state.browser.lock().unwrap().rule_sync_ms>now-180_000,
@@ -503,7 +520,7 @@ async fn snapshot_inner(state:Arc<AppState>,compact:bool) -> ApiResult {
         "metrics":{"route_visits":route_visits,"active_ms":active,"development_ms":development,"entertainment_ms":entertainment,"distraction_ms":distraction,"qualified_plays":plays,"unique_videos":uniques,"replays":(plays-uniques).max(0),"playback_ms":playback,"watch_qualified_plays":watch_plays,"watch_unique_videos":watch_uniques,"watch_playback_ms":watch_playback},
         "current":current,"sessions":recent,"heatmap":heatmap,"rules":rules,
         "goals":if compact{Vec::<Value>::new()}else{features::read_goals(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?},
-        "focus":focus,"focus_goal_hint":focus_hint,
+        "focus":focus,"focus_goal_hint":focus_hint,"short_feed_hint":!state.paused.load(Ordering::SeqCst)&&attention::pill_hint(&db,now),
         "profile_receipts":tracking::receipts(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?,
         "coverage":{"windows_collector":if !cfg!(windows){"unsupported"}else if state.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000{"degraded_storage"}else{"running"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true,"today_may_be_truncated":all.len()==50000,"last_native_observation_ms":recent.first().map(|s|s.end_ms)}
     })))
@@ -561,6 +578,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     let db=init_db()?;
     let paused=db.query_row("SELECT value FROM settings WHERE key='paused'",[],|r|r.get::<_,String>(0)).unwrap_or_default()=="true";
     let state=Arc::new(AppState {db:Mutex::new(db),tracker:Mutex::new(Tracker{reconciler:Reconciler::default(),session_id:None}),browser:Mutex::new(BrowserStatus::default()),paused:AtomicBool::new(paused),stopping:AtomicBool::new(false),storage_last_error_ms:AtomicI64::new(0),storage_error_count:AtomicU64::new(0),token,shutdown:Arc::new(tokio::sync::Notify::new())});
+    tokio::spawn(backup::scheduler(Arc::clone(&state)));
+    tokio::spawn(device_sync::scheduler(Arc::clone(&state)));
     let classify_state=Arc::clone(&state);
     let discovery_state=Arc::clone(&state);
     tokio::spawn(async move{loop{if discovery_state.stopping.load(Ordering::SeqCst){break;}service_discovery::tick(Arc::clone(&discovery_state)).await;let delay=if features::read_setting(&discovery_state.db.lock().unwrap(),"lite_mode")=="true"{12}else{3};tokio::time::sleep(StdDuration::from_secs(delay)).await;}});
@@ -602,6 +621,21 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/videos",get(features::video_history)).route("/insights",get(features::insights))
         .route("/categories",get(features::list_categories)).route("/categories/override",post(features::override_category))
         .route("/categories/override/{subject}",delete(features::delete_override))
+        .route("/updates/check",get(updates::check)).route("/updates/verify",post(updates::verify))
+        .route("/sync",get(device_sync::status).post(device_sync::configure))
+        .route("/sync/peer",post(device_sync::peer)).route("/sync/now",post(device_sync::now))
+        .route("/focus/presets",get(presets::list).post(presets::save)).route("/focus/presets/start",post(presets::start))
+        .route("/backup",get(backup::status).post(backup::create))
+        .route("/backup/preview",post(backup::preview)).route("/backup/restore",post(backup::restore))
+        .route("/backup/schedule",post(backup::schedule))
+        .route("/attention",get(attention::status))
+        .route("/attention/reading",post(attention::reading)).route("/attention/quiet",post(attention::quiet))
+        .route("/attention/intervention",post(attention::configure)).route("/attention/snooze",post(attention::snooze))
+        .route("/rewards",get(earned::status).post(earned::save)).route("/rewards/adjust",post(earned::adjust))
+        .route("/planner",get(planning::list).post(planning::save_block))
+        .route("/planner/action",post(planning::act)).route("/planner/weekly-target",post(planning::save_target))
+        .route("/history/{day}",get(history_adjustments::list))
+        .route("/history/correct",post(history_adjustments::correct)).route("/history/manual",post(history_adjustments::manual))
         .route("/workflows",get(workflow::list))
         .route("/workflows/profiles",post(workflow::add_profile))
         .route("/workflows/profiles/{id}",delete(workflow::archive_profile).post(workflow::update_profile))

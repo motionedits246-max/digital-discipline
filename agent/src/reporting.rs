@@ -13,12 +13,12 @@ pub fn heatmap(db:&Connection,now:i64)->rusqlite::Result<Value>{
  let tx=db.unchecked_transaction()?;let classes=features::load_categories(&tx)?;
  let mut days:BTreeMap<String,Day>=BTreeMap::new();let mut overlaps=0u64;let mut count=0u64;
  {
-  let mut q=tx.prepare("SELECT start_ms,end_ms,app,domain,idle FROM sessions WHERE end_ms>?1 AND start_ms<?2 ORDER BY start_ms,id")?;
+  let mut q=tx.prepare("SELECT start_ms,end_ms,app,domain,idle,corrected_category FROM report_sessions WHERE end_ms>?1 AND start_ms<?2 ORDER BY start_ms,id")?;
   let mut rows=q.query(params![earliest,now])?;
   while let Some(row)=rows.next()?{
    let start:i64=row.get(0)?;let end:i64=row.get(1)?;let app:String=row.get(2)?;let domain:Option<String>=row.get(3)?;let idle=row.get::<_,i64>(4)?!=0;
    if end<=start{continue;}count+=1;
-   let category=features::resolved_category(&classes,&app,domain.as_deref());
+   let category=row.get::<_,Option<String>>(5)?.unwrap_or_else(||features::resolved_category(&classes,&app,domain.as_deref()));
    let Some(dt)=DateTime::<Utc>::from_timestamp_millis(start.max(earliest))else{continue;};
    let mut day=dt.with_timezone(&Local).date_naive();let final_end=end.min(now);
    while midnight_local_ms(day)<final_end&&day<=today{
@@ -47,5 +47,5 @@ pub async fn history(State(s):State<Arc<AppState>>)->ApiResult{
 }
 #[cfg(test)]mod tests{
  use super::*;
- #[test]fn streaming_report_reconciles_overlap_and_marks_idle_as_observed(){let d=Connection::open_in_memory().unwrap();d.execute_batch("CREATE TABLE sessions(id TEXT PRIMARY KEY,start_ms INTEGER,end_ms INTEGER,app TEXT,domain TEXT,idle INTEGER);CREATE TABLE classifications(subject TEXT,state TEXT,category TEXT);CREATE TABLE category_overrides(subject TEXT,category TEXT);").unwrap();let at=now_ms();d.execute("INSERT INTO sessions VALUES('a',?1,?2,'code.exe',NULL,0)",params![at-10000,at-5000]).unwrap();d.execute("INSERT INTO sessions VALUES('b',?1,?2,'brave.exe',NULL,0)",params![at-8000,at]).unwrap();let out=heatmap(&d,at).unwrap();let total:i64=out["heatmap"].as_array().unwrap().iter().map(|x|x["active_ms"].as_i64().unwrap()).sum();assert_eq!(total,10000);assert_eq!(out["truncated"],false);assert!(out["ambiguous_overlaps"].as_u64().unwrap()>0);}
+ #[test]fn streaming_report_reconciles_overlap_and_marks_idle_as_observed(){let d=Connection::open_in_memory().unwrap();d.execute_batch("CREATE TABLE sessions(id TEXT PRIMARY KEY,start_ms INTEGER,end_ms INTEGER,app TEXT,domain TEXT,idle INTEGER);CREATE TABLE classifications(subject TEXT,state TEXT,category TEXT);CREATE TABLE category_overrides(subject TEXT,category TEXT);").unwrap();crate::history_adjustments::migrate(&d).unwrap();let at=now_ms();d.execute("INSERT INTO sessions VALUES('a',?1,?2,'code.exe',NULL,0)",params![at-10000,at-5000]).unwrap();d.execute("INSERT INTO sessions VALUES('b',?1,?2,'brave.exe',NULL,0)",params![at-8000,at]).unwrap();let out=heatmap(&d,at).unwrap();let total:i64=out["heatmap"].as_array().unwrap().iter().map(|x|x["active_ms"].as_i64().unwrap()).sum();assert_eq!(total,10000);assert_eq!(out["truncated"],false);assert!(out["ambiguous_overlaps"].as_u64().unwrap()>0);}
 }

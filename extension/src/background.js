@@ -14,7 +14,7 @@ let lastConnectAttemptAt = 0;
 let adapterState='unknown';let adapterAt=0;let foregroundTimer=null;
 function domainValid(value){return isValidDomain(value);}
 function ruleMatches(url,rule){return matchesRule(url,rule);}
-async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved','agentPrivateUntil','presentationPrivacy']); }
+async function storage() { return chrome.storage.local.get(['eventQueue', 'eventQuarantine', 'queueDiagnostics', 'blocks', 'ownedIds', 'emergencyUntil', 'browserKind', 'collectionEnabled','notificationsEnabled','dndEnabled','quietStart','quietEnd','lastNotifications','videoObserved','agentPrivateUntil','presentationPrivacy','desktopNotificationsMuted']); }
 async function request(message) {
   lastConnectAttemptAt=Date.now();
   const sync=message?.op==='sync';
@@ -35,7 +35,7 @@ async function request(message) {
       lastConnectionError=safeDeliveryReason(response.status,reply?.error);
       return {ok:false,error:lastConnectionError,http_status:response.status,delivery:classifyDelivery(response.status)};
     }
-    if(sync){await applyAgentPurge(reply.purge_before_ms);if(typeof reply.presentation_private==='boolean')await chrome.storage.local.set({presentationPrivacy:reply.presentation_private});if(Number.isSafeInteger(reply.private_until_ms)&&reply.private_until_ms>=0)await chrome.storage.local.set({agentPrivateUntil:reply.private_until_ms});}
+    if(sync){await applyAgentPurge(reply.purge_before_ms);if(typeof reply.presentation_private==='boolean')await chrome.storage.local.set({presentationPrivacy:reply.presentation_private});if(typeof reply.notifications_muted==='boolean')await chrome.storage.local.set({desktopNotificationsMuted:reply.notifications_muted});if(Number.isSafeInteger(reply.private_until_ms)&&reply.private_until_ms>=0)await chrome.storage.local.set({agentPrivateUntil:reply.private_until_ms});}
     connected=true;lastConnectionError='';lastNativeReplyAt=Date.now();
     return reply;
   } catch {
@@ -220,7 +220,7 @@ async function removeOwnedRules() {
   await chrome.storage.local.set({ownedIds:[],blocks:[]});
 }
 async function applyBlocks(blocks) {
-  const {ownedIds=[],notificationsEnabled=false,dndEnabled=false,quietStart='',quietEnd='',lastNotifications={},presentationPrivacy=false}=await storage();
+  const {ownedIds=[],notificationsEnabled=false,dndEnabled=false,quietStart='',quietEnd='',lastNotifications={},presentationPrivacy=false,desktopNotificationsMuted=false}=await storage();
   const now=Date.now();
   const safe=blocks.filter(x=>x && x.expires_at_ms>now && x.expires_at_ms<=now+240000 && domainValid(x.domain) && ['block','hide_feed','stop_autoplay','notify'].includes(x.action||'block')).slice(0,500);
   // Only navigation-deny policies become DNR rules. Visual policies belong to the content adapter.
@@ -232,7 +232,7 @@ async function applyBlocks(blocks) {
   // Rule acknowledgement is separate from optional browser activity recording.
   void request({op:'event',event:{schema_version:'1.0',source:'extension',event_id:crypto.randomUUID(),
     occurred_at_ms:now,profile_id:await profileId(),kind:'block.ack',payload:{applied_count:next.length}}});
-  if (notificationsEnabled) {
+  if (notificationsEnabled && !desktopNotificationsMuted) {
     const cooled={...lastNotifications};
     for (const block of safe) {
       const key=String(block.id)+':'+String(block.action||'block');

@@ -2,7 +2,7 @@ name: Build Windows installer
 
 on:
   push:
-    branches: [main, feature/master-spec-complete-2026-11]
+    branches: [main, feature/master-spec-complete-2026-11, feature/remaining-app-features-0.5.0]
     paths-ignore:
       - 'docs/**'
       - 'README.md'
@@ -97,7 +97,7 @@ jobs:
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-MasterSpec-Branch-v0.4.4-DEV-SIGNED
+          name: DigitalDiscipline-Windows-x64-DEV-SIGNED
           path: release-output/*
           if-no-files-found: error
           retention-days: 30
