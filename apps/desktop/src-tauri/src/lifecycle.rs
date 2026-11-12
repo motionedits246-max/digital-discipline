@@ -44,7 +44,7 @@ pub fn start(app:&tauri::AppHandle,supervisor:&Supervisor,event:isize){
  let activation=app.clone();let active=supervisor.clone();
  thread::spawn(move||while active.wanted.load(Ordering::SeqCst){
   if unsafe{WaitForSingleObject(event as *mut c_void,500)}==0{
-   if let Some(w)=activation.get_webview_window("main"){let _=w.show();let _=crate::set_presentation(activation.clone(),"full".into());let _=w.set_focus();let _=activation.emit("dd:open-dashboard",());}
+   if crate::show_main_window(&activation).is_ok(){let _=activation.emit_to("main","dd:open-dashboard",());}
   }
  });
  let exe=app.path().resource_dir().ok().map(|d|d.join("bin/digital-discipline-agent.exe"));

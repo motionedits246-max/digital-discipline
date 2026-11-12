@@ -2,7 +2,7 @@ name: Build Windows installer
 
 on:
   push:
-    branches: [main, feature/master-spec-complete-2026-11, feature/remaining-app-features-0.5.0, feature/desktop-polish-0.5.1]
+    branches: [main, feature/master-spec-complete-2026-11, feature/remaining-app-features-0.5.0, feature/desktop-polish-0.5.1, feature/window-resize-0.5.2]
     paths-ignore:
       - 'docs/**'
       - 'README.md'

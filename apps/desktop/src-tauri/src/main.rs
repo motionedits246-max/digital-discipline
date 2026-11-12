@@ -72,11 +72,15 @@ async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
  if sound_pending {notification_sound::play();}
  Ok(())
 }
-#[tauri::command]fn open_service_review(app:tauri::AppHandle)->Result<(),String>{let _=set_service_hint_window(app.clone(),false,false);set_presentation(app.clone(),"full".into())?;if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}app.emit_to("main","dd:open-service-review",()).map_err(|_|"Could not open service review".into())}
+#[tauri::command]fn open_service_review(app:tauri::AppHandle)->Result<(),String>{
+ let _=set_service_hint_window(app.clone(),false,false);
+ show_main_window(&app)?;
+ app.emit_to("main","dd:open-service-review",()).map_err(|_|"Could not open service review".into())
+}
 #[tauri::command]fn open_notice_page(app:tauri::AppHandle,page:String)->Result<(),String>{
  if !matches!(page.as_str(),"Settings & Privacy"|"Inbox"){return Err("Unsupported notification destination".into());}
- set_service_hint_window(app.clone(),false,false)?;set_presentation(app.clone(),"full".into())?;
- if let Some(w)=app.get_webview_window("main"){w.show().map_err(|e|e.to_string())?;w.set_focus().map_err(|e|e.to_string())?;}
+ set_service_hint_window(app.clone(),false,false)?;
+ show_main_window(&app)?;
  app.emit_to("main","dd:open-notice-page",page).map_err(|_|"Could not open notification details".into())
 }
 
@@ -107,22 +111,23 @@ async fn agent_request(method:String,path:String,body:Option<Value>) -> Result<V
 }
 
 #[tauri::command]
-fn set_presentation(app:tauri::AppHandle,mode:String)->Result<(),String> {
+fn set_presentation(app:tauri::AppHandle,mode:String)->Result<Value,String> {
     let w=app.get_webview_window("main").ok_or("Window unavailable")?;
     let monitor=w.current_monitor().map_err(|e|e.to_string())?.or(w.primary_monitor().map_err(|e|e.to_string())?);
     let (work_width,work_height)=monitor.as_ref().map(|m|(m.work_area().size.width as f64/m.scale_factor(),m.work_area().size.height as f64/m.scale_factor())).unwrap_or((1920.0,1080.0));
     let bounds=window_policy::layout(&mode,work_width,work_height).ok_or("Unsupported mode")?;
     *app.state::<PresentationState>().current.lock().map_err(|_|"Window mode unavailable")?=(mode.clone(),monitor.as_ref().map(monitor_key));
     let popout=mode=="popout";
-    // Clear the previous mode's floor before shrinking back to the controller.
-    w.set_min_size(None::<Size>).map_err(|e|e.to_string())?;
-    w.unmaximize().map_err(|e|e.to_string())?;
+    if w.is_maximized().map_err(|e|e.to_string())? {
+        w.unmaximize().map_err(|e|e.to_string())?;
+    }
     w.set_resizable(bounds.workspace).map_err(|e|e.to_string())?;
-    w.set_size(Size::Logical(LogicalSize::new(bounds.width,bounds.height))).map_err(|e|e.to_string())?;
+    w.set_decorations(popout).map_err(|e|e.to_string())?;
+    // Use the target mode's floor throughout the resize.
     w.set_min_size(Some(Size::Logical(LogicalSize::new(bounds.min_width,bounds.min_height)))).map_err(|e|e.to_string())?;
+    w.set_size(Size::Logical(LogicalSize::new(bounds.width,bounds.height))).map_err(|e|e.to_string())?;
     w.set_always_on_top(!popout).map_err(|e|e.to_string())?;
     w.set_skip_taskbar(!popout).map_err(|e|e.to_string())?;
-    w.set_decorations(popout).map_err(|e|e.to_string())?;
     if popout {w.maximize().map_err(|e|e.to_string())?;}
     // Keep the user's chosen position when switching between pill, panel, and workspace.
     // Clamp after resizing so a larger panel cannot disappear beyond a monitor edge.
@@ -140,8 +145,21 @@ fn set_presentation(app:tauri::AppHandle,mode:String)->Result<(),String> {
             w.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x,y))).map_err(|e|e.to_string())?;
         }
     }
+    let layout=serde_json::json!({
+        "mode":mode,"width":bounds.width,"height":bounds.height,
+        "min_width":bounds.min_width,"min_height":bounds.min_height
+    });
+    let _=app.emit_to("main","dd:window-layout",&layout);
+    Ok(layout)
+}
+
+pub(crate) fn show_main_window(app:&tauri::AppHandle)->Result<(),String>{
+    let window=app.get_webview_window("main").ok_or("Window unavailable")?;
+    window.show().map_err(|e|e.to_string())?;
+    let _=window.set_focus();
     Ok(())
 }
+
 #[tauri::command]
 fn drag_window(app:tauri::AppHandle)->Result<(),String>{
     let w=app.get_webview_window("main").ok_or("Window unavailable")?;
@@ -339,11 +357,8 @@ fn main() {
               // A conflicting system hotkey must never prevent the app starting.
               app.handle().plugin(tauri_plugin_global_shortcut::Builder::new()
                   .with_handler(|app,_shortcut,event|{
-                      if event.state()==ShortcutState::Pressed {
-                          if let Some(window)=app.get_webview_window("main") {let _=window.show();}
-                          let _=set_presentation(app.clone(),"full".into());
-                          if let Some(window)=app.get_webview_window("main") {let _=window.set_focus();}
-                          let _=app.emit("dd:global-command",());
+                      if event.state()==ShortcutState::Pressed && show_main_window(app).is_ok() {
+                          let _=app.emit_to("main","dd:global-command",());
                       }
                   }).build())?;
               let _=app.global_shortcut().register("Ctrl+Shift+D");
@@ -373,7 +388,7 @@ fn main() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app,event|match event.id().as_ref(){
-                   "open"=>{if let Some(w)=app.get_webview_window("main"){let _=w.show();}let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.set_focus();}let _=app.emit("dd:open-dashboard",());},
+                   "open"=>{if show_main_window(app).is_ok(){let _=app.emit_to("main","dd:open-dashboard",());}},
                    "privacy"=>{let _=app.emit("dd:toggle-privacy",());},
                    "pause"=>send_agent_command("/tracking/pause",r#"{"paused":true}"#),
                    "resume"=>send_agent_command("/tracking/pause",r#"{"paused":false}"#),
@@ -381,7 +396,8 @@ fn main() {
                    _=>{},
                 })
                 .on_tray_icon_event(|tray,event|{if let TrayIconEvent::Click{button:MouseButton::Left,button_state:MouseButtonState::Up,..}=event{
-                    let app=tray.app_handle();if let Some(w)=app.get_webview_window("main"){let _=w.show();}let _=set_presentation(app.clone(),"full".into());if let Some(w)=app.get_webview_window("main"){let _=w.set_focus();}let _=app.emit("dd:open-dashboard",());
+                    let app=tray.app_handle();
+                    if show_main_window(app).is_ok(){let _=app.emit_to("main","dd:open-dashboard",());}
                 }})
                 .build(app)?;
 
@@ -391,7 +407,7 @@ fn main() {
       })
       .on_window_event(|window,event| {
           if window.label()=="service-hint"&&matches!(event,tauri::WindowEvent::Destroyed){if let Some(state)=window.app_handle().try_state::<ServiceHintState>(){if let Ok(mut payload)=state.payload.lock(){*payload=None;};}}
-          if window.label()=="main"&&matches!(event,tauri::WindowEvent::Moved(_)|tauri::WindowEvent::ScaleFactorChanged{..}){
+          if window.label()=="main"&&matches!(event,tauri::WindowEvent::Moved(_)|tauri::WindowEvent::Resized(_)|tauri::WindowEvent::ScaleFactorChanged{..}){
               let app=window.app_handle();let current=window.current_monitor().ok().flatten().map(|m|monitor_key(&m));
               let requested=app.state::<PresentationState>().current.lock().ok().and_then(|state|(!state.0.is_empty()&&current.is_some()&&state.1!=current).then(||state.0.clone()));
               if let Some(mode)=requested{let _=set_presentation(app.clone(),mode);}

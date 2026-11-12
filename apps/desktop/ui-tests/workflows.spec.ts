@@ -1,8 +1,9 @@
 import {test,expect,type Page} from '@playwright/test';
 const rule='11111111-1111-4111-8111-111111111111',task='22222222-2222-4222-8222-222222222222',profile='33333333-3333-4333-8333-333333333333';
-async function connected(page:Page,paired=true){
- await page.addInitScript(({rule,task,profile,paired})=>{
-  localStorage.setItem('dd:guided-tour-complete-v1','true');
+async function connected(page:Page,paired=true,tinyStartup=false){
+ if(tinyStartup)await page.setViewportSize({width:280,height:56});
+ await page.addInitScript(({rule,task,profile,paired,tinyStartup})=>{
+  if(!tinyStartup)localStorage.setItem('dd:guided-tour-complete-v1','true');
   const calls:any[]=[];
   const categories=['Development','Productivity','Entertainment','Unclassified'];
   let customLabels:string[]=[],distractions:string[]=[],overrides:{subject:string;category:string}[]=[];
@@ -12,6 +13,9 @@ async function connected(page:Page,paired=true){
   const service={subject:'app:new-helper.exe',category:'Unclassified',source:'local_rules',description:'Unknown local tool',ai_enabled:true,provider:'pollinations',llm_approved:false};
   (window as any).__TAURI_INTERNALS__={transformCallback:(fn:(event:any)=>void)=>{callbacks.set(++callbackId,fn);return callbackId;},unregisterCallback:()=>{},invoke:async(command:string,args:any)=>{
    calls.push({command,args});if(command==='read_service_hint')return location.search.includes('service-hint')?((window as any).__testNotice||{kind:'service',service}):((window as any).__testActiveNotice||null);if(command==='deliver_service_hint'||command==='deliver_desktop_notice'){(window as any).__testActiveNotice=args.notice||{kind:'service',service:args.service};return true;}if(command==='plugin:event|listen'){nativeEvents[args.event]=callbacks.get(args.handler)!;return 1;}if(command==='lifecycle_status')return {state:'healthy',restart_count:1,resources:{available:true,working_set_bytes:42000000,cpu_percent_one_core_basis:0.3,sampled_at_ms:Date.now()}};
+   if(tinyStartup&&command==='set_presentation'&&args.mode==='full'){
+    return {mode:'full',width:1220,height:790,min_width:960,min_height:640};
+   }
    if(command!=='agent_request')return null;
    const {path,method,body}=args;
    if(path==='/services/next')return {service:null};
@@ -50,9 +54,26 @@ async function connected(page:Page,paired=true){
    if(path==='/coach/credentials')return {providers:[]};return {ok:true};
   }};
   (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
- },{rule,task,profile,paired});
- await page.goto('/');if(!paired){await expect(page.getByRole('heading',{name:'Connect your browser',exact:true})).toBeVisible();return;}await page.getByRole('button',{name:'Open quick panel'}).click();await page.getByRole('button',{name:'Open workspace',exact:false}).click();
+ },{rule,task,profile,paired,tinyStartup});
+ await page.goto('/');if(tinyStartup)return;if(!paired){await expect(page.getByRole('heading',{name:'Connect your browser',exact:true})).toBeVisible();return;}await page.getByRole('button',{name:'Open quick panel'}).click();await page.getByRole('button',{name:'Open workspace',exact:false}).click();
 }
+test('first-launch walkthrough waits for the workspace viewport',async({page})=>{
+ await connected(page,true,true);
+ const tour=page.getByRole('dialog',{name:'Digital Discipline guided walkthrough'});
+ const pill=page.getByRole('button',{name:'Open quick panel',exact:true});
+ await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.some(
+  (call:any)=>call.command==='set_presentation'&&call.args?.mode==='full'
+ ))).toBe(true);
+ await expect(pill).toBeVisible();
+ await expect(tour).toHaveCount(0);
+
+ await page.setViewportSize({width:960,height:640});
+ await expect(tour).toBeVisible();
+
+ await page.setViewportSize({width:280,height:56});
+ await expect(pill).toBeVisible();
+ await expect(tour).toHaveCount(0);
+});
 test('native tray privacy masks browser setup and preserves its extension draft',async({page})=>{
  await connected(page,false);await page.getByRole('button',{name:/^Go to step 3:/}).click();const draft=page.getByLabel('Extension ID',{exact:true});await draft.fill('a'.repeat(32));
  await page.waitForFunction(()=>!!(window as any).__testNativeEvents['dd:toggle-privacy']);

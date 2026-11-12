@@ -16,6 +16,8 @@ import {CustomSelect} from './CustomSelect';
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import type {FormEvent,ReactNode,PointerEvent,KeyboardEvent as ReactKeyboardEvent} from 'react';
 import {agent,exportActivity,setPrivacyMask,isTauri,presentation,snapshot,dragWindow,getBrowserPairState,setServiceHintWindow} from './api';
+import type {WindowLayout,WindowMode as Mode} from './api';
+import {fitsLayout,viewportSize,waitForLayout} from './windowViewport';
 import {BrowserSetupWizard} from './BrowserSetupWizard';
 import {GuidedTour} from './GuidedTour';
 import {NetworkPrivacyStatus} from './NetworkPrivacyStatus';
@@ -29,7 +31,6 @@ import type {Day,Page,Rule,Session,Snapshot} from './types';
 import {pages} from './types';
 
 type Command = {id:string; label:string; icon:string; run:()=>void};
-type Mode='pill'|'quick'|'full'|'popout';
 const navIcons=['overview','activity','history','video','target','shield','branch','insights','sparkle','branch','settings','inbox','target','activity'];
 const stage:Partial<Record<Page,string>>={'AI Coach':'Opt-in'};
 const ms=(n:number)=>Number.isFinite(n)?n:0;
@@ -95,8 +96,71 @@ export default function App(){
  useEffect(()=>{if(!demo&&!offline)void agent('POST','/privacy/presentation',{enabled:presentationPrivacy}).catch(()=>{});},[demo,offline,presentationPrivacy]);
  useServiceHints(!demo&&!offline&&!shown?.notifications_muted&&!presentationPrivacy&&!shown?.private_session?.active&&!shown?.tracking_paused,liteMode);
  useEffect(()=>{if(isTauri&&(presentationPrivacy||shown?.notifications_muted||shown?.private_session?.active||shown?.tracking_paused))void setServiceHintWindow(false).catch(()=>{});},[presentationPrivacy,shown?.notifications_muted,shown?.private_session?.active,shown?.tracking_paused]);
- const currentMode=useRef(mode);currentMode.current=mode;
- const startTour=()=>{setSetupActive(false);setPage('Overview');setMode('full');void presentation('full');setTourActive(true);};
+ const currentMode=useRef(mode);
+ const modeQueue=useRef(Promise.resolve(true));
+ const currentLayout=useRef<WindowLayout|null>(null);
+ const [layout,setLayout]=useState<WindowLayout|null>(null);
+ const [viewport,setViewport]=useState(viewportSize);
+ const lite=useRef(liteMode);
+ lite.current=liteMode;
+ const visibleMode=layout&&!fitsLayout(layout,viewport)?'pill':mode;
+ useLayoutEffect(()=>{
+   const resize=()=>setViewport(viewportSize());
+   window.addEventListener('resize',resize);
+   resize();
+   return()=>window.removeEventListener('resize',resize);
+ },[]);
+
+ const rememberLayout=useCallback((confirmed:WindowLayout|null)=>{
+   currentLayout.current=confirmed;
+   setLayout(confirmed);
+   setViewport(viewportSize());
+ },[]);
+ const changeMode=useCallback((next:Mode)=>{
+   const request=modeQueue.current.then(async()=>{
+     const previous=currentMode.current;
+     if(previous===next&&(!currentLayout.current||fitsLayout(currentLayout.current)))return true;
+     const animate=!lite.current&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+     try {
+       if(next==='pill')window.dispatchEvent(new Event('dd:surface-collapse'));
+       if(animate&&next==='pill'){
+         document.body.classList.add('dd-collapsing');
+         await new Promise(resolve=>window.setTimeout(resolve,180));
+       }
+       let confirmed=await presentation(next);
+       if(confirmed&&!await waitForLayout(confirmed)){
+         confirmed=await presentation(next);
+         if(confirmed&&!await waitForLayout(confirmed))throw Error('The window could not reach its required size.');
+       }
+       currentMode.current=next;
+       rememberLayout(confirmed);
+       setMode(next);
+       if(animate){
+         document.body.classList.add('dd-mode-entering');
+         window.setTimeout(()=>document.body.classList.remove('dd-mode-entering'),180);
+       }
+       return true;
+     }catch(error){
+       if(isTauri){
+         const restored=await presentation(previous).catch(()=>currentLayout.current);
+         rememberLayout(restored);
+       }
+       setMessage(String(error));
+       return false;
+     }finally{
+       document.body.classList.remove('dd-collapsing');
+     }
+   });
+   modeQueue.current=request;
+   return request;
+ },[rememberLayout]);
+
+ const startTour=async()=>{
+   if(!await changeMode('full'))return;
+   setSetupActive(false);
+   setPage('Overview');
+   setTourActive(true);
+ };
  const finishTour=()=>{setTourActive(false);try{window.localStorage.setItem('dd:guided-tour-complete-v1','true');}catch{}};
  const controller=useMemo(()=>createRefreshCoordinator(async()=>{const compact=currentMode.current==='pill'||currentMode.current==='quick';return {snapshot:await snapshot(compact),compact};},({snapshot:r,compact})=>{setData(prev=>compact&&prev?{...prev,current:r.current,metrics:r.metrics,coverage:r.coverage,observed_at_ms:r.observed_at_ms,tracking_paused:r.tracking_paused,private_session:r.private_session,notifications_muted:r.notifications_muted,profile_receipts:r.profile_receipts,focus_goal_hint:r.focus_goal_hint,browser_connected:r.browser_connected,focus:r.focus}:{...r,heatmap:prev?.heatmap||[]});setError('');},e=>setError(e instanceof Error?e.message:'Agent unavailable')),[]);
  const read=useCallback((force=false)=>controller.refresh(force),[controller]);
@@ -104,21 +168,26 @@ export default function App(){
  useEffect(()=>{
    if(!isTauri)return;
    let cancelled=false,attempt=0;
-   const openSetup=()=>{if(!cancelled){setSetupActive(true);setMode('full');void presentation('full');}};
+   const openSetup=async()=>{
+     if(!cancelled&&await changeMode('full')&&!cancelled)setSetupActive(true);
+   };
    const check=async()=>{
      try{
        const result=await getBrowserPairState();
-       if(!cancelled && result.pairs.length===0)openSetup();
-       else if(!cancelled){let complete=false;try{complete=window.localStorage.getItem('dd:guided-tour-complete-v1')==='true';}catch{}if(!complete){setMode('full');void presentation('full');setTourActive(true);}}
+       if(!cancelled && result.pairs.length===0)await openSetup();
+       else if(!cancelled){
+         let complete=false;try{complete=window.localStorage.getItem('dd:guided-tour-complete-v1')==='true';}catch{}
+         if(!complete&&await changeMode('full')&&!cancelled)setTourActive(true);
+       }
      }catch{
        if(cancelled)return;
        if(attempt++<8)window.setTimeout(()=>{if(!cancelled)void check();},1200);
-       else openSetup();
+       else await openSetup();
      }
    };
    void check();
    return()=>{cancelled=true;};
- },[]);
+ },[changeMode]);
  useEffect(()=>{
   if(demo||mode==='pill'||mode==='quick'||!['Overview','Activity History'].includes(page))return;
   let alive=true,busy=false;
@@ -132,33 +201,48 @@ export default function App(){
    void agent<{sessions:Session[]}>('GET',`/sessions/${day}`).then(x=>{if(alive)setHistorySessions(x.sessions);}).catch(()=>{if(alive)setHistorySessions([]);});
    return()=>{alive=false;};
  },[demo,day,page,sample,data?.observed_at_ms,historyRevision]);
+ const openSearch=useCallback(async(forceFull=false)=>{
+   const source=currentMode.current;
+   if((forceFull||source==='pill'||source==='quick')&&!await changeMode('full'))return;
+   commandReturnFocus.current=document.activeElement as HTMLElement|null;
+   setCommandQuery('');
+   setCommandIndex(0);
+   setCommandOpen(true);
+ },[changeMode]);
  useEffect(()=>{
    const handle=(event:KeyboardEvent)=>{
      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){
-       event.preventDefault();commandReturnFocus.current=document.activeElement as HTMLElement|null;setCommandQuery('');setCommandIndex(0);setCommandOpen(true);
-       if(mode==='pill'||mode==='quick'){setMode('full');void presentation('full');}
+       event.preventDefault();
+       if(!event.repeat)void openSearch();
      }else if(event.key==='Escape')setCommandOpen(false);
    };
    window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);
- },[mode]);
+ },[openSearch]);
  useEffect(()=>{
    if(!isTauri)return;
    let disposed=false;let unsubscribe:undefined|(()=>void);
+   const open=async(page:Page)=>{
+     if(!await changeMode('full')||disposed)return;
+     setSetupActive(false);
+     if(page==='Settings & Privacy')setSettingsSection('browser');
+     setPage(page);
+   };
    void import('@tauri-apps/api/event').then(async({listen})=>{
-     const openCommand=await listen('dd:global-command',()=>{setMode('full');setCommandQuery('');setCommandIndex(0);setCommandOpen(true);});
+     const openCommand=await listen('dd:global-command',()=>void openSearch(true));
      const togglePrivacy=await listen('dd:toggle-privacy',()=>setPresentationPrivacy(v=>!v));
-     const openNotice=await listen<Page>('dd:open-notice-page',event=>{if(!['Settings & Privacy','Inbox'].includes(event.payload))return;setSetupActive(false);setMode('full');if(event.payload==='Settings & Privacy')setSettingsSection('browser');setPage(event.payload);});
-     const openReview=await listen('dd:open-service-review',()=>{setSetupActive(false);setMode('full');setPage('Activity History');});
-     const collapse=await listen('dd:collapse-request',()=>window.dispatchEvent(new Event('dd:collapse-request')));
-     const openDashboard=await listen('dd:open-dashboard',()=>{setSetupActive(false);setMode('full');setPage('Overview');});
-     return ()=>{openCommand();openDashboard();togglePrivacy();openReview();openNotice();collapse();};
+     const openNotice=await listen<Page>('dd:open-notice-page',event=>{
+       if(['Settings & Privacy','Inbox'].includes(event.payload))void open(event.payload);
+     });
+     const openReview=await listen('dd:open-service-review',()=>void open('Activity History'));
+     const collapse=await listen('dd:collapse-request',()=>void changeMode('pill'));
+     const openDashboard=await listen('dd:open-dashboard',()=>void open('Overview'));
+     const resize=await listen<WindowLayout>('dd:window-layout',event=>{
+       if(event.payload.mode===currentMode.current)rememberLayout(event.payload);
+     });
+     return ()=>{openCommand();openDashboard();togglePrivacy();openReview();openNotice();collapse();resize();};
    }).then(fn=>{if(disposed)fn();else unsubscribe=fn;}).catch(()=>{});
    return()=>{disposed=true;unsubscribe?.();};
- },[]);
- const changingMode=useRef(false);
- const changeMode=async(next:Mode)=>{if(changingMode.current)return;changingMode.current=true;const animate=!liteMode&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  try{if(next==='pill')window.dispatchEvent(new Event('dd:surface-collapse'));if(animate&&next==='pill'&&mode!=='pill'){document.body.classList.add('dd-collapsing');await new Promise(resolve=>setTimeout(resolve,180));}await presentation(next);setMode(next);document.body.classList.remove('dd-collapsing');if(animate){document.body.classList.add('dd-mode-entering');setTimeout(()=>document.body.classList.remove('dd-mode-entering'),180);}}catch(e){setMessage(String(e));}finally{document.body.classList.remove('dd-collapsing');changingMode.current=false;}};
- useEffect(()=>{const collapse=()=>void changeMode('pill');window.addEventListener('dd:collapse-request',collapse);return()=>window.removeEventListener('dd:collapse-request',collapse);},[mode,liteMode]);
+ },[changeMode,openSearch,rememberLayout]);
  const beginDrag=(event:PointerEvent<HTMLElement>)=>{
    const target=event.target as Element;
    if(event.button!==0||target.closest('button,a,input,textarea,select,label,summary,[contenteditable],[role="button"],[role="listbox"]'))return;
@@ -203,9 +287,9 @@ export default function App(){
  };
 
 
- if(setupActive&&isTauri)return <div className="onboarding-shell">{presentationPrivacy&&<PresentationShield privateActive={!!shown?.private_session?.active} paused={!!shown?.tracking_paused} offline={offline} onReveal={()=>setPresentationPrivacy(false)} onPause={pause}/>}<div className="workspace-content" hidden={presentationPrivacy} aria-hidden={presentationPrivacy||undefined} inert={presentationPrivacy||undefined}><header className="onboarding-top" onPointerDown={beginDrag}><div><span className="eyebrow">WELCOME TO DIGITAL DISCIPLINE</span><h1>Connect your browser</h1><p>Set up Brave once to enable Shorts, Reels and regular video counts. Windows app tracking works independently.</p></div><div className="onboarding-controls"><button type="button" className="secondary-btn" onClick={startTour}>Use app without browser</button><button aria-label={mode==='popout'?'Restore setup window':'Maximize setup window'} type="button" className="icon-btn window-control" onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button></div></header><main className="onboarding-main"><BrowserSetupWizard/><div className="onboarding-bottom"><p>Browser recording is optional and stays disabled until you opt in inside the Brave companion.</p><button type="button" className="primary-btn" onClick={async()=>{const r=await getBrowserPairState().catch(()=>null);if(!r?.pairs.length){setMessage('Authorize an extension in step 3 first, or choose Use app without browser.');return;}startTour();}}>Finish setup and open dashboard</button>{message&&<span role="status">{message}</span>}</div></main></div></div>;
- if(mode==='pill')return <div className="pill-surface" data-tauri-drag-region><span className={`pill-status ${shown?.tracking_paused?'stopped':''}`}/><span className="pill-title">{pillText}</span><span className="pill-separator"/><span className="pill-count"><Icon name="video" size={14}/>{presentationPrivacy?'—':pillCount}</span><button aria-label="Open quick panel" className="pill-open" onClick={()=>void changeMode('quick')}><Icon name="chevron" size={16}/></button></div>;
- if(mode==='quick')return <div className="quick-surface" onPointerDownCapture={beginDrag}><div className="quick-head"><div className="quick-brand"><span className="brand-symbol">◐</span><span>Digital Discipline</span></div><div className="quick-window-controls"><button className="icon-btn window-control" title="Maximize workspace" aria-label="Maximize workspace" onClick={()=>void changeMode('full')}><Icon name="maximize"/></button><button className="icon-btn window-control window-control-close" aria-label="Collapse to pill" title="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></div></div><div className="quick-current"><span className="eyebrow">CURRENT ACTIVITY</span><strong>{pillText}</strong><small>{presentationPrivacy?'Details hidden for screen sharing':(shown?.current?.category||'Unclassified')} · {shown?.tracking_paused?'Tracking paused':'Local observation'}</small></div><div className={presentationPrivacy?'quick-stats dd-privacy-quick':'quick-stats'}><div><span>Active today</span><strong>{duration(shown?.metrics.active_ms||0)}</strong></div><div><span>Short plays</span><strong>{pillCount}</strong></div><div><span>Development</span><strong>{duration(shown?.metrics.development_ms||0)}</strong></div></div>{!presentationPrivacy&&shown?.focus_goal_hint&&<div className="focus-context-hint">{shown.focus_goal_hint.text}<button onClick={()=>{setPage('Focus & Goals');void changeMode('full');}}>Review goal</button><button onClick={()=>snoozeHint('snooze_10m')}>10m snooze</button><button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}{!presentationPrivacy&&<ResumeCard readonly={demo||offline} onOpen={()=>{setPage('Focus & Goals');void changeMode('full');}}/>}<div className="quick-actions"><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'} size={16}/>{shown?.tracking_paused?'Resume':'Pause tracking'}</button><button className="primary-btn" onClick={()=>void changeMode('full')}>Open workspace <Icon name="expand" size={16}/></button></div>{offline&&<p className="tiny-muted">Start the local agent to see recorded activity.</p>}</div>;
+ if(setupActive&&isTauri&&['full','popout'].includes(visibleMode))return <div className="onboarding-shell">{presentationPrivacy&&<PresentationShield privateActive={!!shown?.private_session?.active} paused={!!shown?.tracking_paused} offline={offline} onReveal={()=>setPresentationPrivacy(false)} onPause={pause}/>}<div className="workspace-content" hidden={presentationPrivacy} aria-hidden={presentationPrivacy||undefined} inert={presentationPrivacy||undefined}><header className="onboarding-top" onPointerDown={beginDrag}><div><span className="eyebrow">WELCOME TO DIGITAL DISCIPLINE</span><h1>Connect your browser</h1><p>Set up Brave once to enable Shorts, Reels and regular video counts. Windows app tracking works independently.</p></div><div className="onboarding-controls"><button type="button" className="secondary-btn" onClick={startTour}>Use app without browser</button><button aria-label={mode==='popout'?'Restore setup window':'Maximize setup window'} type="button" className="icon-btn window-control" onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button></div></header><main className="onboarding-main"><BrowserSetupWizard/><div className="onboarding-bottom"><p>Browser recording is optional and stays disabled until you opt in inside the Brave companion.</p><button type="button" className="primary-btn" onClick={async()=>{const r=await getBrowserPairState().catch(()=>null);if(!r?.pairs.length){setMessage('Authorize an extension in step 3 first, or choose Use app without browser.');return;}startTour();}}>Finish setup and open dashboard</button>{message&&<span role="status">{message}</span>}</div></main></div></div>;
+ if(visibleMode==='pill')return <div className="pill-surface" title={message||undefined} data-tauri-drag-region><span className={`pill-status ${shown?.tracking_paused?'stopped':''}`}/><span className="pill-title">{pillText}</span><span className="pill-separator"/><span className="pill-count"><Icon name="video" size={14}/>{presentationPrivacy?'—':pillCount}</span><button aria-label="Open quick panel" className="pill-open" onClick={()=>void changeMode('quick')}><Icon name="chevron" size={16}/></button></div>;
+ if(visibleMode==='quick')return <div className="quick-surface" onPointerDownCapture={beginDrag}><div className="quick-head"><div className="quick-brand"><span className="brand-symbol">◐</span><span>Digital Discipline</span></div><div className="quick-window-controls"><button className="icon-btn window-control" title="Maximize workspace" aria-label="Maximize workspace" onClick={()=>void changeMode('full')}><Icon name="maximize"/></button><button className="icon-btn window-control window-control-close" aria-label="Collapse to pill" title="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></div></div><div className="quick-current"><span className="eyebrow">CURRENT ACTIVITY</span><strong>{pillText}</strong><small>{presentationPrivacy?'Details hidden for screen sharing':(shown?.current?.category||'Unclassified')} · {shown?.tracking_paused?'Tracking paused':'Local observation'}</small></div><div className={presentationPrivacy?'quick-stats dd-privacy-quick':'quick-stats'}><div><span>Active today</span><strong>{duration(shown?.metrics.active_ms||0)}</strong></div><div><span>Short plays</span><strong>{pillCount}</strong></div><div><span>Development</span><strong>{duration(shown?.metrics.development_ms||0)}</strong></div></div>{!presentationPrivacy&&shown?.focus_goal_hint&&<div className="focus-context-hint">{shown.focus_goal_hint.text}<button onClick={()=>{setPage('Focus & Goals');void changeMode('full');}}>Review goal</button><button onClick={()=>snoozeHint('snooze_10m')}>10m snooze</button><button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}{!presentationPrivacy&&<ResumeCard readonly={demo||offline} onOpen={()=>{setPage('Focus & Goals');void changeMode('full');}}/>}<div className="quick-actions"><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'} size={16}/>{shown?.tracking_paused?'Resume':'Pause tracking'}</button><button className="primary-btn" onClick={()=>void changeMode('full')}>Open workspace <Icon name="expand" size={16}/></button></div>{offline&&<p className="tiny-muted">Start the local agent to see recorded activity.</p>}</div>;
  return <div className="workspace">
   <aside className="sidebar"><div className="side-brand" onPointerDown={beginDrag}><div className="brand-symbol">◐</div><div className="brand-copy"><strong>digital discipline</strong><span>YOUR WORKSPACE</span></div></div><div className="side-group-label">WORKSPACE</div><nav aria-label="Primary navigation">{pages.map((p,i)=><button data-tour={['overview','live','history','videos','focus','blocking','automations','insights','coach','devices','settings'][i]} key={p} aria-label={p} className={`nav-item ${page===p?'selected':''}`} onClick={()=>setPage(p)}><Icon name={navIcons[i]} size={18}/><span>{p}</span>{stage[p]&&<small>{stage[p]?.replace('Phase ','P')}</small>}</button>)}</nav><div className="sidebar-footer"><div className="agent-health"><span className={`health-dot ${offline?'unavailable':shown?.tracking_paused?'stopped':'on'}`}/><div><strong>{demo?'Sample mode':offline?'Agent offline':shown?.tracking_paused?'Tracking paused':'Agent connected'}</strong><small>{demo?'Not recording actual usage':offline?'No live telemetry':shown?.browser_connected?'Browser signals received':'App-level only'}</small></div></div><p>LOCAL FIRST · DESKTOP v{desktopPackage.version}</p></div></aside>
   <section className="main-column"><header className="topbar" onPointerDown={beginDrag}><div className="breadcrumbs"><span>WORKSPACE</span><Icon name="chevron" size={14}/><strong>{page}</strong></div><div className="top-controls"><button type="button" className={presentationPrivacy?'tour-replay-btn dd-privacy-active':'tour-replay-btn'} title="Hide activity details during screen sharing" aria-pressed={presentationPrivacy} onClick={()=>setPresentationPrivacy(v=>!v)}>{presentationPrivacy?'Show details':'Presentation mode'}</button><button className="tour-replay-btn" type="button" title="Replay guided tour" onClick={startTour}><Icon name="history" size={15}/> Tour</button><button data-tour="command" className="command-trigger" onClick={showCommand}>Search · Ctrl K</button><span className="date-chip"><Icon name="clock" size={15}/>{dayTitle()}</span><button className={`connection-chip ${offline?'offline':''}`} onClick={()=>demo?setDemo(false):void read()}><span className="health-dot on"/>{demo?'Sample data':offline?'Disconnected':shown?.private_session?.active?'Private session':shown?.tracking_paused?'Paused':'Tracking on'}</button>{isTauri&&<><button className="icon-btn window-control" title={mode==='popout'?'Restore overlay':'Maximize as window'} aria-label={mode==='popout'?'Restore overlay':'Maximize as window'} onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button><button className="icon-btn window-control window-control-close" title="Collapse to pill" aria-label="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></>}</div></header>

@@ -9,8 +9,10 @@ export async function agent<T=unknown>(method:'GET'|'POST'|'DELETE',path:string,
   return invoke<T>('agent_request',{method,path,body:body??null});
 }
 export async function snapshot(compact=false):Promise<Snapshot> { return agent<Snapshot>('GET',compact?'/live':'/state'); }
-export async function presentation(mode:'pill'|'quick'|'full'|'popout'):Promise<void> {
-  if(isTauri) await invoke<void>('set_presentation',{mode});
+export type WindowMode='pill'|'quick'|'full'|'popout';
+export type WindowLayout={mode:WindowMode;width:number;height:number;min_width:number;min_height:number};
+export async function presentation(mode:WindowMode):Promise<WindowLayout|null> {
+  return isTauri?await invoke<WindowLayout>('set_presentation',{mode}):null;
 }
 
 export async function dragWindow():Promise<void>{
