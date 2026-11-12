@@ -1,23 +1,30 @@
 package com.digitaldiscipline.android;
 
 import android.Manifest;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.provider.Settings;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
+import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -38,21 +45,24 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public final class MainActivity extends Activity {
-    private static final int BG = 0xff0b0b0d;
-    private static final int PANEL = 0xff141416;
-    private static final int BORDER = 0xff2c2c30;
-    private static final int WHITE = 0xfff2f2f4;
-    private static final int MUTED = 0xffa6a6af;
+    private static final int BG = 0xff100f12;
+    private static final int PANEL = 0xff1b191e;
+    private static final int BORDER = 0xff353038;
+    private static final int WHITE = 0xfffff4ec;
+    private static final int MUTED = 0xffb4a9ae;
+    private static final int ACCENT = 0xffffbd73;
+    private static final int ERROR = 0xffffa299;
     private static final int WRITE_FILE = 40;
     private static final int READ_FILE = 41;
     private static final int MAX_PACKET = 512 * 1024;
     private Rules rules;
     private LinearLayout root;
+    private LinearLayout frame;
     private boolean unlocked;
-    private boolean enrolling;
-    private EditText enrollmentKey;
-    private EditText enrollmentPin;
-    private EditText confirmationPin;
+    private boolean choosingMode;
+    private int enrollStep;
+    private String validatedPairingCode;
+    private TextView enrollmentFeedback;
     private String pendingPacket;
     private String pendingReadKind;
     private boolean busy;
@@ -67,18 +77,22 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         rules = new Rules(this);
-        if (state != null) tab = state.getInt("tab");
+        if (state != null) {
+            tab = state.getInt("tab");
+            choosingMode = state.getBoolean("choosingMode");
+        }
     }
 
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("tab", tab);
+        out.putBoolean("choosingMode", choosingMode);
         super.onSaveInstanceState(out);
     }
 
     @Override protected void onResume() {
         super.onResume();
         if (Rules.CHILD.equals(rules.mode())) Rules.showChildNotice(this);
-        if (!enrolling) render();
+        if (enrollStep == 0) render();
     }
 
     @Override protected void onStop() {
@@ -91,53 +105,31 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        scroll.addView(root);
-        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets system = insets.getInsets(WindowInsets.Type.systemBars()
-                    | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
-                view.setPadding(system.left, system.top, system.right, system.bottom);
-            }
-            return insets;
-        });
-        setContentView(scroll);
-        scroll.requestApplyInsets();
+        mount();
         String mode = rules.mode();
         if (mode.isEmpty()) {
-            title("Digital Discipline", "Choose how you’ll use this device");
-            action(root, "Individual", () -> {
-                rules.prefs.edit().putString("mode", Rules.INDIVIDUAL)
-                    .putLong("enrolled", System.currentTimeMillis()).apply();
-                render();
-            });
-            action(root, "Parent phone", () -> {
-                rules.prefs.edit().putString("mode", Rules.PARENT)
-                    .putString("key", Rules.newKey()).apply();
-                tab = SETTINGS;
-                render();
-            });
-            action(root, "Child phone", this::showEnrollment);
+            if (enrollStep != 0) renderEnrollment();
+            else if (choosingMode) chooseMode();
+            else welcome();
             return;
         }
         if (Rules.CHILD.equals(mode) && !unlocked) {
-            title("Digital Discipline", "This phone is supervised by your parent.");
-            action(root, "Parent access", this::askPin);
+            LinearLayout panel = card("Supervised device");
+            panel.setGravity(Gravity.CENTER_HORIZONTAL);
+            text(panel, "Your parent manages app rules on this phone.", 16, MUTED, false);
+            action(panel, "Parent access", this::askPin);
             return;
         }
-        title("Digital Discipline", switch (mode) {
-            case Rules.CHILD -> "Child device · Parent access";
+        dashboardHeader(switch (mode) {
+            case Rules.CHILD -> "Child device";
             case Rules.PARENT -> "Parent dashboard";
-            default -> "Individual dashboard";
+            default -> "Personal dashboard";
         });
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(nav);
+        nav.setPadding(dp(14), dp(7), dp(14), dp(8));
+        nav.setBackgroundColor(0xff19171b);
+        frame.addView(nav, new LinearLayout.LayoutParams(-1, -2));
         navButton(nav, "Activity", ACTIVITY);
         navButton(nav, "Blocking", BLOCKING);
         navButton(nav, "Settings", SETTINGS);
@@ -174,21 +166,136 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void mount() {
+        frame = new LinearLayout(this);
+        frame.setOrientation(LinearLayout.VERTICAL);
+        frame.setBackgroundColor(BG);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(22), dp(18), dp(22), dp(24));
+        root.setFocusableInTouchMode(true);
+        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
+        frame.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        frame.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets system = insets.getInsets(WindowInsets.Type.systemBars()
+                    | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                view.setPadding(system.left, system.top, system.right, system.bottom);
+            }
+            return insets;
+        });
+        setContentView(frame);
+        frame.requestApplyInsets();
+    }
+
+    private void welcome() {
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.addView(new DisciplineArt(this, "hero"), new LinearLayout.LayoutParams(-1, dp(210), 1));
+        TextView heading = text(root, "Make time for\nwhat matters.", 39, WHITE, true);
+        heading.setGravity(Gravity.CENTER);
+        heading.setLetterSpacing(-0.045f);
+        TextView description = text(root, "Digital Discipline helps you see where your time goes and put limits on distractions.", 16, MUTED, false);
+        description.setGravity(Gravity.CENTER);
+        description.setMaxWidth(dp(330));
+        primary(root, "Get started", () -> {
+            choosingMode = true;
+            render();
+            enter();
+        });
+    }
+
+    private void chooseMode() {
+        backButton(root, () -> {
+            choosingMode = false;
+            render();
+        });
+        title("Make it yours", "Choose how you’ll use Digital Discipline.");
+        modeRow("Individual", "Track your time and manage your own app rules.", "Activity", () -> {
+            rules.prefs.edit().putString("mode", Rules.INDIVIDUAL)
+                .putLong("enrolled", System.currentTimeMillis()).apply();
+            render();
+            enter();
+        });
+        modeRow("Parent phone", "Review activity and set rules for a child device.", "Settings", () -> {
+            rules.prefs.edit().putString("mode", Rules.PARENT).putString("key", Rules.newKey()).apply();
+            tab = SETTINGS;
+            render();
+            enter();
+        });
+        modeRow("Child phone", "Connect to your parent’s Digital Discipline app.", "Blocking", () -> {
+            enrollStep = 1;
+            render();
+            enter();
+        });
+    }
+
+    private void modeRow(String label, String description, String icon, Runnable listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(15), dp(13), dp(14));
+        row.setBackground(ripple(surface(PANEL)));
+        row.setFocusable(true);
+        row.setOnClickListener(view -> listener.run());
+        DisciplineArt symbol = new DisciplineArt(this, icon);
+        FrameLayout badge = new FrameLayout(this);
+        badge.setBackground(surface(0xff34292a));
+        FrameLayout.LayoutParams iconSize = new FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER);
+        badge.addView(symbol, iconSize);
+        row.addView(badge, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams copyLayout = new LinearLayout.LayoutParams(0, -2, 1);
+        copyLayout.setMargins(dp(12), 0, dp(8), 0);
+        row.addView(copy, copyLayout);
+        text(copy, label, 18, WHITE, true).setPadding(0, 0, 0, dp(3));
+        text(copy, description, 14, MUTED, false).setPadding(0, 0, 0, 0);
+        TextView arrow = text(row, "›", 26, ACCENT, false);
+        arrow.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        arrow.setPadding(0, 0, 0, 0);
+        arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
+        layout.topMargin = dp(10);
+        root.addView(row, layout);
+    }
+
+    private void dashboardHeader(String description) {
+        text(root, "Digital Discipline", 17, ACCENT, true);
+        String heading = switch (tab) {
+            case BLOCKING -> "App blocking";
+            case SETTINGS -> "Settings";
+            default -> "Your activity";
+        };
+        title(heading, description);
+    }
+
+    private void enter() {
+        if (!ValueAnimator.areAnimatorsEnabled()) return;
+        root.setAlpha(0f);
+        root.setTranslationY(dp(12));
+        root.animate().alpha(1).translationY(0).setDuration(240).start();
+    }
+
     private void settings(String mode) {
         if (Rules.PARENT.equals(mode)) {
             LinearLayout pair = card("Connect a child phone");
             text(pair, "On the child phone, choose Child phone and enter this pairing code. Set a separate parent PIN on that phone.", 15, MUTED, false);
-            action(pair, "Show pairing code", this::showKey);
+            primary(pair, "Pairing code", this::showKey);
             LinearLayout files = card("Exchange files");
             text(files, "Import the child’s activity file here. In Blocking, select apps and export a rules file for the child phone.", 15, MUTED, false);
             action(files, "Import child activity", () -> openFile("activity"));
             return;
         }
-        LinearLayout permissions = card("Android permissions");
-        text(permissions, ActivityReport.allowed(this) ? "Usage access enabled" : "Usage access needed for timestamps and duration.", 15, MUTED, false);
-        action(permissions, "Open Usage access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
-        text(permissions, Rules.serviceEnabled(this) ? "App blocking enabled" : "App blocking needs the Digital Discipline accessibility service.", 15, MUTED, false);
-        action(permissions, "Set up app blocking", this::explainBlocking);
+        LinearLayout usage = card("Usage access");
+        text(usage, ActivityReport.allowed(this) ? "Enabled · Activity timestamps and duration are available."
+            : "Allow Android Usage Access to see when and how long you use each app.", 15, MUTED, false);
+        action(usage, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+        LinearLayout blocking = card("Blocking service");
+        text(blocking, Rules.serviceEnabled(this) ? "Enabled · Selected apps can be blocked."
+            : "Enable the Accessibility Service to block selected apps.", 15, MUTED, false);
+        action(blocking, "Set up app blocking", this::explainBlocking);
         if (Rules.CHILD.equals(mode)) {
             LinearLayout exchange = card("Parent file exchange");
             text(exchange, "The activity file includes installed launcher apps, app-open times and foreground duration from the last 24 hours.", 15, MUTED, false);
@@ -209,48 +316,149 @@ public final class MainActivity extends Activity {
             .show();
     }
 
-    private void showEnrollment() {
-        enrolling = true;
-        root.removeAllViews();
-        title("Child phone", "Set up with a parent");
-        LinearLayout box = card("Supervision");
-        text(box, "Your parent can block selected apps and receive app-open times and foreground usage. Android shows a Digital Discipline supervision notification.", 15, MUTED, false);
-        enrollmentKey = field(box, "Pairing code", InputType.TYPE_CLASS_TEXT
-            | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        enrollmentPin = field(box, "Parent PIN · 6–12 digits", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        confirmationPin = field(box, "Confirm parent PIN", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED) {
-            action(box, "Allow supervision notification", () ->
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 44));
-        }
-        action(box, "Enable supervision", () -> {
-            try {
-                String key = enrollmentKey.getText().toString().trim();
-                String pin = enrollmentPin.getText().toString();
-                Rules.keyBytes(key);
-                if (!pin.matches("[0-9]{6,12}") || !pin.equals(confirmationPin.getText().toString())) {
-                    status("Enter matching PINs of 6–12 digits.");
+    private void renderEnrollment() {
+        backButton(root, this::backFromEnrollment);
+        if (enrollStep == 1) {
+            text(root, "STEP 1 OF 2", 12, ACCENT, true).setLetterSpacing(0.14f);
+            title("Connect this phone", "On the parent phone, open Settings → Pairing code → Copy code.");
+            LinearLayout box = card("Pairing code");
+            EditText code = field(box, "Paste the 43-character code", InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            code.setTypeface(Typeface.MONOSPACE);
+            if (validatedPairingCode != null) code.setText(validatedPairingCode);
+            enrollmentFeedback = text(box, "The code is case-sensitive.", 14, MUTED, false);
+            action(box, "Paste pairing code", () -> pastePairingCode(code));
+            primary(root, "Continue", () -> {
+                String input = PairingInput.normalize(code.getText().toString());
+                if (!PairingInput.isCode(input)) {
+                    enrollmentError(input.isEmpty() ? "Paste the pairing code from the parent phone."
+                        : input.length() != 43
+                            ? "The code needs 43 characters. You entered " + input.length() + "."
+                            : "This code contains an invalid character. Copy it again from the parent phone.");
                     return;
                 }
-                if (!Rules.noticeAllowed(this)) {
-                    status("Enable Digital Discipline notifications in Android first.");
+                try {
+                    Rules.keyBytes(input);
+                } catch (IllegalArgumentException e) {
+                    enrollmentError("This code could not be decoded. Copy it again from the parent phone.");
                     return;
                 }
-                rules.enroll(key, pin);
-                Rules.showChildNotice(this);
-                enrolling = false;
-                unlocked = true;
-                tab = SETTINGS;
+                validatedPairingCode = input;
+                hideKeyboard();
+                enrollStep = 2;
                 render();
-            } catch (Exception e) {
-                status("Check the pairing code and try again.");
-            }
-        });
-        action(root, "Back", () -> {
-            enrolling = false;
+                enter();
+            });
+        } else {
+            text(root, "STEP 2 OF 2", 12, ACCENT, true).setLetterSpacing(0.14f);
+            title("Set a parent PIN", "This PIN protects settings on this phone. Choose 6–12 digits.");
+            LinearLayout box = card("Parent access");
+            int pinType = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+            EditText pin = field(box, "Parent PIN", pinType);
+            EditText confirm = field(box, "Confirm parent PIN", pinType);
+            enrollmentFeedback = text(box, "", 14, MUTED, false);
+            enrollmentFeedback.setVisibility(View.GONE);
+            LinearLayout privacy = card("Supervision notification");
+            text(privacy, "Your child sees when this phone is supervised. You can share app-open times and usage with the parent phone.", 14, MUTED, false);
+            action(privacy, "Notification settings", this::openNotificationSettings);
+            primary(root, "Enable supervision", () -> enableSupervision(pin, confirm));
+        }
+    }
+
+    private void enableSupervision(EditText pin, EditText confirm) {
+        String value = pin.getText().toString();
+        if (!PairingInput.isPin(value)) {
+            enrollmentError("Choose a parent PIN with 6–12 digits.");
+            return;
+        }
+        if (!value.contentEquals(confirm.getText())) {
+            enrollmentError("The two PINs don’t match.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            hideKeyboard();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 44);
+            enrollmentError("Allow the notification, then tap Enable supervision again.");
+            return;
+        }
+        if (!Rules.noticeAllowed(this)) {
+            enrollmentError("Allow the supervision notification in Android Settings, then try again.");
+            openNotificationSettings();
+            return;
+        }
+        try {
+            rules.enroll(validatedPairingCode, value);
+        } catch (Exception e) {
+            enrollmentError("Digital Discipline couldn’t save setup. Please try again.");
+            return;
+        }
+        hideKeyboard();
+        Rules.showChildNotice(this);
+        validatedPairingCode = null;
+        enrollStep = 0;
+        unlocked = true;
+        tab = SETTINGS;
+        render();
+        enter();
+    }
+
+    private void openNotificationSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+        } catch (android.content.ActivityNotFoundException e) {
+            enrollmentError("Open Digital Discipline notification settings in Android Settings.");
+        }
+    }
+
+    private void enrollmentError(String message) {
+        enrollmentFeedback.setText(message);
+        enrollmentFeedback.setTextColor(ERROR);
+        enrollmentFeedback.setVisibility(View.VISIBLE);
+        enrollmentFeedback.announceForAccessibility(message);
+    }
+
+    private void pastePairingCode(EditText code) {
+        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+        ClipData data = clipboard.getPrimaryClip();
+        CharSequence copied = data == null || data.getItemCount() == 0 ? null : data.getItemAt(0).getText();
+        if (copied == null || copied.length() > 4096 || PairingInput.normalize(copied.toString()).isEmpty()) {
+            enrollmentError("No pairing code found on the clipboard. Copy it on the parent phone or enter it here.");
+            return;
+        }
+        code.setText(PairingInput.normalize(copied.toString()));
+        code.setSelection(code.length());
+        enrollmentFeedback.setTextColor(MUTED);
+        enrollmentFeedback.setText("Check the code, then tap Continue.");
+        enrollmentFeedback.setVisibility(View.VISIBLE);
+    }
+
+    private void backFromEnrollment() {
+        hideKeyboard();
+        if (enrollStep == 1) validatedPairingCode = null;
+        enrollStep--;
+        render();
+    }
+
+    private void hideKeyboard() {
+        View focus = getCurrentFocus();
+        if (focus != null) {
+            getSystemService(android.view.inputmethod.InputMethodManager.class)
+                .hideSoftInputFromWindow(focus.getWindowToken(), 0);
+            focus.clearFocus();
+        }
+    }
+
+    @Override public void onBackPressed() {
+        if (enrollStep > 0) {
+            backFromEnrollment();
+        } else if (rules.mode().isEmpty() && choosingMode) {
+            choosingMode = false;
             render();
-        });
+        } else {
+            super.onBackPressed();
+        }
     }
 
     private void askPin() {
@@ -291,14 +499,35 @@ public final class MainActivity extends Activity {
     }
 
     private void showKey() {
-        TextView code = new TextView(this);
-        code.setPadding(dp(24), dp(16), dp(24), dp(16));
-        code.setTextColor(WHITE);
-        code.setTextSize(17);
+        String key = rules.prefs.getString("key", "");
+        LinearLayout sheet = new LinearLayout(this);
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        sheet.setPadding(dp(22), dp(22), dp(22), dp(20));
+        sheet.setBackground(surface(PANEL));
+        text(sheet, "Pairing code", 24, WHITE, true);
+        text(sheet, "Enter this code on the child phone. Keep it private.", 15, MUTED, false);
+        TextView code = text(sheet, key, 16, ACCENT, false);
+        code.setTypeface(Typeface.MONOSPACE);
         code.setTextIsSelectable(true);
-        code.setText(rules.prefs.getString("key", ""));
-        new AlertDialog.Builder(this).setTitle("Pairing code").setView(code)
-            .setPositiveButton("Done", null).show();
+        code.setPadding(dp(12), dp(12), dp(12), dp(12));
+        code.setBackground(surface(BG));
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(sheet).create();
+        primary(sheet, "Copy code", () -> {
+            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+            ClipData clip = ClipData.newPlainText("Digital Discipline pairing code", key);
+            PersistableBundle extras = new PersistableBundle();
+            extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
+            clip.getDescription().setExtras(extras);
+            clipboard.setPrimaryClip(clip);
+            if (Build.VERSION.SDK_INT < 33) status("Pairing code copied.");
+            dialog.dismiss();
+        });
+        action(sheet, "Done", dialog::dismiss);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
     }
 
     private JSONArray localAppList() {
@@ -317,7 +546,8 @@ public final class MainActivity extends Activity {
     private void showBlocks(JSONArray rows, boolean remote) {
         LinearLayout box = card(remote ? "Child app rules" : "Block apps");
         if (rows == null) {
-            text(box, "Import a child activity file in Settings to see apps on that phone.", 15, MUTED, false);
+            text(box, "Import an activity file to see the child phone’s apps and choose which ones to block.", 15, MUTED, false);
+            primary(box, "Import child activity", () -> openFile("activity"));
             return;
         }
         if (!remote && !Rules.serviceEnabled(this)) {
@@ -334,9 +564,15 @@ public final class MainActivity extends Activity {
             item.setText(app.optString("name", id));
             item.setTextColor(WHITE);
             item.setTextSize(16);
-            item.setMinHeight(dp(48));
+            item.setMinHeight(dp(58));
+            item.setShowText(false);
+            item.setSwitchPadding(dp(12));
+            int[][] states = {{android.R.attr.state_checked}, {}};
+            item.setThumbTintList(new ColorStateList(states, new int[]{ACCENT, 0xffb7adb1}));
+            item.setTrackTintList(new ColorStateList(states, new int[]{0xff916342, 0xff514952}));
             item.setChecked(selected.contains(id));
             item.setOnCheckedChangeListener((view, checked) -> rules.toggle(id, checked));
+            if (listed > 0) divider(box);
             box.addView(item, new LinearLayout.LayoutParams(-1, -2));
             listed++;
         }
@@ -346,16 +582,18 @@ public final class MainActivity extends Activity {
     private void showActivity(JSONObject report) {
         LinearLayout summary = card("Last 24 hours");
         if (!report.has("apps")) {
-            text(summary, "Import a child activity file in Settings.", 15, MUTED, false);
+            text(summary, "Import an activity file to see app usage from the child phone.", 15, MUTED, false);
+            primary(summary, "Import child activity", () -> openFile("activity"));
             return;
         }
         if (Rules.PARENT.equals(rules.mode())) {
             text(summary, "Report from " + date(report.optLong("at")), 14, MUTED, false);
-        } else {
-            action(summary, "Refresh", this::render);
         }
         if (!report.optBoolean("tracked")) {
             text(summary, "Usage access is unavailable on the reporting phone.", 15, MUTED, false);
+            if (!Rules.PARENT.equals(rules.mode())) {
+                primary(summary, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+            }
             return;
         }
         JSONArray apps = report.optJSONArray("apps");
@@ -373,13 +611,17 @@ public final class MainActivity extends Activity {
                 total += time;
             }
         }
-        text(summary, duration(total), 31, WHITE, true);
+        text(summary, duration(total), 46, ACCENT, true).setLetterSpacing(-0.045f);
         text(summary, "Foreground app usage · since " + date(report.optLong("from")), 14, MUTED, false);
-        if (!used.isEmpty()) {
+        if (!Rules.PARENT.equals(rules.mode())) action(summary, "Refresh activity", this::render);
+        if (used.isEmpty()) {
+            text(card("App usage"), "Activity will appear after you spend time in other apps.", 15, MUTED, false);
+        } else {
             LinearLayout breakdown = card("Time by app");
             used.sort((a, b) -> Long.compare(b.optLong("time"), a.optLong("time")));
             for (JSONObject app : used) {
                 text(breakdown, app.optString("name") + "  ·  " + duration(app.optLong("time")), 15, WHITE, false);
+                usageBar(breakdown, app.optLong("time"), total);
             }
         }
         JSONArray opens = report.optJSONArray("opens");
@@ -397,6 +639,25 @@ public final class MainActivity extends Activity {
                 render();
             });
         }
+    }
+
+    private void divider(LinearLayout parent) {
+        View line = new View(this);
+        line.setBackgroundColor(BORDER);
+        parent.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+    }
+
+    private void usageBar(LinearLayout parent, long time, long total) {
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null,
+            android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        bar.setProgress((int) Math.max(1, (time * 1000) / total));
+        bar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(BORDER));
+        bar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, dp(5));
+        layout.bottomMargin = dp(15);
+        parent.addView(bar, layout);
     }
 
     private void exportActivity() {
@@ -539,82 +800,157 @@ public final class MainActivity extends Activity {
     }
 
     private void title(String title, String description) {
-        text(root, title, 32, WHITE, true);
-        text(root, description, 15, MUTED, false);
+        text(root, title, 35, WHITE, true).setLetterSpacing(-0.035f);
+        text(root, description, 16, MUTED, false);
     }
 
     private LinearLayout card(String heading) {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(14), dp(16), dp(14));
+        panel.setPadding(dp(18), dp(17), dp(18), dp(17));
         panel.setBackground(surface(PANEL));
         LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
-        layout.topMargin = dp(13);
+        layout.topMargin = dp(14);
         root.addView(panel, layout);
-        text(panel, heading, 19, WHITE, true);
+        text(panel, heading, 20, WHITE, true);
         return panel;
     }
 
     private void navButton(LinearLayout row, String title, int page) {
-        Button button = button(title, () -> {
+        boolean selected = tab == page;
+        LinearLayout item = new LinearLayout(this);
+        item.setGravity(Gravity.CENTER);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setMinimumHeight(dp(60));
+        item.setContentDescription(title);
+        item.setSelected(selected);
+        item.setFocusable(true);
+        item.setBackground(ripple(selected ? surface(0xff352820) : null));
+        item.addView(new DisciplineArt(this, title), new LinearLayout.LayoutParams(dp(21), dp(21)));
+        TextView label = text(item, title, 12, selected ? ACCENT : MUTED, true);
+        label.setGravity(Gravity.CENTER);
+        label.setPadding(0, dp(4), 0, 0);
+        label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        item.setOnClickListener(view -> {
+            if (tab == page) return;
             tab = page;
             historyLimit = 30;
             render();
-        }, tab == page);
-        LinearLayout.LayoutParams item = new LinearLayout.LayoutParams(0, -2, 1);
-        item.setMargins(dp(2), dp(8), dp(2), 0);
-        row.addView(button, item);
+            enter();
+        });
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, -2, 1);
+        size.setMargins(dp(3), 0, dp(3), 0);
+        row.addView(item, size);
+    }
+
+    private void backButton(LinearLayout parent, Runnable listener) {
+        Button back = button("‹  Back", listener, false);
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-2, -2);
+        size.bottomMargin = dp(14);
+        parent.addView(back, size);
     }
 
     private void action(LinearLayout parent, String title, Runnable listener) {
-        Button button = button(title, listener, false);
-        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
-        layout.topMargin = dp(8);
-        parent.addView(button, layout);
+        addButton(parent, title, listener, false);
     }
 
-    private Button button(String label, Runnable action, boolean selected) {
+    private void primary(LinearLayout parent, String title, Runnable listener) {
+        addButton(parent, title, listener, true);
+    }
+
+    private void addButton(LinearLayout parent, String title, Runnable listener, boolean primary) {
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, -2);
+        layout.topMargin = dp(primary ? 14 : 8);
+        parent.addView(button(title, listener, primary), layout);
+    }
+
+    private Button button(String label, Runnable action, boolean primary) {
         Button button = new Button(this);
         button.setText(label);
         button.setAllCaps(false);
-        button.setTextSize(14);
-        button.setMinHeight(dp(48));
+        button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        button.setTextSize(15);
+        button.setMinHeight(dp(primary ? 54 : 48));
         button.setMinWidth(0);
-        button.setTextColor(selected ? Color.BLACK : WHITE);
-        button.setPadding(dp(8), dp(7), dp(8), dp(7));
-        button.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x45a6a6af),
-            surface(selected ? WHITE : 0xff242428), null));
+        button.setTextColor(primary ? 0xff21160f : WHITE);
+        button.setPadding(dp(14), dp(9), dp(14), dp(9));
+        button.setStateListAnimator(null);
+        button.setBackground(ripple(surface(primary ? ACCENT : 0xff28242a)));
         button.setOnClickListener(view -> action.run());
         return button;
     }
 
+    private android.graphics.drawable.RippleDrawable ripple(android.graphics.drawable.Drawable surface) {
+        GradientDrawable mask = new GradientDrawable();
+        mask.setColor(0xffffffff);
+        mask.setCornerRadius(dp(19));
+        return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x26fff4ec), surface, mask);
+    }
+
     private EditText field(LinearLayout parent, String hint, int input) {
+        FrameLayout wrapper = new FrameLayout(this);
+        wrapper.setBackground(surface(BG));
         EditText text = new EditText(this);
-        text.setInputType(input);
         text.setSingleLine(true);
+        text.setInputType(input);
+        if (input == (InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD)) {
+            text.setTransformationMethod(android.text.method.PasswordTransformationMethod.getInstance());
+            text.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(12)});
+        }
+        text.setTextSize(16);
         text.setHint(hint);
         text.setTextColor(WHITE);
         text.setHintTextColor(MUTED);
+        text.setPadding(dp(13), dp(12), dp(46), dp(12));
+        text.setMinHeight(dp(56));
+        text.setBackground(null);
+        text.setSaveEnabled(false);
         text.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        parent.addView(text, new LinearLayout.LayoutParams(-1, -2));
+        wrapper.addView(text, new FrameLayout.LayoutParams(-1, -2));
+        DisciplineArt pencil = new DisciplineArt(this, "pencil");
+        pencil.setAlpha(0.58f);
+        FrameLayout.LayoutParams icon = new FrameLayout.LayoutParams(dp(20), dp(20), Gravity.END | Gravity.CENTER_VERTICAL);
+        icon.setMarginEnd(dp(13));
+        wrapper.addView(pencil, icon);
+        LinearLayout.LayoutParams field = new LinearLayout.LayoutParams(-1, -2);
+        field.bottomMargin = dp(10);
+        parent.addView(wrapper, field);
+        text.setOnFocusChangeListener((view, focused) -> {
+            GradientDrawable frame = surface(BG);
+            if (focused) frame.setStroke(dp(1), ACCENT);
+            wrapper.setBackground(frame);
+            pencil.setAlpha(focused ? 1f : 0.58f);
+        });
+        text.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence value, int start, int before, int count) {
+                if (!text.hasFocus() || !ValueAnimator.areAnimatorsEnabled()) return;
+                pencil.animate().cancel();
+                pencil.setTranslationY(-dp(4));
+                pencil.setRotation(-15);
+                pencil.animate().translationY(0).rotation(0).setDuration(175).start();
+            }
+            @Override public void afterTextChanged(Editable value) {}
+        });
         return text;
     }
 
-    private void text(LinearLayout parent, String value, int size, int color, boolean bold) {
+    private TextView text(LinearLayout parent, String value, int size, int color, boolean bold) {
         TextView text = new TextView(this);
         text.setText(value);
         text.setTextSize(size);
         text.setTextColor(color);
         text.setPadding(0, 0, 0, dp(8));
-        if (bold) text.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        if (bold) text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         parent.addView(text, new LinearLayout.LayoutParams(-1, -2));
+        return text;
     }
 
     private GradientDrawable surface(int fill) {
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(fill);
         shape.setStroke(dp(1), BORDER);
-        shape.setCornerRadius(dp(13));
+        shape.setCornerRadius(dp(19));
         return shape;
     }
 

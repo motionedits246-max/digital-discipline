@@ -42,13 +42,13 @@ jobs:
       - name: Verify alignment and prepare artifact
         run: |
           mkdir -p artifact
-          apk=artifact/Digital-Discipline-Android-0.1.0-unsigned.apk
+          apk=artifact/Digital-Discipline-Android-0.2.0-unsigned.apk
           cp apps/android/app/build/outputs/apk/release/app-release-unsigned.apk "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$apk"
           cd artifact
           sha256sum ./*.apk > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: Digital-Discipline-Android-0.1.0-unsigned
+          name: Digital-Discipline-Android-0.2.0-unsigned
           path: artifact/
           if-no-files-found: error

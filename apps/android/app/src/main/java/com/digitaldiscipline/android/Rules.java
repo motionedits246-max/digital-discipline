@@ -98,7 +98,7 @@ final class Rules {
     static String newKey() { return Base64.encodeToString(random(32), BASE64); }
 
     static byte[] keyBytes(String key) {
-        if (!key.matches("[A-Za-z0-9_-]{43}")) throw new IllegalArgumentException("Invalid pairing code");
+        if (!PairingInput.isCode(key)) throw new IllegalArgumentException("Invalid pairing code");
         byte[] bytes = Base64.decode(key, BASE64);
         if (bytes.length != 32) throw new IllegalArgumentException("Invalid pairing code");
         return bytes;
@@ -127,7 +127,7 @@ final class Rules {
     }
 
     boolean verify(String pin) throws Exception {
-        if (!pin.matches("[0-9]{6,12}")) return false;
+        if (!PairingInput.isPin(pin)) return false;
         byte[] salt = Base64.decode(prefs.getString("salt", ""), BASE64);
         byte[] expected = Base64.decode(prefs.getString("verifier", ""), BASE64);
         return MessageDigest.isEqual(expected, derive(pin.toCharArray(), salt));
