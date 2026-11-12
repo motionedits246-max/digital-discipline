@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "version": "0.5.0",
+  "companion_version": "0.4.0",
+  "protocol": "1.0",
+  "filename": "Digital-Discipline-0.5.0-x64-setup.exe",
+  "bytes": 6438384,
+  "sha256": "d8fb7dae90493870c7ac3e2ffb6d8bb361627dafcfbae2989d27a1679d990131",
+  "signing": "development",
+  "signer_thumbprint": "36c545002d887ed8d8796eade4dd5c9f34d9a9f8",
+  "notes": "Desktop notification sounds, a daily planner, flexible weekly goals, focus presets, history corrections, earned entertainment, encrypted backups, and optional Windows-to-Windows activity sync."
+}

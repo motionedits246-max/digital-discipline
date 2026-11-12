@@ -33,11 +33,6 @@ The build produces a Cloudflare Worker in `dist/server` and client assets in `di
 
 ## Installer
 
-`public/downloads/Digital-Discipline-0.4.4-x64-setup.exe` is the original tested Windows x64 installer, served directly to visitors without GitHub authentication. The hosted source includes this binary. The GitHub source mirror provisions it automatically before development/build from the public release URL and verifies both its byte length and pinned SHA-256; an already present installer is verified locally.
+`release.json` records the published Windows x64 version, companion version, filename, size, SHA-256, and signer thumbprint. The public site serves the Windows installer from its own origin. The GitHub source branch downloads it from the live site before development or builds and checks its size and SHA-256. The early-access installer uses a self-signed development certificate.
 
-- Version: 0.4.4
-- Size: 5,981,800 bytes
-- SHA-256: `cee81d66fe23008bc8042de4e762210fc696898ef08575dee5f020298497f9d3`
-- Signing: self-signed development certificate; this is an early-access build.
-
-When releasing a new installer, replace the binary and update the version, file path, size, checksum, and installation notes in `app/page.tsx`. Do not publish personal activity or private keys in the preview.
+For a release, put the verified installer in `public/downloads/` and update the manifest. The download links, version, size, and release notes read from this file. The build publishes a copy at `/downloads/latest.json`.

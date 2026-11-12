@@ -46,3 +46,6 @@ yarn-error.log*
 
 # The GitHub mirror provisions the pinned release before build.
 /public/downloads/*.exe
+
+# Generated public release metadata
+/public/downloads/latest.json

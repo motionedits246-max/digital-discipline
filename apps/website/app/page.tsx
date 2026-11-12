@@ -30,10 +30,10 @@ import {
   Plus,
 } from "lucide-react";
 import { MotionTour } from "./motion-tour";
+import release from "../release.json";
 
-const DOWNLOAD = "/downloads/Digital-Discipline-0.4.4-x64-setup.exe";
-const CHECKSUM =
-  "cee81d66fe23008bc8042de4e762210fc696898ef08575dee5f020298497f9d3";
+const DOWNLOAD = "/downloads/" + release.filename;
+const CHECKSUM = release.sha256;
 type View = "overview" | "focus" | "insights";
 
 function Mark({ className = "" }: { className?: string }) {
@@ -81,7 +81,7 @@ function DownloadLink({
   return (
     <a
       href={DOWNLOAD}
-      download="Digital-Discipline-0.4.4-x64-setup.exe"
+      download={release.filename}
       className={"download-button " + className}
     >
       <WindowsMark />
@@ -610,12 +610,16 @@ const faqs = [
   {
     question: "What can Digital Discipline restrict?",
     answer:
-      "The browser companion can apply domain and route restrictions, schedules and time budgets. Temporary exceptions and emergency recovery remain available. Selected native Windows apps currently receive focus warnings, rather than process blocking.",
+      "The browser companion can apply domain and route restrictions, schedules and time budgets. Temporary exceptions and emergency recovery remain available. A Strict focus preset can minimize a selected Windows app once per session.",
   },
   {
     question: "What should I know before installing?",
     answer:
-      "Version 0.4.4 is an early-access Windows x64 development build. Its certificate is self-signed, so Windows may show a publisher or SmartScreen warning. Quit an older version from its tray menu before updating. Existing pairing, profiles and recording preferences are retained.",
+      "Version " + release.version + " is an early-access Windows x64 development build. Its self-signed certificate may trigger a publisher or SmartScreen warning. Quit the previous version from its tray menu before installing. In Settings, open the companion folder and reload your existing Brave extension to get companion " + release.companion_version + ".",
+  },
+  {
+    question: "What's new in version " + release.version + "?",
+    answer: release.notes,
   },
 ];
 export default function Home() {
@@ -694,7 +698,7 @@ export default function Home() {
               <span className="tag-dot" />
               WINDOWS EARLY ACCESS
               <span className="tag-divider" />
-              v0.4.4
+              v{release.version}
               <ArrowUpRight size={12} />
             </a>
             <h1>
@@ -847,11 +851,11 @@ export default function Home() {
           <p>Start with a clearer picture of your day.</p>
           <DownloadLink />
           <div className="download-meta">
-            <span>v0.4.4</span>
+            <span>v{release.version}</span>
             <i />
             <span>Windows x64</span>
             <i />
-            <span>5.98 MB</span>
+            <span>{(release.bytes / 1_000_000).toFixed(2)} MB</span>
           </div>
           <p className="development-note">
             Early access · Development-signed installer.
