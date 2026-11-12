@@ -67,19 +67,28 @@ jobs:
         with:
           name: Digital-Discipline-Android-0.3.0-unsigned
           path: artifact
-      - uses: android-actions/setup-android@v3
-      - name: Prepare test signing and emulator access
+      - name: Prepare test APK and Android emulator
         run: |
-          sdkmanager 'build-tools;35.0.0'
+          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "$sdk/platform-tools" >> "$GITHUB_PATH"
+          echo "$sdk/emulator" >> "$GITHUB_PATH"
+          tools="$sdk/cmdline-tools/latest/bin"
+          image='system-images;android-35;default;x86_64'
+          "$tools/sdkmanager" 'platform-tools' 'build-tools;35.0.0' 'emulator' "$image"
+          printf 'no\n' | "$tools/avdmanager" create avd --force --name discipline-ci --package "$image" --device pixel_6
           keytool -genkeypair -keystore "$RUNNER_TEMP/dd-test.p12" -storepass android -keypass android -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Digital Discipline emulator'
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$RUNNER_TEMP/dd-test.p12" --ks-pass pass:android --out "$RUNNER_TEMP/dd-test.apk" artifact/Digital-Discipline-Android-0.3.0-unsigned.apk
-          sudo chmod a+rw /dev/kvm
+          "$sdk/build-tools/35.0.0/apksigner" sign --ks "$RUNNER_TEMP/dd-test.p12" --ks-pass pass:android --out "$RUNNER_TEMP/dd-test.apk" artifact/Digital-Discipline-Android-0.3.0-unsigned.apk
       - name: Check blocking on Android
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          script: adb install "$RUNNER_TEMP/dd-test.apk" && python3 apps/android/tests/blocking-smoke.py
+        run: |
+          acceleration=()
+          if [[ -c /dev/kvm ]]; then
+            sudo chmod a+rw /dev/kvm
+          else
+            acceleration=(-accel off)
+          fi
+          emulator -avd discipline-ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect "${acceleration[@]}" > "$RUNNER_TEMP/dd-emulator.log" 2>&1 &
+          pid=$!
+          trap 'code=$?; if [[ $code != 0 ]]; then tail -60 "$RUNNER_TEMP/dd-emulator.log"; fi; kill "$pid" 2>/dev/null || true' EXIT
+          timeout 480 bash -c 'adb wait-for-device; until [[ "$(adb shell getprop sys.boot_completed | tr -d "\r")" == 1 ]]; do sleep 3; done'
+          adb install "$RUNNER_TEMP/dd-test.apk"
+          python3 apps/android/tests/blocking-smoke.py
