@@ -117,7 +117,7 @@ test('browser connection notification uses the same compact surface and opens br
  const card=page.getByRole('region',{name:'Desktop notification'});await expect(card).toBeVisible();await expect(card.getByText('New browser connection',{exact:true})).toBeVisible();
  const box=await card.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(156);
  await page.screenshot({path:'ui-test-output/browser-notice.png'});await card.getByRole('button',{name:'Open details'}).click();
- expect(await page.evaluate(()=>(window as any).__testCalls.find((c:any)=>c.command==='open_notice_page').args.page)).toBe('Settings & Privacy');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.find((c:any)=>c.command==='open_notice_page')?.args?.page)).toBe('Settings & Privacy');
  expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.args?.method==='POST'&&c.args?.path==='/browser-pairs'))).toBe(false);
 });
 test('new companion request is delivered once and never replaces an active overlay',async({page})=>{
