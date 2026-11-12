@@ -1,0 +1,50 @@
+name: Build Android prototype
+
+on:
+  push:
+    branches: [feature/android-prototype-lan]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android-prototype.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build APK and check Android lint
+        run: gradle --no-daemon :app:assembleRelease :app:lintRelease
+      - name: Align and verify unsigned APK
+        run: |
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$tools/zipalign" -f 4 app/build/outputs/apk/release/app-release-unsigned.apk Digital-Discipline-Android-0.1.0-unsigned.apk
+          "$tools/zipalign" -c 4 Digital-Discipline-Android-0.1.0-unsigned.apk
+          if "$tools/apksigner" verify Digital-Discipline-Android-0.1.0-unsigned.apk; then
+            exit 1
+          fi
+          "$tools/aapt" dump badging Digital-Discipline-Android-0.1.0-unsigned.apk | sed -n '1,5p'
+          sha256sum Digital-Discipline-Android-0.1.0-unsigned.apk > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digital-discipline-android-unsigned
+          path: |
+            apps/android/Digital-Discipline-Android-0.1.0-unsigned.apk
+            apps/android/SHA256SUMS
+          if-no-files-found: error

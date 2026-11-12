@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Digital Discipline</string>
+    <string name="blocker_name">Digital Discipline app blocker</string>
+    <string name="blocker_summary">Show a block screen for selected apps</string>
+    <string name="blocker_description">Uses the foreground app name to show the block screen for selected apps. In Child mode it also runs the visible local family connection when sharing is enabled.</string>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#0B0B0D</item>
+        <item name="android:statusBarColor">#0B0B0D</item>
+        <item name="android:navigationBarColor">#0B0B0D</item>
+        <item name="android:colorAccent">#F2F2F4</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
