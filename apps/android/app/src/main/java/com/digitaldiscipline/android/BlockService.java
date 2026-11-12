@@ -64,16 +64,17 @@ public final class BlockService extends AccessibilityService {
         TextView title = new TextView(this);
         title.setTextColor(0xfff2f2f4);
         title.setTextSize(20);
-        title.setText("App blocked");
+        title.setText(R.string.app_blocked);
         card.addView(title);
         TextView body = new TextView(this);
         body.setTextColor(0xffc6c6cf);
         body.setTextSize(15);
         String name = Rules.apps(this).getOrDefault(id, id);
-        body.setText(name + (Rules.CHILD.equals(mode) ? " is blocked by your parent." : " is blocked by your rule."));
+        int message = Rules.CHILD.equals(mode) ? R.string.blocked_by_parent : R.string.blocked_by_rule;
+        body.setText(getString(message, name));
         card.addView(body);
         Button okay = new Button(this);
-        okay.setText("OK");
+        okay.setText(android.R.string.ok);
         okay.setOnClickListener(view -> hideNotice());
         card.addView(okay);
 

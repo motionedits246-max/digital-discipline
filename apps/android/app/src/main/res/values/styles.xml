@@ -1,5 +1,8 @@
 <resources>
     <string name="block_service_description">Checks which app opens and shows a blocking notice for selected apps. Digital Discipline does not read screen contents.</string>
+    <string name="app_blocked">App blocked</string>
+    <string name="blocked_by_parent">%1$s is blocked by your parent.</string>
+    <string name="blocked_by_rule">%1$s is blocked by your rule.</string>
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowBackground">#0B0B0D</item>

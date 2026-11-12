@@ -21,6 +21,7 @@
     </queries>
 
     <application android:label="Digital Discipline" android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@drawable/ic_discipline" android:theme="@style/AppTheme">
         <meta-data android:name="isMonitoringTool" android:value="child_monitoring" />
         <activity android:name=".MainActivity" android:exported="true">
