@@ -24,6 +24,7 @@ import {
   Shield,
   SlidersHorizontal,
   Square,
+  Star,
   Target,
   Video,
   X,
@@ -34,6 +35,7 @@ import release from "../release.json";
 
 const DOWNLOAD = "/downloads/" + release.filename;
 const CHECKSUM = release.sha256;
+const GITHUB_REPO = "https://github.com/motionedits246-max/digital-discipline-windows";
 type View = "overview" | "focus" | "insights";
 
 function Mark({ className = "" }: { className?: string }) {
@@ -674,6 +676,9 @@ export default function Home() {
             <a href="#faq" onClick={() => setMenuOpen(false)}>
               FAQs
             </a>
+            <a href="#source" onClick={() => setMenuOpen(false)}>
+              Source
+            </a>
             <a className="mobile-download" href={DOWNLOAD} download>
               Download for Windows
             </a>
@@ -890,6 +895,23 @@ export default function Home() {
               </small>
             </div>
           </details>
+          <section id="source" className="source-card" aria-labelledby="source-title">
+            <div className="source-copy">
+              <h3 id="source-title">Source code</h3>
+              <p>If Digital Discipline helps you, give the repo a star on GitHub.</p>
+            </div>
+            <div className="source-actions">
+              <a href={GITHUB_REPO + "/tree/" + release.source_ref}>
+                <Code2 size={16} aria-hidden="true" />
+                View source code
+                <ArrowUpRight size={12} aria-hidden="true" />
+              </a>
+              <a href={GITHUB_REPO}>
+                <Star size={15} aria-hidden="true" />
+                Star on GitHub
+              </a>
+            </div>
+          </section>
         </section>
       </main>
       <footer className="site-footer section-shell">
@@ -905,6 +927,7 @@ export default function Home() {
         <div>
           <a href="#privacy">Privacy</a>
           <a href="#download">Download</a>
+          <a href="#source">Source</a>
           <span>© {new Date().getFullYear()} Digital Discipline</span>
         </div>
       </footer>

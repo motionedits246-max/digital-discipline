@@ -1,12 +1,13 @@
 {
   "schema": 1,
-  "version": "0.5.0",
+  "version": "0.5.2",
+  "source_ref": "feature/window-resize-0.5.2",
   "companion_version": "0.4.0",
   "protocol": "1.0",
-  "filename": "Digital-Discipline-0.5.0-x64-setup.exe",
-  "bytes": 6438384,
-  "sha256": "d8fb7dae90493870c7ac3e2ffb6d8bb361627dafcfbae2989d27a1679d990131",
+  "filename": "Digital-Discipline-0.5.2-x64-setup.exe",
+  "bytes": 6451616,
+  "sha256": "88cabe8c93590e8b98aeeb8723f5396e3cf969a209ed541b4d6ef42873d73a7a",
   "signing": "development",
-  "signer_thumbprint": "36c545002d887ed8d8796eade4dd5c9f34d9a9f8",
-  "notes": "Desktop notification sounds, a daily planner, flexible weekly goals, focus presets, history corrections, earned entertainment, encrypted backups, and optional Windows-to-Windows activity sync."
+  "signer_thumbprint": "c7b624b6da7a8bbc3221b559ddfebb07cb694fff",
+  "notes": "Getting Started opens once the workspace reaches its minimum size. This download also includes dark form controls, custom categories and distraction labels, a dedicated Diagnostics panel, and a floating controller you can drag from anywhere outside its buttons."
 }

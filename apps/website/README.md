@@ -33,6 +33,6 @@ The build produces a Cloudflare Worker in `dist/server` and client assets in `di
 
 ## Installer
 
-`release.json` records the published Windows x64 version, companion version, filename, size, SHA-256, and signer thumbprint. The public site serves the Windows installer from its own origin. The GitHub source branch downloads it from the live site before development or builds and checks its size and SHA-256. The early-access installer uses a self-signed development certificate.
+`release.json` records the published Windows x64 version, companion version, source ref, filename, size, SHA-256, and signer thumbprint. The public site serves the Windows installer from its own origin. The GitHub source branch downloads it from the live site before development or builds and checks its size and SHA-256. The early-access installer uses a self-signed development certificate.
 
 For a release, put the verified installer in `public/downloads/` and update the manifest. The download links, version, size, and release notes read from this file. The build publishes a copy at `/downloads/latest.json`.

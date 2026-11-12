@@ -1531,6 +1531,61 @@ summary {
   color: #9292a9;
   margin-left: 12px;
 }
+.source-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px 24px;
+  max-width: 690px;
+  margin: 44px auto 0;
+  padding: clamp(18px, 3vw, 24px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  text-align: left;
+}
+.source-copy {
+  flex: 1 1 220px;
+}
+.source-copy > h3 {
+  font-size: 16px;
+  font-weight: 620;
+  letter-spacing: -0.03em;
+}
+.source-copy > p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.source-actions > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid #3d3d45;
+  border-radius: 8px;
+  background: var(--inset);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 560;
+  transition: background 0.2s, border-color 0.2s;
+}
+.source-actions > a:hover {
+  background: #2d2d35;
+  border-color: #666673;
+}
+.source-actions > a > svg {
+  color: #bdbdca;
+}
 .site-footer {
   border-top: 1px solid #2c2c39;
   padding: 30px 0 36px;
