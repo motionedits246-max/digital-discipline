@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows,not(debug_assertions)), windows_subsystem = "windows")]
 mod ipc_routes;
+mod notification_sound;
 #[path = "../../../../shared/process_resources.rs"]
 mod process_resources;
 mod window_policy;
@@ -12,19 +13,30 @@ use tauri::{Manager,Emitter, LogicalSize, Size};
 
 #[derive(Default)]struct PresentationState{current:std::sync::Mutex<(String,Option<(i32,i32,u32,u32,u64)>)>}
 fn monitor_key(m:&tauri::window::Monitor)->(i32,i32,u32,u32,u64){let a=m.work_area();(a.position.x,a.position.y,a.size.width,a.size.height,m.scale_factor().to_bits())}
-#[derive(Default)]struct ServiceHintState{payload:std::sync::Mutex<Option<Value>>}
+struct PendingNotice {
+    content: Value,
+    sound_pending: bool,
+}
+#[derive(Default)]
+struct ServiceHintState {
+    payload: std::sync::Mutex<Option<PendingNotice>>,
+}
 fn hints_masked(app:&tauri::AppHandle)->bool{
  #[cfg(windows)]{return app.try_state::<lifecycle::Supervisor>().is_some_and(|s|{let status=s.status();s.privacy_mask.load(std::sync::atomic::Ordering::SeqCst)||status["private_session"]["active"]==true||status["tracking_paused"]==true});}
  #[cfg(not(windows))]{let _=app;false}
 }
 async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
  if hints_masked(&app){return Ok(false);}
- {let state=app.state::<ServiceHintState>();let mut payload=state.payload.lock().map_err(|_|"Notification unavailable")?;if payload.is_some(){return Ok(false);}*payload=Some(notice.clone());}
+ {let state=app.state::<ServiceHintState>();let mut payload=state.payload.lock().map_err(|_|"Notification unavailable")?;if payload.is_some(){return Ok(false);}*payload=Some(PendingNotice{content:notice.clone(),sound_pending:true});}
  if app.get_webview_window("service-hint").is_none(){
   if tauri::WebviewWindowBuilder::new(&app,"service-hint",tauri::WebviewUrl::App("index.html?surface=service-hint".into())).title("Digital Discipline notification").inner_size(356.0,156.0).resizable(false).decorations(false).transparent(true).shadow(false).always_on_top(true).skip_taskbar(true).focused(false).visible(false).build().is_err(){
    *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Notification unavailable")?=None;return Err("Could not open notification".into());
   }
- }else{app.emit_to("service-hint","dd:service-hint",notice).map_err(|_|"Could not deliver notification")?;}Ok(true)
+ }else if app.emit_to("service-hint","dd:service-hint",notice).is_err(){
+  *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Notification unavailable")?=None;
+  return Err("Could not deliver notification".into());
+ }
+ Ok(true)
 }
 #[tauri::command]async fn deliver_service_hint(app:tauri::AppHandle,service:Value)->Result<bool,String>{
  if service["subject"].as_str().is_none_or(|s|s.len()>260)||serde_json::to_vec(&service).map_err(|_|"Invalid suggestion")?.len()>4096{return Err("Invalid suggestion".into());}
@@ -34,7 +46,7 @@ async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
  if serde_json::to_vec(&notice).map_err(|_|"Invalid notification")?.len()>4096||!matches!(notice["kind"].as_str(),Some("browser"|"status"))||!matches!(notice["page"].as_str(),Some("Settings & Privacy"|"Inbox"))||notice["title"].as_str().is_none_or(|s|s.is_empty()||s.len()>120)||notice["detail"].as_str().is_none_or(|s|s.len()>400){return Err("Invalid notification".into());}
  show_notice(app,notice).await
 }
-#[tauri::command]fn read_service_hint(app:tauri::AppHandle)->Option<Value>{if hints_masked(&app){None}else{app.state::<ServiceHintState>().payload.lock().ok().and_then(|v|v.clone())}}
+#[tauri::command]fn read_service_hint(app:tauri::AppHandle)->Option<Value>{if hints_masked(&app){None}else{app.state::<ServiceHintState>().payload.lock().ok().and_then(|v|v.as_ref().map(|notice|notice.content.clone()))}}
 #[tauri::command]fn set_service_hint_window(app:tauri::AppHandle,visible:bool,expanded:bool)->Result<(),String>{
  if !visible||hints_masked(&app){
   *app.state::<ServiceHintState>().payload.lock().map_err(|_|"Notification unavailable")?=None;
@@ -49,9 +61,16 @@ async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
  #[cfg(windows)]{
   #[link(name="user32")]extern "system"{fn ShowWindow(hwnd:*mut std::ffi::c_void,command:i32)->i32;}
   let hwnd=w.hwnd().map_err(|_|"Notification handle unavailable")?;unsafe{ShowWindow(hwnd.0 as *mut std::ffi::c_void,4);}// Do not steal focus from the foreground application.
-  Ok(())
  }
- #[cfg(not(windows))]{w.show().map_err(|_|"Could not show notification".into())}
+ #[cfg(not(windows))]
+ w.show().map_err(|_|"Could not show notification")?;
+ let sound_pending={
+  let state=app.state::<ServiceHintState>();
+  let mut payload=state.payload.lock().map_err(|_|"Notification unavailable")?;
+  payload.as_mut().is_some_and(|notice|std::mem::take(&mut notice.sound_pending))
+ };
+ if sound_pending {notification_sound::play();}
+ Ok(())
 }
 #[tauri::command]fn open_service_review(app:tauri::AppHandle)->Result<(),String>{let _=set_service_hint_window(app.clone(),false,false);set_presentation(app.clone(),"full".into())?;if let Some(w)=app.get_webview_window("main"){let _=w.show();let _=w.set_focus();}app.emit_to("main","dd:open-service-review",()).map_err(|_|"Could not open service review".into())}
 #[tauri::command]fn open_notice_page(app:tauri::AppHandle,page:String)->Result<(),String>{

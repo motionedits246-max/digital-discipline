@@ -66,11 +66,11 @@ export function PlannerPanel({disabled, onFocus}: {disabled: boolean; onFocus: (
   const [target, setTarget] = useState<TargetDraft>(newTarget);
   useEffect(() => {
     if (!disabled) void agent<{profiles: typeof profiles}>('GET','/workflows')
-      .then(result => setProfiles(result.profiles)).catch(() => {});
+      .then(result => setProfiles(result.profiles ?? [])).catch(() => {});
   }, [disabled]);
 
   if (disabled) return <div className="surface padded">Connect to the local agent to edit your plan.</div>;
-  if (!panel.data) return <div className="surface padded" role="status">{panel.error || 'Loading planner…'}</div>;
+  if (!panel.data?.today || !Array.isArray(panel.data.blocks) || !Array.isArray(panel.data.report?.targets)) return <div className="surface padded" role="status">{panel.error || (panel.data?'Planner data is unavailable.':'Loading planner…')}</div>;
   const {blocks, today, report} = panel.data;
   const plan = draft ?? newPlan(today);
   const patch = (value: Partial<PlanDraft>) => setDraft({...plan, ...value});
@@ -199,7 +199,7 @@ export function HistoryCorrections({day, sessions, disabled, onRefresh}: {
       <div className="release-actions"><button className="secondary-btn" disabled={!chosen||panel.busy} onClick={()=>void correct(id,'category')}>Apply category</button>
         <button className="secondary-btn" disabled={!chosen||panel.busy} onClick={()=>void correct(id,'hide')}>Hide false observation</button></div>
     </div>
-    {panel.data?.corrections.map(item=><div className="release-row" key={item.session_id}>
+    {panel.data?.corrections?.map(item=><div className="release-row" key={item.session_id}>
       <span>{item.app} · {item.hidden?'Hidden observation':item.category}</span>
       <button className="text-action" disabled={!item.can_undo||panel.busy} onClick={()=>void correct(item.session_id,'undo')}>{item.can_undo?'Undo correction':'Undo period ended'}</button>
     </div>)}
@@ -209,7 +209,7 @@ export function HistoryCorrections({day, sessions, disabled, onRefresh}: {
       <label>Minutes<input type="number" min={1} max={480} value={duration} onChange={e=>setDuration(Number(e.target.value))}/></label>
       <div className="release-actions"><button className="secondary-btn" disabled={panel.busy}>Add self-reported time</button></div>
     </form>
-    {panel.data?.manual.map(item=><div className="release-row" key={item.id}><span>{item.label} · {item.category} · {minutes(item.end_ms-item.start_ms)} min · Self-reported</span>
+    {panel.data?.manual?.map(item=><div className="release-row" key={item.id}><span>{item.label} · {item.category} · {minutes(item.end_ms-item.start_ms)} min · Self-reported</span>
       <button className="text-action" disabled={panel.busy} onClick={()=>void panel.change(()=>agent('POST','/history/manual',{id:item.id}))}>Remove</button></div>)}
   </section>;
 }
@@ -223,7 +223,7 @@ export function EarnedTimePanel({disabled}: {disabled:boolean}) {
   const [draft,setDraft]=useState<(Omit<Terms,'work_apps'|'work_domains'|'spend_domains'>&{work_apps:string;work_domains:string;spend_domains:string})|null>(null);
   const [adjust,setAdjust]=useState(1);
   if (disabled) return null;
-  if (!panel.data) return <div className="surface padded" role="status">{panel.error||'Loading earned time…'}</div>;
+  if (!panel.data?.terms || !Array.isArray(panel.data.entries)) return <div className="surface padded" role="status">{panel.error||(panel.data?'Earned time data is unavailable.':'Loading earned time…')}</div>;
   const {terms, balance_ms, earned_ms, spent_ms, pending_ms, entries}=panel.data;
   const form=draft??{...terms,work_apps:terms.work_apps.join(', '),work_domains:terms.work_domains.join(', '),spend_domains:terms.spend_domains.join(', ')};
   async function save(event:FormEvent) {

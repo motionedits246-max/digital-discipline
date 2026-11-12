@@ -61,7 +61,7 @@ export function BackupPanel({disabled}: {disabled:boolean}) {
     <div className="release-form release-subsection">
       <label>Restore file<CustomSelect value={filename} onChange={e=>{setFilename(e.target.value);setPreview(null);}} aria-label="Restore file">
         <option value="">Choose a backup</option>
-        {panel.data?.files.map(([name,bytes])=><option key={name} value={name}>{name} · {Math.ceil(bytes/1024)} KB</option>)}
+        {panel.data?.files?.map(([name,bytes])=><option key={name} value={name}>{name} · {Math.ceil(bytes/1024)} KB</option>)}
       </CustomSelect></label>
       <div className="release-actions">
         <button className="text-action" onClick={()=>void panel.reload()}>Refresh files</button>
@@ -181,7 +181,7 @@ export function SyncPanel({disabled}: {disabled:boolean}) {
       <label>Other device’s code<input value={peerCode} onChange={e=>setPeerCode(e.target.value)} maxLength={101} required spellCheck={false}/></label>
       <div className="release-actions"><button className="secondary-btn" disabled={panel.busy}>Enroll device</button></div>
     </form>
-    {panel.data?.peers.map(peer=><div key={peer.id} className="release-row">
+    {panel.data?.peers?.map(peer=><div key={peer.id} className="release-row">
       <span>{peer.name} · {peer.revoked?'Revoked':peer.revision?'Synced':'Awaiting activity'}</span>
       {!peer.revoked&&<button className="text-action" disabled={panel.busy} onClick={async()=>{
         if(await confirm({title:'Revoke this device?',description:'Remove its imported activity and reject future sync packets.',confirmLabel:'Revoke device',danger:true})){
@@ -216,7 +216,7 @@ export function AttentionPanel({disabled,mode}: {disabled:boolean;mode:'reading'
   },[disabled,mode,panel.reload]);
   if(disabled)return null;
   const data=panel.data;
-  if(!data)return <div className="surface padded" role="status">{panel.error||'Loading attention settings…'}</div>;
+  if(!data?.quiet || !data.terms || !data.intervention)return <div className="surface padded" role="status">{panel.error||(data?'Attention settings are unavailable.':'Loading attention settings…')}</div>;
   const quiet=quietDraft??data.quiet,terms=termsDraft??data.terms;
   const error=panel.error&&<p role="alert">{panel.error}</p>;
 
@@ -319,7 +319,7 @@ export function FocusPresets({disabled,onStart}:{disabled:boolean;onStart:()=>vo
         onChange={e=>setPreset({...preset,minimize_selected_apps:e.target.checked})}/> Minimize each selected app once</label>}
       <div className="release-actions"><button className="primary-btn" disabled={panel.busy}>{preset.id?'Save changes':'Save preset'}</button></div>
     </form>
-    {panel.data?.presets.map(item=><div className="release-row" key={item.id}>
+    {panel.data?.presets?.map(item=><div className="release-row" key={item.id}>
       <div><strong>{item.name}</strong><p>{item.minutes} min · {item.difficulty} · {item.block_domains.join(', ')||'Timer'}</p>
         {item.native_apps.length>0&&<p>{item.minimize_selected_apps?'Minimize once':'Warn once'} · {item.native_apps.join(', ')}</p>}</div>
       <div className="release-actions">

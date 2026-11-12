@@ -84,7 +84,7 @@ test('service interaction stays open and native focus loss closes its menu and e
  await page.getByRole('combobox',{name:'Service type',exact:true}).click();await expect(page.getByRole('listbox')).toBeVisible();
  await page.clock.fastForward(10000);await expect(card).not.toHaveClass(/leaving/);
  await page.evaluate(()=>(window as any).__testNativeEvents['dd:notice-away']({event:'dd:notice-away',id:1,payload:null}));
- await expect(page.getByRole('listbox')).toHaveCount(0);await page.clock.fastForward(2900);await expect(card).toHaveClass(/leaving/);await page.clock.fastForward(150);
+ await expect(page.getByRole('listbox')).toHaveCount(0);await page.clock.runFor(2900);await expect(card).toHaveClass(/leaving/);await page.clock.runFor(150);
  expect(await page.evaluate(()=>(window as any).__testCalls.some((c:any)=>c.command==='set_service_hint_window'&&c.args?.visible===false))).toBe(true);
 });
 test('browser connection notification uses the same compact surface and opens browser settings',async({page})=>{
