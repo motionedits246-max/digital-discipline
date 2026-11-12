@@ -99,9 +99,10 @@ final class ActivityReport {
         JSONArray rows = new JSONArray();
         ArrayList<String> ids = new ArrayList<>(apps.keySet());
         ids.sort((left, right) -> apps.get(left).compareToIgnoreCase(apps.get(right)));
+        java.util.Set<String> protectedApps = AppCatalog.protectedPackages(context);
         for (String id : ids) {
             rows.put(new JSONObject().put("id", id).put("name", apps.get(id))
-                .put("time", totals.getOrDefault(id, 0L)).put("blockable", Rules.canBlock(context, id)));
+                .put("time", totals.getOrDefault(id, 0L)).put("blockable", !protectedApps.contains(id)));
         }
         return new JSONObject().put("from", start).put("at", end).put("tracked", tracking)
             .put("apps", rows).put("opens", new JSONArray(opens));

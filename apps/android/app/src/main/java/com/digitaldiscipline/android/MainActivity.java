@@ -13,6 +13,8 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PersistableBundle;
 import android.provider.Settings;
 import android.text.Editable;
@@ -25,6 +27,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -39,23 +42,43 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public final class MainActivity extends Activity {
-    private static final int BG = 0xff100f12;
-    private static final int PANEL = 0xff1b191e;
-    private static final int BORDER = 0xff353038;
-    private static final int WHITE = 0xfffff4ec;
-    private static final int MUTED = 0xffb4a9ae;
-    private static final int ACCENT = 0xffffbd73;
+    private static final int BG = 0xff15111e;
+    private static final int PANEL = 0xff211a2b;
+    private static final int BORDER = 0xff40354f;
+    private static final int WHITE = 0xfffff4ff;
+    private static final int MUTED = 0xffc4b8d3;
+    private static final int ACCENT = 0xffd7bdff;
+    private static final int MINT = 0xffa8ebd2;
+    private static final int PEACH = 0xffffb6a4;
     private static final int ERROR = 0xffffa299;
     private static final int WRITE_FILE = 40;
     private static final int READ_FILE = 41;
     private static final int MAX_PACKET = 512 * 1024;
     private Rules rules;
+    private TextView serviceStatus;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private final Runnable refreshServiceStatus = new Runnable() {
+        @Override public void run() {
+            if (serviceStatus == null) return;
+            boolean enabled = Rules.serviceEnabled(MainActivity.this);
+            String label = BlockService.isConnected() && enabled ? "Done"
+                : enabled ? "Waiting for service" : "Off";
+            if (!label.contentEquals(serviceStatus.getText())) {
+                setBadge(serviceStatus, label, "Done".equals(label) ? MINT : PEACH);
+            }
+            ui.postDelayed(this, 850);
+        }
+    };
     private LinearLayout root;
     private LinearLayout frame;
     private boolean unlocked;
@@ -95,6 +118,11 @@ public final class MainActivity extends Activity {
         if (enrollStep == 0) render();
     }
 
+    @Override protected void onPause() {
+        ui.removeCallbacks(refreshServiceStatus);
+        super.onPause();
+    }
+
     @Override protected void onStop() {
         super.onStop();
         if (Rules.CHILD.equals(rules.mode()) && unlocked) {
@@ -128,7 +156,7 @@ public final class MainActivity extends Activity {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setPadding(dp(14), dp(7), dp(14), dp(8));
-        nav.setBackgroundColor(0xff19171b);
+        nav.setBackgroundColor(0xff1e1827);
         frame.addView(nav, new LinearLayout.LayoutParams(-1, -2));
         navButton(nav, "Activity", ACTIVITY);
         navButton(nav, "Blocking", BLOCKING);
@@ -167,6 +195,8 @@ public final class MainActivity extends Activity {
     }
 
     private void mount() {
+        ui.removeCallbacks(refreshServiceStatus);
+        serviceStatus = null;
         frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
         frame.setBackgroundColor(BG);
@@ -262,13 +292,44 @@ public final class MainActivity extends Activity {
     }
 
     private void dashboardHeader(String description) {
-        text(root, "Digital Discipline", 17, ACCENT, true);
+        text(root, "Digital Discipline", 15, ACCENT, true);
         String heading = switch (tab) {
             case BLOCKING -> "App blocking";
             case SETTINGS -> "Settings";
             default -> "Your activity";
         };
-        title(heading, description);
+        String scene = switch (tab) {
+            case BLOCKING -> "Blocking";
+            case SETTINGS -> "Settings";
+            default -> "Activity";
+        };
+        int[] colors = switch (tab) {
+            case BLOCKING -> new int[]{0xff50293d, 0xff2c203a};
+            case SETTINGS -> new int[]{0xff24423e, 0xff252239};
+            default -> new int[]{0xff443362, 0xff2c2146};
+        };
+        LinearLayout hero = new LinearLayout(this);
+        hero.setGravity(Gravity.CENTER_VERTICAL);
+        hero.setPadding(dp(18), dp(13), dp(7), dp(13));
+        GradientDrawable tint = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
+        tint.setCornerRadius(dp(24));
+        tint.setStroke(dp(1), 0xff665679);
+        hero.setBackground(tint);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        hero.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView eyebrow = text(words, description, 13, tab == SETTINGS ? MINT : tab == BLOCKING ? PEACH : ACCENT, true);
+        eyebrow.setPadding(0, 0, 0, dp(5));
+        text(words, heading, 30, WHITE, true).setLetterSpacing(-0.045f);
+        String subtitle = switch (tab) {
+            case BLOCKING -> "Choose what to put out of reach.";
+            case SETTINGS -> "Manage access and your device.";
+            default -> "See where your time goes.";
+        };
+        text(words, subtitle, 14, MUTED, false).setPadding(0, 0, 0, 0);
+        hero.addView(new DisciplineArt(this, "scene-" + scene),
+            new LinearLayout.LayoutParams(dp(104), dp(110)));
+        root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
     }
 
     private void enter() {
@@ -289,13 +350,21 @@ public final class MainActivity extends Activity {
             return;
         }
         LinearLayout usage = card("Usage access");
-        text(usage, ActivityReport.allowed(this) ? "Enabled · Activity timestamps and duration are available."
+        boolean usageAllowed = ActivityReport.allowed(this);
+        badge(usage, usageAllowed ? "Done" : "Not set up", usageAllowed ? MINT : PEACH);
+        text(usage, usageAllowed ? "Digital Discipline can read app-open times and duration."
             : "Allow Android Usage Access to see when and how long you use each app.", 15, MUTED, false);
-        action(usage, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+        if (usageAllowed) action(usage, "Manage Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+        else primary(usage, "Allow Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+
         LinearLayout blocking = card("Blocking service");
-        text(blocking, Rules.serviceEnabled(this) ? "Enabled · Selected apps can be blocked."
-            : "Enable the Accessibility Service to block selected apps.", 15, MUTED, false);
-        action(blocking, "Set up app blocking", this::explainBlocking);
+        serviceBadge(blocking);
+        text(blocking, "The Accessibility Service applies your selected app blocks.", 15, MUTED, false);
+        if (Rules.serviceEnabled(this)) {
+            action(blocking, "Manage Accessibility", () -> launchSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } else {
+            primary(blocking, "Set up app blocking", this::explainBlocking);
+        }
         if (Rules.CHILD.equals(mode)) {
             LinearLayout exchange = card("Parent file exchange");
             text(exchange, "The activity file includes installed launcher apps, app-open times and foreground duration from the last 24 hours.", 15, MUTED, false);
@@ -532,10 +601,14 @@ public final class MainActivity extends Activity {
 
     private JSONArray localAppList() {
         JSONArray rows = new JSONArray();
-        for (var app : Rules.apps(this).entrySet()) {
-            if (!Rules.canBlock(this, app.getKey())) continue;
+        Set<String> protectedApps = AppCatalog.protectedPackages(this);
+        Map<String, String> names = Rules.apps(this);
+        List<Map.Entry<String, String>> apps = new ArrayList<>(names.entrySet());
+        apps.sort(Map.Entry.comparingByValue(String.CASE_INSENSITIVE_ORDER));
+        for (var app : apps) {
             try {
-                rows.put(new JSONObject().put("id", app.getKey()).put("name", app.getValue()).put("blockable", true));
+                rows.put(new JSONObject().put("id", app.getKey()).put("name", app.getValue())
+                    .put("blockable", !protectedApps.contains(app.getKey())));
             } catch (org.json.JSONException e) {
                 throw new IllegalStateException(e);
             }
@@ -544,39 +617,152 @@ public final class MainActivity extends Activity {
     }
 
     private void showBlocks(JSONArray rows, boolean remote) {
-        LinearLayout box = card(remote ? "Child app rules" : "Block apps");
+        LinearLayout box = card(remote ? "Child app rules" : "Installed apps");
         if (rows == null) {
             text(box, "Import an activity file to see the child phone’s apps and choose which ones to block.", 15, MUTED, false);
             primary(box, "Import child activity", () -> openFile("activity"));
             return;
         }
-        if (!remote && !Rules.serviceEnabled(this)) {
-            action(box, "Enable blocking", this::explainBlocking);
+        if (!remote) {
+            serviceBadge(box);
+            if (!BlockService.isConnected() || !Rules.serviceEnabled(this)) {
+                text(box, "Rules only take effect while the blocking service is connected.", 14, MUTED, false);
+                action(box, "Open Accessibility setup", this::explainBlocking);
+            }
         }
-        Set<String> selected = rules.blocks();
-        int listed = 0;
-        for (int index = 0; index < rows.length(); index++) {
-            JSONObject app = rows.optJSONObject(index);
-            if (app == null || !app.optBoolean("blockable")) continue;
-            String id = app.optString("id");
-            if (id.isEmpty()) continue;
-            Switch item = new Switch(this);
-            item.setText(app.optString("name", id));
-            item.setTextColor(WHITE);
-            item.setTextSize(16);
-            item.setMinHeight(dp(58));
-            item.setShowText(false);
-            item.setSwitchPadding(dp(12));
-            int[][] states = {{android.R.attr.state_checked}, {}};
-            item.setThumbTintList(new ColorStateList(states, new int[]{ACCENT, 0xffb7adb1}));
-            item.setTrackTintList(new ColorStateList(states, new int[]{0xff916342, 0xff514952}));
-            item.setChecked(selected.contains(id));
-            item.setOnCheckedChangeListener((view, checked) -> rules.toggle(id, checked));
-            if (listed > 0) divider(box);
-            box.addView(item, new LinearLayout.LayoutParams(-1, -2));
-            listed++;
+        TextView selectionCount = text(box, "", 14, MUTED, false);
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        search.setTextSize(15);
+        search.setHint("Search installed apps");
+        search.setTextColor(WHITE);
+        search.setHintTextColor(MUTED);
+        search.setPadding(dp(14), 0, dp(14), 0);
+        search.setBackground(surface(BG));
+        LinearLayout.LayoutParams searchSize = new LinearLayout.LayoutParams(-1, dp(49));
+        searchSize.bottomMargin = dp(9);
+        box.addView(search, searchSize);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        box.addView(list, new LinearLayout.LayoutParams(-1, -2));
+        Runnable updateCount = () -> {
+            Set<String> selected = rules.blocks();
+            int enabled = 0;
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject app = rows.optJSONObject(i);
+                if (app != null && app.optBoolean("blockable") && selected.contains(app.optString("id"))) enabled++;
+            }
+            selectionCount.setText(getString(R.string.app_list_count, rows.length(), enabled));
+        };
+        Runnable filter = () -> {
+            list.removeAllViews();
+            String match = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            for (int index = 0; index < rows.length(); index++) {
+                JSONObject app = rows.optJSONObject(index);
+                if (app == null) continue;
+                String id = app.optString("id");
+                String name = app.optString("name", id);
+                if (id.isEmpty() || !(name.toLowerCase(Locale.ROOT).contains(match)
+                    || id.toLowerCase(Locale.ROOT).contains(match))) continue;
+                if (list.getChildCount() > 0) divider(list);
+                appRow(list, id, name, app.optBoolean("blockable"), remote, updateCount);
+            }
+            if (list.getChildCount() == 0) text(list, "No matching apps.", 15, MUTED, false);
+        };
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence value, int start, int before, int count) {
+                filter.run();
+            }
+            @Override public void afterTextChanged(Editable value) {}
+        });
+        updateCount.run();
+        filter.run();
+    }
+
+    private void appRow(LinearLayout list, String id, String name, boolean blockable, boolean remote, Runnable updateCount) {
+        LinearLayout row = new LinearLayout(this);
+        row.setMinimumHeight(dp(64));
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(8));
+        list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+        ImageView icon = new ImageView(this);
+        android.graphics.drawable.Drawable appIcon = AppCatalog.icon(this, id);
+        if (appIcon != null) {
+            icon.setImageDrawable(appIcon);
+            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        } else {
+            TextView initial = new TextView(this);
+            initial.setGravity(Gravity.CENTER);
+            initial.setTextColor(ACCENT);
+            initial.setTextSize(20);
+            initial.setText(name.isEmpty() ? "?" : name.substring(0, name.offsetByCodePoints(0, 1)));
+            initial.setBackground(surface(0xff342746));
+            initial.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.addView(initial, new LinearLayout.LayoutParams(dp(40), dp(40)));
         }
-        if (listed == 0) text(box, "No eligible apps found.", 15, MUTED, false);
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams copy = new LinearLayout.LayoutParams(0, -2, 1);
+        copy.setMargins(dp(11), 0, dp(8), 0);
+        row.addView(labels, copy);
+        text(labels, name, 16, WHITE, true).setPadding(0, 0, 0, 0);
+        if (!blockable) {
+            text(labels, "Protected system app", 12, MINT, false).setPadding(0, dp(3), 0, 0);
+            return;
+        }
+
+        Switch item = new Switch(this);
+        item.setContentDescription(getString(R.string.block_app_switch, name));
+        item.setShowText(false);
+        item.setMinHeight(dp(48));
+        item.setMinWidth(dp(48));
+        int[][] states = {{android.R.attr.state_checked}, {}};
+        item.setThumbTintList(new ColorStateList(states, new int[]{ACCENT, 0xffc6bdcd}));
+        item.setTrackTintList(new ColorStateList(states, new int[]{0xff9471c6, 0xff5d5367}));
+        item.setChecked(rules.blocks().contains(id));
+        item.setOnCheckedChangeListener((view, checked) -> {
+            if (!remote && !Rules.canBlock(this, id)) {
+                render();
+                return;
+            }
+            rules.toggle(id, checked);
+            updateCount.run();
+        });
+        row.addView(item, new LinearLayout.LayoutParams(-2, dp(48)));
+    }
+
+    private void serviceBadge(LinearLayout box) {
+        serviceStatus = badge(box, "", PEACH);
+        ui.removeCallbacks(refreshServiceStatus);
+        refreshServiceStatus.run();
+    }
+
+    private TextView badge(LinearLayout parent, String label, int color) {
+        TextView badge = new TextView(this);
+        badge.setTextSize(13);
+        badge.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        badge.setPadding(dp(11), dp(5), dp(11), dp(5));
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-2, -2);
+        size.bottomMargin = dp(9);
+        parent.addView(badge, size);
+        setBadge(badge, label, color);
+        return badge;
+    }
+
+    private void setBadge(TextView badge, String label, int color) {
+        GradientDrawable fill = new GradientDrawable();
+        fill.setCornerRadius(dp(12));
+        fill.setColor((color & 0xffffff) | 0x22000000);
+        badge.setBackground(fill);
+        badge.setTextColor(color);
+        badge.setText(label);
     }
 
     private void showActivity(JSONObject report) {
@@ -825,7 +1011,7 @@ public final class MainActivity extends Activity {
         item.setContentDescription(title);
         item.setSelected(selected);
         item.setFocusable(true);
-        item.setBackground(ripple(selected ? surface(0xff352820) : null));
+        item.setBackground(ripple(selected ? surface(0xff453358) : null));
         item.addView(new DisciplineArt(this, title), new LinearLayout.LayoutParams(dp(21), dp(21)));
         TextView label = text(item, title, 12, selected ? ACCENT : MUTED, true);
         label.setGravity(Gravity.CENTER);
@@ -872,10 +1058,10 @@ public final class MainActivity extends Activity {
         button.setTextSize(15);
         button.setMinHeight(dp(primary ? 54 : 48));
         button.setMinWidth(0);
-        button.setTextColor(primary ? 0xff21160f : WHITE);
+        button.setTextColor(primary ? 0xff221333 : WHITE);
         button.setPadding(dp(14), dp(9), dp(14), dp(9));
         button.setStateListAnimator(null);
-        button.setBackground(ripple(surface(primary ? ACCENT : 0xff28242a)));
+        button.setBackground(ripple(surface(primary ? ACCENT : 0xff32263e)));
         button.setOnClickListener(view -> action.run());
         return button;
     }

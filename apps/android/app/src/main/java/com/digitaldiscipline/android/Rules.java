@@ -8,9 +8,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.provider.Settings;
 import android.util.Base64;
@@ -23,7 +21,6 @@ import java.security.SecureRandom;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
@@ -39,9 +36,6 @@ final class Rules {
     private static final int NOTICE = 10;
     private static final String CHANNEL = "child-supervision";
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final Set<String> COMMON_MEDIA = new HashSet<>(java.util.Arrays.asList("com.google.android.youtube",
-        "com.google.android.apps.youtube.music", "com.android.chrome", "com.google.android.videos",
-        "com.netflix.mediaclient", "com.instagram.android", "com.facebook.katana"));
     final SharedPreferences prefs;
 
     Rules(Context context) {
@@ -59,34 +53,11 @@ final class Rules {
     }
 
     static Map<String, String> apps(Context context) {
-        PackageManager pm = context.getPackageManager();
-        Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        Map<String, String> apps = new TreeMap<>();
-        for (ResolveInfo result : pm.queryIntentActivities(query, 0)) {
-            String id = result.activityInfo.packageName;
-            if (!id.equals(context.getPackageName())) apps.put(id, result.loadLabel(pm).toString());
-        }
-        return apps;
+        return AppCatalog.names(context);
     }
 
     static boolean canBlock(Context context, String id) {
-        if (id.equals(context.getPackageName())) return false;
-        PackageManager pm = context.getPackageManager();
-        try {
-            ApplicationInfo app = pm.getApplicationInfo(id, 0);
-            if ((app.flags & ApplicationInfo.FLAG_SYSTEM) != 0 && !COMMON_MEDIA.contains(id)) return false;
-        } catch (PackageManager.NameNotFoundException e) {
-            return false;
-        }
-        Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
-        for (ResolveInfo launcher : pm.queryIntentActivities(home, PackageManager.MATCH_DEFAULT_ONLY)) {
-            if (id.equals(launcher.activityInfo.packageName)) return false;
-        }
-        String keyboard = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
-        if (keyboard != null && keyboard.startsWith(id + "/")) return false;
-        android.telecom.TelecomManager telecom = context.getSystemService(android.telecom.TelecomManager.class);
-        String sms = android.provider.Telephony.Sms.getDefaultSmsPackage(context);
-        return (telecom == null || !id.equals(telecom.getDefaultDialerPackage())) && !id.equals(sms);
+        return AppCatalog.isLaunchable(context, id) && !AppCatalog.protectedPackages(context).contains(id);
     }
 
     static byte[] random(int size) {

@@ -3,13 +3,15 @@
     <string name="app_blocked">App blocked</string>
     <string name="blocked_by_parent">%1$s is blocked by your parent.</string>
     <string name="blocked_by_rule">%1$s is blocked by your rule.</string>
+    <string name="app_list_count">%1$d apps · %2$d selected to block</string>
+    <string name="block_app_switch">Block %1$s</string>
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowBackground">#100F12</item>
-        <item name="android:statusBarColor">#100F12</item>
-        <item name="android:navigationBarColor">#100F12</item>
+        <item name="android:windowBackground">#15111E</item>
+        <item name="android:statusBarColor">#15111E</item>
+        <item name="android:navigationBarColor">#15111E</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:colorAccent">#FFBD73</item>
+        <item name="android:colorAccent">#D7BDFF</item>
         <item name="android:windowSoftInputMode">adjustResize</item>
     </style>
 </resources>

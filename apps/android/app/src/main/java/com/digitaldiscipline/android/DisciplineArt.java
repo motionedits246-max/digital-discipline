@@ -28,7 +28,7 @@ final class DisciplineArt extends View {
 
     @Override protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        if (!"hero".equals(kind) || !ValueAnimator.areAnimatorsEnabled()) return;
+        if (!("hero".equals(kind) || kind.startsWith("scene-")) || !ValueAnimator.areAnimatorsEnabled()) return;
         animation = ValueAnimator.ofFloat(0, 1);
         animation.setDuration(7200);
         animation.setRepeatCount(ValueAnimator.INFINITE);
@@ -57,6 +57,13 @@ final class DisciplineArt extends View {
             canvas.scale(scale, scale);
             drawHero(canvas);
             canvas.restore();
+        } else if (kind.startsWith("scene-")) {
+            canvas.save();
+            float scale = Math.min(getWidth() / 118f, getHeight() / 132f);
+            canvas.translate(getWidth() / 2f, getHeight() / 2f);
+            canvas.scale(scale, scale);
+            drawScene(canvas);
+            canvas.restore();
         } else {
             float size = Math.min(getWidth(), getHeight());
             canvas.save();
@@ -65,6 +72,74 @@ final class DisciplineArt extends View {
             drawIcon(canvas);
             canvas.restore();
         }
+    }
+
+    private void drawScene(Canvas c) {
+        int tint = switch (kind) {
+            case "scene-Blocking" -> 0xffffb6a4;
+            case "scene-Settings" -> 0xffa9e8d5;
+            default -> 0xffd4bbff;
+        };
+        double turn = progress * Math.PI * 2;
+        float bob = 5 * (float) Math.sin(turn);
+        fill(tint);
+        paint.setShader(new RadialGradient(0, 5, 61,
+            new int[]{(tint & 0xffffff) | 0x5a000000, (tint & 0xffffff) | 0x16000000, 0},
+            null, Shader.TileMode.CLAMP));
+        c.drawCircle(0, 5, 62, paint);
+        paint.setShader(null);
+        c.save();
+        c.rotate(-26);
+        RectF orbit = new RectF(-53, -26, 53, 26);
+        stroke((tint & 0xffffff) | 0x52000000, 1.2f);
+        c.drawOval(orbit, paint);
+        stroke(tint, 1.65f);
+        c.drawArc(orbit, progress * 360, 47, false, paint);
+        fill(tint);
+        c.drawCircle(53 * (float) Math.cos(turn), 26 * (float) Math.sin(turn), 2.7f, paint);
+        c.restore();
+
+        c.save();
+        c.translate(0, bob);
+        c.rotate(-12);
+        fill(0x66100a1c);
+        c.drawRoundRect(-31, -32, 37, 44, 16, 16, paint);
+        fill(tint);
+        paint.setShader(new LinearGradient(-30, -40, 30, 37, tint, 0xff413255, Shader.TileMode.CLAMP));
+        c.drawRoundRect(-34, -39, 34, 39, 17, 17, paint);
+        paint.setShader(null);
+        stroke(0xbafdf8ff, 1.1f);
+        c.drawRoundRect(-33, -38, 33, 38, 16, 16, paint);
+        fill(0xff211831);
+        c.drawRoundRect(-26, -30, 26, 30, 12, 12, paint);
+        stroke(tint, 2.3f);
+        if ("scene-Blocking".equals(kind)) {
+            path.reset();
+            path.moveTo(0, -18); path.lineTo(16, -11); path.lineTo(14, 4);
+            path.quadTo(10, 14, 0, 19); path.quadTo(-10, 14, -14, 4);
+            path.lineTo(-16, -11); path.close();
+            c.drawPath(path, paint);
+            c.drawLine(-5, 0, -1, 5, paint);
+            c.drawLine(-1, 5, 7, -5, paint);
+        } else if ("scene-Settings".equals(kind)) {
+            for (int i = 0; i < 3; i++) {
+                float y = -12 + i * 12;
+                c.drawLine(-15, y, 15, y, paint);
+                fill(tint);
+                c.drawCircle(i == 1 ? 6 : -5, y, 3.5f, paint);
+                stroke(tint, 2.3f);
+            }
+        } else {
+            c.drawCircle(0, 0, 17, paint);
+            c.drawArc(-21, -21, 21, 21, -95, 76, false, paint);
+            c.drawLine(0, 0, 0, -10, paint);
+            c.drawLine(0, 0, 7, 4, paint);
+        }
+        c.restore();
+        fill(tint);
+        c.drawCircle(-43, -38, 2, paint);
+        c.drawCircle(43, 34, 2.8f, paint);
+        c.drawCircle(38, -42, 1.4f, paint);
     }
 
     private void drawHero(Canvas c) {
