@@ -1,0 +1,236 @@
+:root {
+  color-scheme: dark;
+  --control-fill: #222229;
+  --control-hover: #282831;
+  --control-border: #444451;
+  --control-label: #dedde7;
+  --control-placeholder: #9a99a9;
+  --control-accent: #c9c4df;
+}
+
+#root :where(input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="hidden"],[type="color"]),textarea,select) {
+  min-width: 0;
+  min-height: 41px;
+  padding: 9px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 9px;
+  background: var(--control-fill);
+  color: var(--control-label);
+  font: inherit;
+  line-height: 1.4;
+  caret-color: var(--control-accent);
+  transition: border-color .16s, background-color .16s, box-shadow .16s;
+}
+#root :where(input,textarea)::placeholder {color: var(--control-placeholder);opacity: 1}
+#root :where(input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="hidden"],[type="color"]),textarea,select):hover:not(:disabled) {
+  background: var(--control-hover);
+  border-color: #626273;
+}
+#root :where(input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="hidden"],[type="color"]),textarea,select):focus {
+  border-color: #a39abf;
+  background: #272630;
+  outline: 2px solid #a39abf42;
+  outline-offset: 1px;
+}
+#root :where(input,textarea,select):disabled {opacity: .55;cursor: not-allowed}
+#root textarea {resize: vertical}
+#root input[type="number"] {appearance: textfield;-moz-appearance: textfield}
+#root input::-webkit-inner-spin-button, #root input::-webkit-outer-spin-button {-webkit-appearance:none;margin:0}
+#root :where(input,textarea):-webkit-autofill {
+  -webkit-text-fill-color: var(--control-label);
+  box-shadow: 0 0 0 1000px var(--control-fill) inset;
+}
+#root :where(input,textarea)::selection {background: #766b9a;color: #fff}
+#root .primary-btn {
+  color: #17151e;
+  border-color: #ccc5e1;
+  background: #c6bfd7;
+}
+#root .primary-btn:not(:disabled):hover {background: #d6cee5}
+#root .primary-btn:disabled {opacity: .5}
+
+.dd-field, .release-form > label, .label-create > label {display: grid;gap: 7px;min-width: 0}
+.dd-field > label, .release-form > label, .label-create > label {color: var(--control-label);font-size: 13px;font-weight: 600}
+.dd-field-control {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 41px;
+  padding: 0 5px 0 0;
+  border: 1px solid var(--control-border);
+  border-radius: 9px;
+  background: var(--control-fill);
+}
+.dd-field-control:focus-within {border-color: #a39abf;outline: 2px solid #a39abf42;outline-offset: 1px}
+#root .dd-field-control > input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 39px;
+  border: 0;
+  background: transparent;
+  outline: 0;
+  box-shadow: none;
+  margin: 0;
+}
+.dd-stepper-buttons {display: flex;gap: 3px;flex: none}
+#root .dd-stepper-buttons button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 27px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #484757;
+  border-radius: 6px;
+  background: #30303a;
+  color: #e1deed;
+  font: 600 15px/1 system-ui;
+  cursor: pointer;
+}
+#root .dd-stepper-buttons button:not(:disabled):hover {background: #444055;border-color: #827993}
+#root .dd-stepper-buttons button:disabled {opacity: .38;cursor: not-allowed}
+#root .dd-stepper-buttons button:focus-visible,
+#root .label-choice:focus-visible,
+#root .settings-tabs button:focus-visible {outline: 2px solid var(--control-accent);outline-offset: 2px}
+
+#root .release-form {gap: 15px;align-items: end}
+#root .release-days {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 7px;
+  padding: 9px 10px 10px;
+  min-width: 0;
+  border: 1px solid #373743;
+  border-radius: 10px;
+}
+#root .release-days legend {padding: 0 5px;color: var(--control-label);font-size: 12px}
+.label-options {display: flex;flex-wrap: wrap;gap: 8px;margin: 13px 0}
+.label-choice, .dd-token-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 6px 11px;
+  border: 1px solid #42414e;
+  border-radius: 7px;
+  background: #25252d;
+  color: #d3d1df;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.label-choice {cursor: pointer}
+.label-choice[aria-pressed="true"] {background: #383349;border-color: #827699;color: #f1ecfd}
+.label-choice:not(:disabled):hover {border-color: #9289a5}
+.label-choice:disabled {opacity: .55;cursor: not-allowed}
+.label-create {display: grid;grid-template-columns: minmax(0,1fr) auto;align-items: end;gap: 10px;margin-top: 14px}
+.label-create input {width: 100%}
+.dd-token-list {display: flex;flex-wrap: wrap;gap: 6px;list-style: none;margin: 3px 0 0;padding: 0}
+.dd-token-list li button {padding: 0 2px;border: 0;background: transparent;color: #dad4ea;cursor: pointer}
+.dd-token-entry > button {margin-right: 5px;flex: none}
+
+.pill-surface {height: 100vh;min-height: 52px;touch-action: none}
+.pill-surface > :not(.pill-open) {pointer-events: none}
+.pill-surface .pill-open {pointer-events: auto;cursor: pointer}
+.quick-surface {cursor: grab}
+.quick-surface:active {cursor: grabbing}
+.quick-surface :where(button,a,select) {cursor: pointer}
+.quick-surface :where(input,textarea) {cursor: text}
+
+.settings-workspace, .settings-card-stack, .diagnostics-stack {display: grid;gap: 16px;min-width: 0}
+.settings-tabs {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 5px;
+  border: 1px solid #36363f;
+  border-radius: 12px;
+  background: #19191f;
+  scrollbar-color: #5b5668 transparent;
+}
+.settings-tabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #b7b4c3;
+  font: 600 12px/1.4 system-ui;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.settings-tabs > button:hover {background: #27262f;color: #e6e3f0}
+.settings-tabs > button[aria-pressed="true"] {border-color: #555062;background: #302d3a;color: #f0ecfa}
+.settings-card h3, .diagnostics-card h3 {margin: 0 0 6px;font-size: 17px;line-height: 1.35}
+.settings-card > .settings-row:last-child {border-bottom: 0;padding-bottom: 0}
+.settings-card > .settings-row:first-of-type {padding-top: 12px}
+.settings-card .settings-row > div {min-width: 0}
+.wizard-compact {display: flex;flex-direction: column;gap: 14px}
+.wizard-compact .wizard-diagnostics {margin: 0;padding: 0 0 14px;border: 0;border-bottom: 1px solid #383742;background: transparent}
+.wizard-compact .wizard-diagnostics h3 {margin: 0 0 12px}
+.wizard-compact .wizard-diagnostics .wizard-browser-options {margin: 7px 0}
+.wizard-guide-disclosure {padding: 10px 12px;border: 1px solid #393844;border-radius: 9px;background: #1c1b22}
+.wizard-guide-disclosure > summary {cursor: pointer;color: #e1ddea;font-size: 13px;font-weight: 600}
+.wizard-guide-disclosure[open] > summary {margin-bottom: 14px}
+.wizard-compact .wizard-layout {grid-template-columns: minmax(0,1fr)}
+@media (min-width: 1110px) {.wizard-compact .wizard-layout {grid-template-columns: minmax(0,1fr) minmax(0,1.25fr)}}
+
+.diagnostic-charts {display: grid;grid-template-columns: repeat(2,minmax(0,1fr));gap: 12px;margin-top: 16px}
+.diagnostic-chart {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 14px 11px;
+  border: 1px solid #373745;
+  border-radius: 11px;
+  background: #202027;
+}
+.diagnostic-chart h4 {margin: 0 0 9px;color: #ebe8f4;font-size: 13px;font-weight: 650}
+.diagnostic-chart svg {display: block;width: 100%;height: auto;overflow: visible}
+.diagnostic-chart text {fill: #aeabba;font: 9px system-ui}
+.chart-legend {display: flex;flex-wrap: wrap;gap: 5px 14px;font-size: 11px;color: #aaa7b7}
+.chart-legend strong {font-size: 11px;color: #e8e4f1}
+.chart-key {display: inline-flex;align-items: center;gap: 5px}
+.chart-key::before {content: '';width: 7px;height: 7px;border-radius: 50%;background: var(--series)}
+.chart-series, .chart-key {--series: #c6c1dc}
+.chart-series.desktop, .chart-key.desktop {--series: #9f8fcf}
+.chart-series path {fill: none;stroke: var(--series);stroke-width: 1.75;vector-effect: non-scaling-stroke}
+.chart-series circle {fill: var(--series)}
+.chart-gridline {stroke: #474653;stroke-width: 1;vector-effect: non-scaling-stroke}
+.chart-times {display: flex;justify-content: space-between;color: #a6a2b4;font-size: 10px}
+.chart-empty {display: grid;place-items: center;min-height: 100px;margin: 5px 0 0;color: #a6a2b4;font-size: 12px}
+.profile-bars {display: grid;gap: 9px;padding: 0;margin: 0;list-style: none}
+.profile-bars li {display: grid;grid-template-columns: minmax(64px,1fr) minmax(55px,1fr) auto;align-items: center;gap: 8px;font-size: 11px;color: #c5c1d0}
+.profile-bars li > span {overflow: hidden;white-space: nowrap;text-overflow: ellipsis}
+.profile-bars strong {font-variant-numeric: tabular-nums}
+.profile-bars meter {width: 100%;height: 9px}
+.profile-bars meter::-webkit-meter-bar {background: #343341;border: 0;border-radius: 6px}
+.profile-bars meter::-webkit-meter-optimum-value {background: #a99bc9;border-radius: 6px}
+.diagnostic-table-wrap {max-width: 100%;overflow: auto;margin-top: 14px;border: 1px solid #373745;border-radius: 10px;scrollbar-color: #5d576d transparent}
+.diagnostic-table {width: 100%;border-collapse: collapse;text-align: left;font-size: 12px;font-variant-numeric: tabular-nums}
+.diagnostic-table :is(th,td) {padding: 10px 12px;border-bottom: 1px solid #343441;color: #d2cfdb;vertical-align: top}
+.diagnostic-table th {color: #e3dfed;font-weight: 600}
+.diagnostic-table thead th {background: #26252e;font-size: 11px;white-space: nowrap}
+.diagnostic-table tbody tr:last-child :is(th,td) {border-bottom: 0}
+.diagnostic-table tbody tr:nth-child(even) {background: #1f1e26}
+.profile-table :is(th,td) {white-space: nowrap}
+.status-text[data-online="true"] {color: #cec5e5}
+.visually-hidden {position: absolute;width: 1px;height: 1px;overflow: hidden;clip-path: inset(50%);white-space: nowrap}
+@media(max-width: 910px) {
+  .diagnostic-charts {grid-template-columns: 1fr}
+}
+@media(max-width: 550px) {
+  .label-create {grid-template-columns: 1fr}
+}
+@media(prefers-reduced-motion: reduce) {
+  #root :where(input,textarea,select) {transition: none}
+}

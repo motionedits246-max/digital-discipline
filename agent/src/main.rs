@@ -13,6 +13,7 @@ mod policy;
 mod insights;
 mod analytics;
 mod features;
+mod category_labels;
 mod classification;
 mod classification_store;
 mod companion;
@@ -619,7 +620,8 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
         .route("/policy/exceptions",get(policy_exceptions::list).post(policy_exceptions::create)).route("/policy/exceptions/{id}",delete(policy_exceptions::revoke)).route("/rules/preview",post(preview_rules)).route("/rules/audit",get(rule_audit))
         .route("/export",get(export_data)).route("/export/snapshot",post(export_snapshot::create)).route("/data",delete(delete_data)).route("/data/purge",post(data_lifecycle::purge)).route("/privacy/session",get(data_lifecycle::private_status).post(data_lifecycle::private_session)).route("/privacy/presentation",post(data_lifecycle::presentation))
         .route("/videos",get(features::video_history)).route("/insights",get(features::insights))
-        .route("/categories",get(features::list_categories)).route("/categories/override",post(features::override_category))
+        .route("/categories",get(features::list_categories)).route("/categories/labels",post(category_labels::add))
+        .route("/categories/override",post(features::override_category))
         .route("/categories/override/{subject}",delete(features::delete_override))
         .route("/updates/check",get(updates::check)).route("/updates/verify",post(updates::verify))
         .route("/sync",get(device_sync::status).post(device_sync::configure))

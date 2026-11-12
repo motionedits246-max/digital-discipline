@@ -34,7 +34,7 @@ const HISTORY: &[&str] = &[
 ];
 const SETTINGS: &[&str] = &[
     "lite_mode", "retention_days", "idle_threshold_ms", "excluded_apps", "excluded_domains",
-    "video_history_visible", "distraction_categories", "shared_quiet_hours",
+    "video_history_visible", "custom_categories", "distraction_categories", "shared_quiet_hours",
 ];
 
 static BUSY: AtomicBool = AtomicBool::new(false);

@@ -1,17 +1,17 @@
 import {useConfirm} from './ConfirmDialog';
 import {TimePicker} from './TimePicker';
+import {TokenField} from './FormFields';
+import {DEFAULT_CATEGORIES as cats,useCategoryLabels} from './categoryLabels';
 import {FileDropzone} from './FileDropzone';
 import {CustomSelect} from './CustomSelect';
 import {sealBundle,openBundle} from "./secureBundle.mjs";
 import {useEffect,useMemo,useRef,useState} from 'react';
 import type {FormEvent,KeyboardEvent,ReactNode} from 'react';
 import {agent,autostartStatus,setAutostart,isTauri} from './api';
-import {BrowserSetupWizard} from './BrowserSetupWizard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {Focus,Goal,Insights,PrivacySettings,Rule,Session,Video} from './types';
 
-const cats=['Development','Design','Productivity','Communication','Education','Entertainment','Gaming','Social','News','Utility','System','Browser','Unclassified'];
 const pretty=(n:number)=>`${Math.floor(Math.max(0,n)/3600000)}h ${String(Math.floor(Math.max(0,n)%3600000/60000)).padStart(2,'0')}m`;
 const split=(str:string)=>[...new Set(str.split(/[\s,;]+/g).map(s=>s.trim().toLowerCase()).filter(Boolean))];
 
@@ -87,8 +87,9 @@ export function InsightsPanel({active,readonly,refreshKey}:{active:boolean;reado
 
 export function CategoryPanel({sessions,readonly,onUpdate}:{sessions:Session[];readonly:boolean;onUpdate:()=>void}) {
  const {message,busy,perform}=useAction(onUpdate);const [choices,setChoices]=useState<Record<string,string>>({});
+ const {categories}=useCategoryLabels(!readonly);
  const known=[...new Map(sessions.map(s=>[(s.domain?'domain:'+s.domain:'app:'+s.app),s])).entries()].slice(0,30);
- return <Card title="App/domain categorization · manual overrides"><p className="muted-paragraph">Unknown services remain counted while their type is reviewed. Your saved choices override local suggestions and approved AI results, including historical totals.</p><div className="advanced-list">{known.map(([key,s])=><div className="settings-row" key={key}><div><strong>{key.slice(key.indexOf(':')+1)}</strong><small>{s.category} · {key.startsWith('domain:')?'Website':'Application'}</small></div><CustomSelect aria-label={'Category for '+key} value={choices[key]||s.category} onChange={e=>setChoices(v=>({...v,[key]:e.target.value}))}>{cats.map(c=><option key={c}>{c}</option>)}</CustomSelect><button className="secondary-btn" disabled={readonly||busy} onClick={()=>void perform(()=>agent('POST','/categories/override',{subject:key,category:choices[key]||s.category}),'Override saved; previous sessions will recalculate.')}>Save</button></div>)}</div><Feedback text={message}/></Card>;
+ return <Card title="App/domain categorization · manual overrides"><p className="muted-paragraph">Unknown services remain counted while their type is reviewed. Your saved choices override local suggestions and approved AI results, including historical totals.</p><div className="advanced-list">{known.map(([key,s])=><div className="settings-row" key={key}><div><strong>{key.slice(key.indexOf(':')+1)}</strong><small>{s.category} · {key.startsWith('domain:')?'Website':'Application'}</small></div><CustomSelect aria-label={'Category for '+key} value={choices[key]||s.category} onChange={e=>setChoices(v=>({...v,[key]:e.target.value}))}>{categories.map(c=><option key={c}>{c}</option>)}</CustomSelect><button className="secondary-btn" disabled={readonly||busy} onClick={()=>void perform(()=>agent('POST','/categories/override',{subject:key,category:choices[key]||s.category}),'Override saved; previous sessions will recalculate.')}>Save</button></div>)}</div><Feedback text={message}/></Card>;
 }
 
 export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpdate:()=>void}) {
@@ -308,17 +309,15 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
  const [predictionEnabled,setPredictionEnabled]=useState(false);
  const [retention,setRetention]=useState(90);
  const [idle,setIdle]=useState(300000);
- const [excludedApps,setApps]=useState('');
- const [excludedDomains,setDomains]=useState('');
+ const [excludedApps,setApps]=useState<string[]>([]);
+ const [excludedDomains,setDomains]=useState<string[]>([]);
  const [video,setVideo]=useState(true);
- const [distractors,setDistractors]=useState<string[]>([]);
  function applySettings(saved:PrivacySettings){
    setRetention(saved.retention_days);
    setIdle(saved.idle_threshold_ms);
-   setApps(saved.excluded_apps.join(', '));
-   setDomains(saved.excluded_domains.join(', '));
+   setApps(saved.excluded_apps ?? []);
+   setDomains(saved.excluded_domains ?? []);
    setVideo(saved.video_history_visible);
-   setDistractors(saved.distraction_categories||[]);
    setPredictionEnabled(saved.prediction_opt_in===true);
  }
  useEffect(()=>{
@@ -338,10 +337,9 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
    const payload={
      retention_days:retention,
      idle_threshold_ms:idle,
-     excluded_apps:split(excludedApps),
-     excluded_domains:split(excludedDomains),
+     excluded_apps:excludedApps,
+     excluded_domains:excludedDomains,
      video_history_visible:video,
-     distraction_categories:[...distractors],
      prediction_opt_in:predictionEnabled,
    };
    void perform(async()=>{
@@ -356,20 +354,10 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
     <label>History retention<CustomSelect value={retention} onChange={e=>{setRetention(+e.target.value);markEdited();}}><option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option><option value={3650}>10 years</option></CustomSelect></label>
     <label>Idle threshold<CustomSelect value={idle} onChange={e=>{setIdle(+e.target.value);markEdited();}}><option value={60000}>1 minute</option><option value={180000}>3 minutes</option><option value={300000}>5 minutes</option><option value={600000}>10 minutes</option><option value={900000}>15 minutes</option></CustomSelect></label>
    </div>
-   <label>Excluded application executable names<input value={excludedApps} placeholder="privateapp.exe, banking.exe" onChange={e=>{setApps(e.target.value);markEdited();}}/></label>
-   <label>Excluded domains<input value={excludedDomains} placeholder="bank.example.com" onChange={e=>{setDomains(e.target.value);markEdited();}}/></label>
-   <fieldset className="category-choices"><legend>Categories YOU choose to label as distraction</legend>
-    <p className="form-hint">Optional. Never automatically equate entertainment or social time with wasted time.</p>
-    {cats.filter(c=>!['Unclassified','System'].includes(c)).map(c=><label className="check-line" key={c}>
-     <input type="checkbox" checked={distractors.includes(c)} onChange={e=>{
-       const checked=e.currentTarget.checked;
-       markEdited();
-       setDistractors(previous=>checked
-         ?previous.includes(c)?previous:[...previous,c]
-         :previous.filter(x=>x!==c));
-     }}/>{c}
-    </label>)}
-   </fieldset>
+   <TokenField label="Excluded application executable names" values={excludedApps} placeholder="privateapp.exe"
+      onChange={values=>{setApps(values);markEdited();}}/>
+   <TokenField label="Excluded domains" values={excludedDomains} placeholder="bank.example.com"
+      onChange={values=>{setDomains(values);markEdited();}}/>
    <label className="check-line"><input type="checkbox" checked={video} onChange={e=>{setVideo(e.currentTarget.checked);markEdited();}}/> Show saved video IDs in history gallery</label>
    <label className="check-line"><input type="checkbox" checked={predictionEnabled} onChange={e=>{setPredictionEnabled(e.currentTarget.checked);markEdited();}}/> Opt in to local-only, historical risk forecasting</label>
    <p className="form-hint">Prediction requires ≥21 observed days, enough coverage for the same hour, at least one category you choose, and a held-out calibration check. Unreliable forecasts stay hidden. No cloud or AI provider is used.</p>
@@ -377,13 +365,11 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
    <div className="privacy-save-actions"><button className="primary-btn" disabled={readonly||busy||!ready} type="submit">{busy?'Saving preferences…':'Save privacy settings'}</button>
     {dirty&&<button className="secondary-btn" type="button" disabled={readonly||busy} onClick={discard}>Discard changes</button>}
    </div>
-   <p className={dirty?'privacy-edit-status is-dirty':'privacy-edit-status'} role="status">{!ready?'Loading saved preferences…':dirty?`Unsaved changes — ${distractors.length} distraction categories selected. Selections stay until you save or discard.`:'All changes saved.'}</p>
+   <p className={dirty?'privacy-edit-status is-dirty':'privacy-edit-status'} role="status">{!ready?'Loading saved preferences…':dirty?'Unsaved privacy preferences.':'All changes saved.'}</p>
   </form>
   {error&&<Feedback text={error}/>}<Feedback text={message}/>
  </Card>;
 }
-
-export function BrowserPairPanel(){return <BrowserSetupWizard/>;}
 
 export function StartupPanel(){
  const [enabled,setEnabled]=useState<boolean|null>(null);

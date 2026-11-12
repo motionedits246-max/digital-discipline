@@ -3,6 +3,7 @@ import type {FormEvent} from 'react';
 import {agent, openDataFolder} from './api';
 import {CustomSelect} from './CustomSelect';
 import {TimePicker} from './TimePicker';
+import {NumberField} from './FormFields';
 import {useConfirm} from './ConfirmDialog';
 import {useAgentPanel} from './ProgressFeatures';
 
@@ -227,8 +228,8 @@ export function AttentionPanel({disabled,mode}: {disabled:boolean;mode:'reading'
       <label className="release-check"><input type="checkbox" checked={quiet.dnd} onChange={e=>setQuietDraft({...quiet,dnd:e.target.checked})}/> Do Not Disturb</label>
       <label className="release-check"><input type="checkbox" checked={quiet.start!==null} onChange={e=>setQuietDraft({...quiet,start:e.target.checked?1320:null,end:e.target.checked?420:null})}/> Schedule quiet hours</label>
       {quiet.start!==null&&<>
-        <label>From<TimePicker value={hhmm(quiet.start)} onChange={e=>setQuietDraft({...quiet,start:minuteOfDay(e.target.value)})} aria-label="Quiet hours start"/></label>
-        <label>Until<TimePicker value={hhmm(quiet.end)} onChange={e=>setQuietDraft({...quiet,end:minuteOfDay(e.target.value)})} aria-label="Quiet hours end"/></label>
+        <label>From<TimePicker value={hhmm(quiet.start)} onChange={e=>setQuietDraft({...quiet,start:minuteOfDay(e.target.value)})} aria-label="Quiet hours start" required/></label>
+        <label>Until<TimePicker value={hhmm(quiet.end)} onChange={e=>setQuietDraft({...quiet,end:minuteOfDay(e.target.value)})} aria-label="Quiet hours end" required/></label>
       </>}
       <div className="release-actions"><button className="primary-btn" disabled={panel.busy}>Save quiet hours</button></div>
     </form>
@@ -265,10 +266,10 @@ export function AttentionPanel({disabled,mode}: {disabled:boolean;mode:'reading'
       <label className="release-check"><input type="checkbox" checked={terms.enabled} onChange={e=>setTermsDraft({...terms,enabled:e.target.checked})}/> Enable progression</label>
       <label>Feed<CustomSelect value={terms.platform} onChange={e=>setTermsDraft({...terms,platform:e.target.value})} aria-label="Short feed">
         <option value="youtube_shorts">YouTube Shorts</option><option value="instagram_reels">Instagram Reels</option></CustomSelect></label>
-      <label>Play window, minutes<input type="number" min={3} max={60} value={terms.window_minutes} onChange={e=>setTermsDraft({...terms,window_minutes:Number(e.target.value)})}/></label>
-      {stages.map((stage,index)=><label key={stage}>{stage} plays<input type="number" min={1} max={100} value={terms.stages[index]}
-        onChange={e=>setTermsDraft({...terms,stages:terms.stages.map((value,i)=>i===index?Number(e.target.value):value)})}/></label>)}
-      <label>Restriction duration, minutes<input type="number" min={1} max={30} value={terms.block_minutes} onChange={e=>setTermsDraft({...terms,block_minutes:Number(e.target.value)})}/></label>
+      <NumberField label="Play window, minutes" min={3} max={60} value={terms.window_minutes} onChange={window_minutes=>setTermsDraft({...terms,window_minutes})}/>
+      {stages.map((stage,index)=><NumberField key={stage} label={stage+' plays'} min={1} max={100} value={terms.stages[index]}
+        onChange={next=>setTermsDraft({...terms,stages:terms.stages.map((value,i)=>i===index?next:value)})}/>)}
+      <NumberField label="Restriction duration, minutes" min={1} max={30} value={terms.block_minutes} onChange={block_minutes=>setTermsDraft({...terms,block_minutes})}/>
       <div className="release-actions"><button className="primary-btn" disabled={panel.busy}>Save progression</button></div>
     </form>
   </section>;
@@ -309,7 +310,7 @@ export function FocusPresets({disabled,onStart}:{disabled:boolean;onStart:()=>vo
       <label>Profile<CustomSelect value={preset.profile_id??''} onChange={e=>setPreset({...preset,profile_id:e.target.value||null})} aria-label="Preset profile">
         <option value="">General focus</option>{profiles.map(profile=><option key={profile.id} value={profile.id}>{profile.name}</option>)}
       </CustomSelect></label>
-      <label>Minutes<input type="number" min={1} max={240} value={preset.minutes} onChange={e=>setPreset({...preset,minutes:Number(e.target.value)})}/></label>
+      <NumberField label="Minutes" min={1} max={240} value={preset.minutes} onChange={minutes=>setPreset({...preset,minutes})}/>
       <label>Restriction level<CustomSelect value={preset.difficulty} onChange={e=>setPreset({...preset,difficulty:e.target.value,minimize_selected_apps:false})} aria-label="Preset restriction level">
         <option>Gentle</option><option>Balanced</option><option>Strict</option>
       </CustomSelect></label>

@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {agent,isTauri,deliverServiceHint,deliverDesktopNotice,setServiceHintWindow,readServiceHint,openServiceReview,openNoticePage,getBrowserPairState} from './api';
 import {CustomSelect} from './CustomSelect';
-import {SERVICE_TYPES,serviceName,type Service} from './ServiceReviewPanel';
+import {serviceName,type Service} from './ServiceReviewPanel';
+import {useCategoryLabels} from './categoryLabels';
 import {createNoticeLifetime} from './noticeLifetime.mjs';
 import {createNoticeFeed} from './noticeFeed.mjs';
 import type {Page} from './types';
@@ -34,6 +35,7 @@ export function useServiceHints(enabled:boolean,lite=false){
 }
 
 export function ServiceHintSurface(){
+ const {categories}=useCategoryLabels(isTauri);
  const [notice,setNotice]=useState<OverlayNotice|null>(null),[category,setCategory]=useState('Unclassified'),[busy,setBusy]=useState(false),[leaving,setLeaving]=useState(false),[message,setMessage]=useState('');
  const generation=useRef(0);
  const lifetime=useMemo(()=>createNoticeLifetime({onShow:()=>setLeaving(false),onExit:()=>setLeaving(true),onHide:()=>{generation.current++;void setServiceHintWindow(false,false);}}),[]);
@@ -71,6 +73,6 @@ export function ServiceHintSurface(){
  const title=notice.kind==='service'?serviceName(notice.service.subject):notice.title;
  return <div className={'service-hint-card '+(leaving?'leaving':'')} role="region" aria-live="polite" aria-label={service?'New service suggestion':'Desktop notification'} onFocusCapture={()=>lifetime.interact()} onPointerDownCapture={()=>lifetime.interact()} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();lifetime.dismiss();}}}>
   <div className="service-hint-heading"><span className="service-hint-symbol" aria-hidden="true">◐</span><div><small>{service?(service.category==='Unclassified'?'CHOOSE A SERVICE TYPE':'SERVICE TYPE SUGGESTION'):notice.kind==='browser'?'BROWSER COMPANION':'DIGITAL DISCIPLINE'}</small><strong title={title}>{title}</strong></div><button type="button" className="icon-btn" aria-label={service?'Dismiss service suggestion':'Dismiss notification'} onClick={()=>lifetime.dismiss()}>×</button></div>
-  {service?<><div className="service-hint-controls"><CustomSelect aria-label="Service type" value={category} onChange={e=>setCategory(e.target.value)} onOpenChange={menu}>{SERVICE_TYPES.map(c=><option key={c}>{c}</option>)}</CustomSelect><button type="button" className="secondary-btn" disabled={busy} onClick={()=>void decide('category')}>Save</button><button type="button" className="secondary-btn" disabled={busy} onClick={()=>service.ai_enabled?void decide('approve_ai'):void openServiceReview()}>{service.ai_enabled?'Ask AI':'Review'}</button></div><small className="service-hint-foot" role="status">{message||(service.category==='Unclassified'?'No LLM request until you approve.':service.source==='duckduckgo_summary'&&service.subject.startsWith('app:')?'Public match · Save to confirm this type':'From '+service.source.replaceAll('_',' ')+' · change if needed')}</small></>:notice.kind!=='service'&&<><p className="desktop-notice-detail">{notice.detail}</p><button type="button" className="secondary-btn desktop-notice-action" onClick={()=>void openNoticePage(notice.page)}>Open details</button></>}
+  {service?<><div className="service-hint-controls"><CustomSelect aria-label="Service type" value={category} onChange={e=>setCategory(e.target.value)} onOpenChange={menu}>{categories.map(c=><option key={c}>{c}</option>)}</CustomSelect><button type="button" className="secondary-btn" disabled={busy} onClick={()=>void decide('category')}>Save</button><button type="button" className="secondary-btn" disabled={busy} onClick={()=>service.ai_enabled?void decide('approve_ai'):void openServiceReview()}>{service.ai_enabled?'Ask AI':'Review'}</button></div><small className="service-hint-foot" role="status">{message||(service.category==='Unclassified'?'No LLM request until you approve.':service.source==='duckduckgo_summary'&&service.subject.startsWith('app:')?'Public match · Save to confirm this type':'From '+service.source.replaceAll('_',' ')+' · change if needed')}</small></>:notice.kind!=='service'&&<><p className="desktop-notice-detail">{notice.detail}</p><button type="button" className="secondary-btn desktop-notice-action" onClick={()=>void openNoticePage(notice.page)}>Open details</button></>}
  </div>;
 }

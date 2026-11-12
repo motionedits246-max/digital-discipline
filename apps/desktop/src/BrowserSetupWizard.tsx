@@ -23,7 +23,7 @@ function Visual({kind}:{kind:number}){
     {kind===4&&<div className="wizard-visual-body"><div className="wizard-mini-stats"><div><strong>3</strong><small>qualified plays</small></div><div><strong>3</strong><small>unique Shorts</small></div><div><strong>0</strong><small>queued events</small></div></div><p className="wizard-faux-caption">Illustrative targets for a clean three-Short test, not live data.</p></div>}
   </div>;
 }
-export function BrowserSetupWizard(){
+export function BrowserSetupWizard({compact=false}:{compact?:boolean}={}){
  const confirm=useConfirm();
  const [step,setStep]=useState(0);const [browser,setBrowser]=useState<Browser>('Brave');const [id,setId]=useState('');
  const [folder,setFolder]=useState('');const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);
@@ -40,7 +40,7 @@ export function BrowserSetupWizard(){
  async function unpair(extensionId:string){if(!await confirm({title:'Disconnect this browser?',description:'Remove this extension from the local allowlist. Its browser profile, pending queue and recording preference stay on your device.',confirmLabel:'Disconnect browser',danger:true}))return;
   setBusy(true);try{await forgetBrowserPair(extensionId);await reloadPairs();setNotice('Authorization removed. Extension will disconnect on its next request.');}catch(e){setNotice(String(e));}finally{setBusy(false);}}
  const next=()=>setStep(n=>Math.min(4,n+1));
- return <article className="surface padded wizard-root" aria-label="Browser setup wizard">
+ const guide=<>
    <div className="wizard-header"><div><p className="eyebrow">GUIDED CONNECTION</p><h3>Connect your browser in five steps</h3><p className="muted-paragraph">No command line, registry or native host. Direct local connection requires this extension to be authorized once.</p></div><span className="wizard-counter">{step+1} / 5</span></div>
    <div className="wizard-progress" aria-label={`Step ${step+1} of 5`}>{steps.map((v,i)=><button key={v.title} className={step===i?'current':step>i?'complete':''} onClick={()=>setStep(i)} title={v.title} aria-label={`Go to step ${i+1}: ${v.title}`}/>)}</div>
    <div className="wizard-layout"><Visual kind={step}/><div className="wizard-body"><h4>{steps[step].title}</h4><p>{steps[step].hint}</p>
@@ -50,18 +50,40 @@ export function BrowserSetupWizard(){
    {step===3&&<><div className="wizard-numbered"><span>1. Open <code>{browser.toLowerCase()==='brave'?'brave://extensions':browser==='Chrome'?'chrome://extensions':'edge://extensions'}</code> and click <b>Reload</b> on the extension.</span><span>2. Open its popup; enable <b>Record browser activity</b> if you want video counts.</span><span>3. Click <b>Connect directly & sync events</b>.</span><span>4. Confirm <b>Connected to local Windows agent</b> and check that queued events decrease.</span></div><button type="button" className="secondary-btn" disabled={!valid||busy} onClick={()=>void reloadPairs()}>Refresh paired devices</button><p className="wizard-caution">Extension popup should say Connected to local Windows agent. If it shows not authorized, check the ID below. If it shows Failed to fetch, confirm the agent is running and Brave allows the extension to connect to 127.0.0.1.</p></>}
    {step===4&&<><div className="wizard-numbered"><span>1. In Brave, open three different <code>youtube.com/shorts/…</code> URLs.</span><span>2. Let each Short visibly play for at least five seconds.</span><span>3. Return to <b>Video Intelligence</b> in the desktop dashboard, then refresh.</span><span>4. If counts stay at zero, reopen the extension popup: the queued count should fall, not keep climbing. Then open two regular watch videos for separate counting.</span></div><p className="wizard-caution">Regular <code>youtube.com/watch?v=…</code> observations now have separate counts. Play two different ordinary videos after checking Shorts and confirm the two categories do not mix.</p></>}
    </div></div>
-   <CompanionUpdater/>
+ </>;
+ const management=
    <div className="wizard-diagnostics" aria-label="Browser connection management">
-    <div className="eyebrow">NEW CONNECTION</div>
+    {compact&&<h3>Browser connections</h3>}
+    {!compact&&<div className="eyebrow">NEW CONNECTION</div>}
     <div className="panel-header"><strong>Connect a new browser ({pending.length} waiting)</strong><button type="button" className="secondary-btn" onClick={()=>void reloadPairs()} disabled={busy}>Find extensions</button></div>
+    {compact&&pending.length>0&&<div className="wizard-browser-options" role="group" aria-label="Browser for pending connection">
+      {(['Brave','Chrome','Edge'] as Browser[]).map(name=><button type="button" key={name}
+        aria-pressed={browser===name} className={browser===name?'selected':''} onClick={()=>setBrowser(name)}>{name}</button>)}
+    </div>}
     {pending.length?pending.map(p=><div className="settings-row" key={p.extension_id}><div><strong>Browser companion detected</strong><small>{p.extension_id}</small><small>Requested {new Date(p.requested_ms).toLocaleTimeString()} · choose browser above</small></div><button type="button" className="primary-btn" disabled={busy} onClick={()=>void approvePending(p.extension_id)}>Approve</button></div>):<p className="form-hint">No pending requests. Open the extension popup and click Connect directly, then click Find extensions here.</p>}
     <div className="small-divider"/>
     <div className="eyebrow" style={{marginTop:18}}>CONNECTED BROWSERS</div>
     <div className="panel-header"><strong>Authorized browser extensions ({pairs.length})</strong><button type="button" className="secondary-btn" disabled={busy} onClick={()=>void reloadPairs()}>Refresh</button></div>
-     {pairs.length?pairs.map(p=><div key={p.extension_id} className="settings-row"><div><strong>{p.browser} · {p.extension_id.slice(0,6)}…{p.extension_id.slice(-6)}</strong><small>Extension ID: {p.extension_id}</small><small>{p.last_seen_ms>0?'Last connected: '+new Date(p.last_seen_ms).toLocaleString():'Authorized · awaiting first connection'}</small></div><button className="secondary-btn" type="button" disabled={busy} onClick={()=>void unpair(p.extension_id)}>Unpair</button></div>):<p className="form-hint">No authorized extensions. Pair your Brave extension in step 3.</p>}
-     <p className="form-hint">These are actual agent authorizations. A Last connected timestamp updates when the companion communicates. You can revoke access any time.</p>
-   </div>
+     {pairs.length?pairs.map(p=><div key={p.extension_id} className="settings-row"><div><strong>{p.browser} · {p.extension_id.slice(0,6)}…{p.extension_id.slice(-6)}</strong><small>Extension ID: {p.extension_id}</small>{!compact&&<small>{p.last_seen_ms>0?'Last connected: '+new Date(p.last_seen_ms).toLocaleString():'Authorized · awaiting first connection'}</small>}</div><button className="secondary-btn" type="button" disabled={busy} onClick={()=>void unpair(p.extension_id)}>Unpair</button></div>):<p className="form-hint">No authorized extensions. Pair your Brave extension in step 3.</p>}
+     {!compact&&<p className="form-hint">You can revoke an extension’s local access at any time.</p>}
+   </div>;
+ const footer=
+   <div className="wizard-footer"><button className="secondary-btn" onClick={()=>setStep(n=>Math.max(0,n-1))} disabled={step===0}>Previous</button><button className="primary-btn" onClick={next} disabled={step===4}>Next step</button></div>;
+ return <article className={"surface padded wizard-root"+(compact?" wizard-compact":"")} aria-label="Browser setup wizard">
+   {compact?<>
+     {management}
+     <CompanionUpdater/>
+     <details className="wizard-guide-disclosure">
+       <summary>Set up a new browser</summary>
+       {guide}
+       {footer}
+     </details>
+   </>:<>
+     {guide}
+     <CompanionUpdater/>
+     {management}
+     {footer}
+   </>}
    {notice&&<p className="wizard-notice" role="status">{notice}</p>}
-   <div className="wizard-footer"><button className="secondary-btn" onClick={()=>setStep(n=>Math.max(0,n-1))} disabled={step===0}>Previous</button><button className="primary-btn" onClick={next} disabled={step===4}>Next step</button></div>
  </article>;
 }

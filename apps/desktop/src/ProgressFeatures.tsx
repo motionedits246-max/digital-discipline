@@ -4,6 +4,8 @@ import { agent } from './api';
 import { CustomSelect } from './CustomSelect';
 import { DatePicker } from './DatePicker';
 import { TimePicker } from './TimePicker';
+import {NumberField} from './FormFields';
+import {useCategoryLabels} from './categoryLabels';
 import type { Session } from './types';
 
 const toTime = (minute: number) => [Math.floor(minute / 60), minute % 60]
@@ -93,8 +95,8 @@ export function PlannerPanel({disabled, onFocus}: {disabled: boolean; onFocus: (
       <form className="release-form" onSubmit={save}>
         <label>Block name<input required maxLength={120} value={plan.title} onChange={e=>patch({title:e.target.value})}/></label>
         <label>Day<DatePicker value={plan.day} onChange={day=>patch({day})} aria-label="Plan day"/></label>
-        <label>Start time<TimePicker value={toTime(plan.start_min)} onChange={e=>patch({start_min:toMinute(e.target.value)})} aria-label="Plan start time"/></label>
-        <label>Minutes<input type="number" min={1} max={240} required value={plan.minutes} onChange={e=>patch({minutes:Number(e.target.value)})}/></label>
+        <label>Start time<TimePicker value={toTime(plan.start_min)} onChange={e=>patch({start_min:toMinute(e.target.value)})} aria-label="Plan start time" required/></label>
+        <NumberField label="Minutes" min={1} max={240} value={plan.minutes} onChange={minutes=>patch({minutes})}/>
         <label>Block type<CustomSelect value={plan.kind} onChange={e=>patch({kind:e.target.value, profile_id:null})} aria-label="Block type">
           <option value="focus">Focus</option><option value="task">Task</option><option value="break">Break</option><option value="free">Free time</option>
         </CustomSelect></label>
@@ -142,9 +144,9 @@ export function PlannerPanel({disabled, onFocus}: {disabled: boolean; onFocus: (
           <option value="observed_minutes">Observed active minutes</option><option value="completed_tasks">Owner-completed tasks</option>
           {report.reading_ms!==undefined && <option value="reading_minutes">Confirmed reading minutes</option>}
         </CustomSelect></label>
-        <label>Weekly total<input type="number" min={1} max={target.metric==='completed_tasks'?1000:10080} value={target.target} onChange={e=>setTarget({...target,target:Number(e.target.value)})}/></label>
+        <NumberField label="Weekly total" min={1} max={target.metric==='completed_tasks'?1000:10080} value={target.target} onChange={value=>setTarget({...target,target:value})}/>
         <fieldset className="release-days"><legend>Target days</legend>
-          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day,i)=><label key={day}><input type="checkbox" checked={!!(target.days&(1<<i))} onChange={()=>setTarget({...target,days:target.days^(1<<i)})}/>{day}</label>)}
+          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day,i)=><button type="button" className="label-choice" key={day} aria-pressed={!!(target.days&(1<<i))} onClick={()=>setTarget({...target,days:target.days^(1<<i)})}>{day}</button>)}
         </fieldset>
         <div className="release-actions"><button className="primary-btn" disabled={panel.busy||target.days===0}>{target.id?'Save target':'Add target'}</button>
           {target.id && <button type="button" className="secondary-btn" onClick={()=>setTarget(newTarget)}>Cancel edit</button>}</div>
@@ -159,7 +161,6 @@ export function PlannerPanel({disabled, onFocus}: {disabled: boolean; onFocus: (
   </div>;
 }
 
-const categories = ['Development','Design','Productivity','Communication','Education','Entertainment','Gaming','Social','News','Utility','System','Browser','Unclassified'];
 type HistoryData = {
   corrections: {session_id:string;app:string;category:string|null;hidden:boolean;can_undo:boolean}[];
   manual: {id:string;start_ms:number;end_ms:number;label:string;category:string}[];
@@ -168,6 +169,7 @@ export function HistoryCorrections({day, sessions, disabled, onRefresh}: {
   day:string; sessions:Session[]; disabled:boolean; onRefresh:()=>void;
 }) {
   const panel=useAgentPanel<HistoryData>('/history/'+day,disabled);
+  const {categories}=useCategoryLabels(!disabled);
   const [query,setQuery]=useState('');
   const [id,setId]=useState('');
   const [category,setCategory]=useState('Productivity');
@@ -205,8 +207,8 @@ export function HistoryCorrections({day, sessions, disabled, onRefresh}: {
     </div>)}
     <form className="release-form release-subsection" onSubmit={addManual}>
       <label>Offline work label<input maxLength={120} value={label} required onChange={e=>setLabel(e.target.value)}/></label>
-      <label>Start<TimePicker value={time} onChange={e=>setTime(e.target.value)} aria-label="Offline work start"/></label>
-      <label>Minutes<input type="number" min={1} max={480} value={duration} onChange={e=>setDuration(Number(e.target.value))}/></label>
+      <label>Start<TimePicker value={time} onChange={e=>setTime(e.target.value)} aria-label="Offline work start" required/></label>
+      <NumberField label="Minutes" min={1} max={480} value={duration} onChange={setDuration}/>
       <div className="release-actions"><button className="secondary-btn" disabled={panel.busy}>Add self-reported time</button></div>
     </form>
     {panel.data?.manual?.map(item=><div className="release-row" key={item.id}><span>{item.label} · {item.category} · {minutes(item.end_ms-item.start_ms)} min · Self-reported</span>
@@ -241,15 +243,15 @@ export function EarnedTimePanel({disabled}: {disabled:boolean}) {
       <label>Work apps<input value={form.work_apps} placeholder="code.exe, blender.exe" onChange={e=>setDraft({...form,work_apps:e.target.value})}/></label>
       <label>Work sites<input value={form.work_domains} placeholder="docs.python.org" onChange={e=>setDraft({...form,work_domains:e.target.value})}/></label>
       <label>Leisure sites<input value={form.spend_domains} placeholder="youtube.com" onChange={e=>setDraft({...form,spend_domains:e.target.value})}/></label>
-      <label>Work minutes per reward<input type="number" min={1} max={240} value={form.work_minutes} onChange={e=>setDraft({...form,work_minutes:Number(e.target.value)})}/></label>
-      <label>Reward minutes<input type="number" min={1} max={120} value={form.reward_minutes} onChange={e=>setDraft({...form,reward_minutes:Number(e.target.value)})}/></label>
-      <label>Daily earn cap<input type="number" min={1} max={240} value={form.daily_cap_minutes} onChange={e=>setDraft({...form,daily_cap_minutes:Number(e.target.value)})}/></label>
+      <NumberField label="Work minutes per reward" min={1} max={240} value={form.work_minutes} onChange={work_minutes=>setDraft({...form,work_minutes})}/>
+      <NumberField label="Reward minutes" min={1} max={120} value={form.reward_minutes} onChange={reward_minutes=>setDraft({...form,reward_minutes})}/>
+      <NumberField label="Daily earn cap" min={1} max={240} value={form.daily_cap_minutes} onChange={daily_cap_minutes=>setDraft({...form,daily_cap_minutes})}/>
       <label className="release-check"><input type="checkbox" checked={form.rollover} onChange={e=>setDraft({...form,rollover:e.target.checked})}/> Carry unused time to tomorrow</label>
       <div className="release-actions"><button className="primary-btn" disabled={panel.busy}>Save earned time rule</button></div>
     </form>
     <p className="form-hint">Separate entries with commas. Saving an enabled rule applies a block to the selected sites when your balance runs out. Site spending requires browser recording.</p>
     {terms.enabled && <form className="release-form release-subsection" onSubmit={e=>{e.preventDefault();void panel.change(()=>agent('POST','/rewards/adjust',{minutes:adjust}));}}>
-      <label>Balance adjustment in minutes<input type="number" min={-240} max={240} value={adjust} onChange={e=>setAdjust(Number(e.target.value))}/></label>
+      <NumberField label="Balance adjustment in minutes" min={-240} max={240} value={adjust} onChange={setAdjust}/>
       <div className="release-actions"><button className="secondary-btn" disabled={panel.busy||adjust===0}>Adjust balance</button></div>
     </form>}
     {entries.length>0 && <details className="release-subsection"><summary>Balance history</summary><div className="release-list">

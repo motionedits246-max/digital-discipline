@@ -81,6 +81,14 @@ try {
  if($reviews.reviews[0].context.intended_outcome -ne 'Finish lesson exercises'){throw 'Task review context missing'}
  $details=Invoke-RestMethod 'http://127.0.0.1:48761/health/details' -Headers $auth
  if(-not $details.resources.available -or $details.resources.working_set_bytes -le 0){throw 'Windows process resource measurement unavailable'}
+ $label=Agent-Post '/categories/labels' @{name='CI reading';distraction=$true}
+ if($label.label -ne 'CI reading'){throw 'Custom category label was not created'}
+ Agent-Post '/categories/override' @{subject='app:reader.exe';category='CI reading'}|Out-Null
+ $categories=Invoke-RestMethod 'http://127.0.0.1:48761/categories' -Headers $auth
+ if($categories.distraction_categories -notcontains 'CI reading' -or
+    -not @($categories.overrides | Where-Object {$_.subject -eq 'app:reader.exe' -and $_.category -eq 'CI reading'}).Count){
+  throw 'Custom category assignment or distraction choice did not persist'
+ }
  $backupSecret='test backup passphrase'
  Agent-Post '/backup/schedule' @{enabled=$true;passphrase=$backupSecret;history=$false}|Out-Null
  Agent-Post '/backup/schedule' @{enabled=$false;history=$false}|Out-Null

@@ -1,5 +1,5 @@
 //! History corrections are overlays. Raw observations remain available to the collector.
-use crate::{err, features, midnight_local_ms, now_ms, ApiResult, AppState};
+use crate::{category_labels, err, midnight_local_ms, now_ms, ApiResult, AppState};
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use chrono::{Duration, NaiveDate};
 use rusqlite::{params, Connection};
@@ -38,13 +38,13 @@ pub struct Correction {
 }
 
 pub async fn correct(State(state): State<Arc<AppState>>, Json(input): Json<Correction>) -> ApiResult {
+    let db = state.db.lock().unwrap();
     if Uuid::parse_str(&input.session_id).is_err()
         || !matches!(input.action.as_str(), "undo" | "hide" | "category")
-        || input.action=="category" && !input.category.as_deref().is_some_and(|value|features::CATEGORIES.contains(&value))
+        || input.action=="category" && !input.category.as_deref().is_some_and(|value|category_labels::known(&db,value))
     {
         return Err(err(StatusCode::BAD_REQUEST, "invalid_correction"));
     }
-    let db = state.db.lock().unwrap();
     let now=now_ms();
     let changed=if input.action=="undo" {
         db.execute("DELETE FROM history_corrections WHERE session_id=?1 AND updated_ms>=?2",
@@ -87,7 +87,7 @@ pub async fn manual(State(state): State<Arc<AppState>>, Json(input): Json<Manual
     let label=input.label.as_deref().map(str::trim).filter(|label|
         !label.is_empty() && label.chars().count()<=120 && !label.chars().any(char::is_control))
         .ok_or_else(||err(StatusCode::BAD_REQUEST,"invalid_manual_label"))?;
-    let category=input.category.as_deref().filter(|value|features::CATEGORIES.contains(value))
+    let category=input.category.as_deref().filter(|value|category_labels::known(&db,value))
         .ok_or_else(||err(StatusCode::BAD_REQUEST,"invalid_manual_category"))?;
     if start<now-365*86_400_000 || start>now-minutes as i64*60_000 {
         return Err(err(StatusCode::BAD_REQUEST,"manual_time_must_be_past"));

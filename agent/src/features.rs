@@ -103,20 +103,24 @@ pub(super) fn excluded(db:&Connection,app:&str,domain:Option<&str>)->bool {
 pub(super) struct CategoryInput {subject:String,category:String}
 pub(super) async fn override_category(State(s):State<Arc<AppState>>,Json(p):Json<CategoryInput>)->ApiResult{
     let subject=p.subject.trim().to_ascii_lowercase();
+    let db=s.db.lock().unwrap();
     if !(subject.starts_with("app:")||subject.starts_with("domain:")) || subject.len()>260 ||
-        !(CATEGORIES.contains(&p.category.as_str())) ||
+        !crate::category_labels::known(&db,&p.category) ||
         (subject.starts_with("domain:") && !domain::valid_domain(&subject[7..])) ||
         (subject.starts_with("app:") && (subject.len()<5||!subject[4..].bytes().all(|x|x.is_ascii_alphanumeric()||b"-_.".contains(&x)))) {
         return Err(err(StatusCode::BAD_REQUEST,"invalid_category_override"));
     }
-    s.db.lock().unwrap().execute("INSERT INTO category_overrides(subject,category,updated_ms) VALUES(?1,?2,?3) ON CONFLICT(subject) DO UPDATE SET category=excluded.category,updated_ms=excluded.updated_ms",params![subject,p.category,now_ms()]).map_err(storage)?;
+    db.execute("INSERT INTO category_overrides(subject,category,updated_ms) VALUES(?1,?2,?3) ON CONFLICT(subject) DO UPDATE SET category=excluded.category,updated_ms=excluded.updated_ms",params![subject,p.category,now_ms()]).map_err(storage)?;
     Ok(Json(json!({"ok":true,"subject":subject})))
 }
 pub(super) async fn list_categories(State(s):State<Arc<AppState>>)->ApiResult{
     let db=s.db.lock().unwrap();
     let mut q=db.prepare("SELECT subject,category FROM category_overrides ORDER BY subject LIMIT 1000").map_err(storage)?;
     let overrides=q.query_map([],|r|Ok(json!({"subject":r.get::<_,String>(0)?,"category":r.get::<_,String>(1)?}))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
-    Ok(Json(json!({"ok":true,"categories":CATEGORIES,"overrides":overrides})))
+    let custom=crate::category_labels::custom(&db);
+    let categories=CATEGORIES.iter().copied().chain(custom.iter().map(String::as_str)).collect::<Vec<_>>();
+    Ok(Json(json!({"ok":true,"categories":categories,"custom_categories":custom,
+        "distraction_categories":crate::category_labels::distractions(&db),"overrides":overrides})))
 }
 pub(super) async fn delete_override(Path(subject):Path<String>,State(s):State<Arc<AppState>>)->ApiResult{
     s.db.lock().unwrap().execute("DELETE FROM category_overrides WHERE subject=?1",params![subject]).map_err(storage)?;
@@ -260,12 +264,13 @@ pub(super) async fn get_settings(State(s):State<Arc<AppState>>)->ApiResult{
     Ok(Json(json!({"ok":true,"settings":map})))
 }
 pub(super) async fn set_settings(State(s):State<Arc<AppState>>,Json(p):Json<SettingsInput>)->ApiResult{
+    let db=s.db.lock().unwrap();
     if p.retention_days.is_some_and(|x|!(1..=3650).contains(&x))||p.idle_threshold_ms.is_some_and(|x|!(30_000..=3_600_000).contains(&x))||
         p.excluded_apps.as_ref().is_some_and(|xs|xs.len()>100||xs.iter().any(|x|x.is_empty()||x.len()>120||!x.bytes().all(|c|c.is_ascii_alphanumeric()||b"-_.".contains(&c))))||
         p.excluded_domains.as_ref().is_some_and(|xs|xs.len()>100||xs.iter().any(|x|!domain::valid_domain(x))) ||
-        p.distraction_categories.as_ref().is_some_and(|xs|xs.len()>CATEGORIES.len()||xs.iter().any(|c|!CATEGORIES.contains(&c.as_str()))) {return Err(err(StatusCode::BAD_REQUEST,"invalid_settings"));}
+        p.distraction_categories.as_ref().is_some_and(|xs|!crate::category_labels::valid_selection(&db,xs)) {return Err(err(StatusCode::BAD_REQUEST,"invalid_settings"));}
     let privacy_changed=p.excluded_apps.is_some()||p.excluded_domains.is_some();
-    let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;
+    let tx=db.unchecked_transaction().map_err(storage)?;
     if privacy_changed{crate::data_lifecycle::advance_epoch(&tx).map_err(storage)?;}
     for (key,value) in [
         ("lite_mode",p.lite_mode.map(|v|v.to_string())),
