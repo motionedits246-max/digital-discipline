@@ -268,6 +268,7 @@ public final class MainActivity extends Activity {
         row.setPadding(dp(14), dp(15), dp(13), dp(14));
         row.setBackground(ripple(surface(PANEL)));
         row.setFocusable(true);
+        row.setContentDescription(label + ". " + description);
         row.setOnClickListener(view -> listener.run());
         DisciplineArt symbol = new DisciplineArt(this, icon);
         FrameLayout badge = new FrameLayout(this);
@@ -636,6 +637,7 @@ public final class MainActivity extends Activity {
         search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         search.setTextSize(15);
         search.setHint("Search installed apps");
+        search.setContentDescription("Search installed apps");
         search.setTextColor(WHITE);
         search.setHintTextColor(MUTED);
         search.setPadding(dp(14), 0, dp(14), 0);

@@ -26,24 +26,31 @@ def wait_for(predicate, description, attempts=25):
 
 
 def tap(label, prefix=False):
+    last_labels = []
+
     def click_matching():
         try:
             adb("shell", "uiautomator", "dump", "/data/local/tmp/dd-window.xml")
             tree = ET.fromstring(adb("exec-out", "cat", "/data/local/tmp/dd-window.xml"))
         except (ET.ParseError, subprocess.SubprocessError):
             return False
+        last_labels.clear()
         for node in tree.iter("node"):
             values = [node.get("text", ""), node.get("content-desc", "")]
+            last_labels.extend(value for value in values if value)
             if label in values or prefix and any(value.startswith(label) for value in values):
                 bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
-                if len(bounds) != 4:
+                if len(bounds) != 4 or bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
                     continue
                 left, top, right, bottom = bounds
                 adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
                 return True
         return False
 
-    wait_for(click_matching, label, attempts=5)
+    try:
+        wait_for(click_matching, label, attempts=5)
+    except AssertionError as error:
+        raise AssertionError(f"{error}. Visible labels: {last_labels}") from error
 
 
 def launch(component):
@@ -71,7 +78,7 @@ adb("shell", "settings", "put", "secure", "enabled_accessibility_services", PACK
 adb("shell", "settings", "put", "secure", "accessibility_enabled", "1")
 launch(PACKAGE + "/.MainActivity")
 tap("Get started")
-tap("Individual")
+tap("Individual", prefix=True)
 tap("Blocking")
 tap("Search installed apps")
 adb("shell", "input", "text", fixture_package)
