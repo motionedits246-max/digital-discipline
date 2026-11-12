@@ -1,0 +1,12 @@
+<resources>
+    <string name="block_service_description">Checks which app opens and shows a blocking notice for selected apps. Digital Discipline does not read screen contents.</string>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#0B0B0D</item>
+        <item name="android:statusBarColor">#0B0B0D</item>
+        <item name="android:navigationBarColor">#0B0B0D</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#F2F2F4</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+</resources>
