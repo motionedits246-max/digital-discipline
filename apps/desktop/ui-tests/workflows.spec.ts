@@ -1,6 +1,7 @@
 import {test,expect,type Page} from '@playwright/test';
 const rule='11111111-1111-4111-8111-111111111111',task='22222222-2222-4222-8222-222222222222',profile='33333333-3333-4333-8333-333333333333';
-async function connected(page:Page,paired=true,tinyStartup=false){
+async function connected(page:Page,paired=true,surface:'workspace'|'pill'|'first-launch'='workspace'){
+ const tinyStartup=surface==='first-launch';
  if(tinyStartup)await page.setViewportSize({width:280,height:56});
  await page.addInitScript(({rule,task,profile,paired,tinyStartup})=>{
   if(!tinyStartup)localStorage.setItem('dd:guided-tour-complete-v1','true');
@@ -55,10 +56,14 @@ async function connected(page:Page,paired=true,tinyStartup=false){
   }};
   (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
  },{rule,task,profile,paired,tinyStartup});
- await page.goto('/');if(tinyStartup)return;if(!paired){await expect(page.getByRole('heading',{name:'Connect your browser',exact:true})).toBeVisible();return;}await page.getByRole('button',{name:'Open quick panel'}).click();await page.getByRole('button',{name:'Open workspace',exact:false}).click();
+ await page.goto('/');
+ if(surface!=='workspace')return;
+ if(!paired){await expect(page.getByRole('heading',{name:'Connect your browser',exact:true})).toBeVisible();return;}
+ await page.getByRole('button',{name:'Open quick panel'}).click();
+ await page.getByRole('button',{name:'Open workspace',exact:false}).click();
 }
 test('first-launch walkthrough waits for the workspace viewport',async({page})=>{
- await connected(page,true,true);
+ await connected(page,true,'first-launch');
  const tour=page.getByRole('dialog',{name:'Digital Discipline guided walkthrough'});
  const pill=page.getByRole('button',{name:'Open quick panel',exact:true});
  await expect.poll(()=>page.evaluate(()=>(window as any).__testCalls.some(
@@ -200,7 +205,7 @@ test('the entire non-button pill uses the native drag hit target', async ({page}
  const pill=page.locator('.pill-surface');
  await expect(pill).toBeVisible();
  const hit=await pill.evaluate(element => {
-  const targets=['.pill-status','.pill-title','.pill-count','.pill-separator'].map(selector=>{
+  const targets=['.pill-status','.pill-title','.pill-count','.pill-todo-count','.pill-separator'].map(selector=>{
    const box=element.querySelector(selector)!.getBoundingClientRect();
    return document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)===element;
   });
@@ -208,7 +213,77 @@ test('the entire non-button pill uses the native drag hit target', async ({page}
   return {targets,drag:element.hasAttribute('data-tauri-drag-region'),
    arrow:!!document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)?.closest('.pill-open')};
  });
- expect(hit).toEqual({targets:[true,true,true,true],drag:true,arrow:true});
+ expect(hit).toEqual({targets:[true,true,true,true,true],drag:true,arrow:true});
  await page.getByRole('button',{name:'Open quick panel',exact:true}).click();
  await expect(page.getByRole('button',{name:/Open workspace/})).toBeVisible();
+});
+
+test('quick panel to-dos scroll, persist, and update the pill count', async ({page}) => {
+ await page.setViewportSize({width:280,height:56});
+ await connected(page,true,'pill');
+ await expect(page.getByRole('img',{name:'To-dos: 0 of 0 completed'})).toHaveText('0/0');
+ await page.getByRole('button',{name:'Open quick panel'}).click();
+ await page.setViewportSize({width:410,height:430});
+ await page.getByRole('tab',{name:'To-do',exact:true}).click();
+ const input=page.getByRole('textbox',{name:'New to-do'});
+ for(let number=1;number<=9;number++){
+  await input.fill(`Task ${number}`);
+  await input.press('Enter');
+ }
+ const list=page.getByRole('list',{name:'To-dos'});
+ await expect(list.getByRole('listitem')).toHaveCount(9);
+ expect(await list.evaluate(element => {
+  const scroll=element.parentElement!;
+  scroll.scrollTop=scroll.scrollHeight;
+  return scroll.scrollTop;
+ })).toBeGreaterThan(0);
+ await list.getByRole('checkbox',{name:'Task 9',exact:true}).check();
+ await page.getByRole('button',{name:'Collapse to pill',exact:true}).click();
+ await page.setViewportSize({width:280,height:56});
+ const progress=page.getByRole('img',{name:'To-dos: 1 of 9 completed'});
+ await expect(progress).toHaveText('1/9');
+ await page.reload();
+ await expect(progress).toHaveText('1/9');
+ await page.getByRole('button',{name:'Open quick panel'}).click();
+ await page.setViewportSize({width:410,height:430});
+ await page.getByRole('tab',{name:'To-do',exact:true}).click();
+ await expect(list.getByRole('checkbox',{name:'Task 9',exact:true})).toBeChecked();
+ await list.getByRole('checkbox',{name:'Task 9',exact:true}).uncheck();
+ await list.getByRole('button',{name:'Remove to-do Task 9',exact:true}).click();
+ await page.getByRole('button',{name:'Collapse to pill',exact:true}).click();
+ await expect(page.getByRole('img',{name:'To-dos: 0 of 8 completed'})).toHaveText('0/8');
+});
+
+test('quick panel notes retain their heading and text after restart', async ({page}) => {
+ await page.setViewportSize({width:410,height:430});
+ await connected(page,true,'pill');
+ const openNotes=async()=>{
+  await page.getByRole('button',{name:'Open quick panel'}).click();
+  const activity=page.getByRole('tab',{name:'Activity',exact:true});
+  await expect(activity).toHaveAttribute('aria-selected','true');
+  await activity.press('End');
+  await expect(page.getByRole('tab',{name:'Notes',exact:true})).toBeFocused();
+ };
+ await openNotes();
+ await page.getByRole('button',{name:'New note',exact:true}).click();
+ await page.getByRole('textbox',{name:'Heading',exact:true}).fill('Next build');
+ const text='Review the overlay.\nKeep the note on this device.';
+ await page.getByRole('textbox',{name:'Note text',exact:true}).fill(text);
+ await page.getByRole('button',{name:'Save note',exact:true}).click();
+ await page.reload();
+ await openNotes();
+ const note=page.getByRole('list',{name:'Saved notes'}).locator('details');
+ await expect(note.locator('summary')).toHaveText('Next build');
+ await note.locator('summary').click();
+ await expect(note.locator('p')).toHaveText(text);
+ await note.getByRole('button',{name:'Edit',exact:true}).click();
+ await page.getByRole('textbox',{name:'Note text',exact:true}).fill('Updated note.');
+ await page.getByRole('button',{name:'Save note',exact:true}).click();
+ await note.locator('summary').click();
+ await expect(note.locator('p')).toHaveText('Updated note.');
+ await page.getByRole('tab',{name:'Activity',exact:true}).click();
+ await page.getByRole('button',{name:'Open workspace',exact:false}).click();
+ await expect(page.getByRole('navigation',{name:'Primary navigation'})).toBeVisible();
+ await expect(page.getByRole('tablist',{name:'Quick panel'})).toHaveCount(0);
+ await expect(page.getByText('Updated note.',{exact:true})).toHaveCount(0);
 });

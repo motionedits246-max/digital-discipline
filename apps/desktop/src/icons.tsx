@@ -1,5 +1,7 @@
 import type {ReactNode} from 'react';
 const icons:Record<string,ReactNode>={
+  checklist:<><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/></>,
+  note:<><path d="M6 3h8l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h4M8 12h6m-6 4h6"/></>,
   inbox:<><path d="M4 4h16l2 12v4H2v-4z"/><path d="M2 16h6l2 3h4l2-3h6"/></>,
   overview:<><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
   activity:<><path d="M3 12h4l3-7 4 14 3-7h4"/></>,

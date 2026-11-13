@@ -1,0 +1,229 @@
+.pill-count, .pill-todo-count, .pill-open { flex: none; }
+.pill-todo-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid #464451;
+  border-radius: 7px;
+  background: #302e39;
+  color: #ded8eb;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quick-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: clamp(10px, 4.8vw, 20px);
+  overflow: hidden;
+}
+.quick-head { flex: none; }
+.quick-brand { min-width: 0; }
+.quick-brand .brand-symbol { flex: none; }
+.quick-brand > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-tabs {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #383740;
+  border-radius: 10px;
+  background: #18181d;
+}
+.quick-tabs > button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 33px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #b0aebc;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.quick-tabs > button:hover { background: #2b2933; }
+.quick-tabs > button[aria-selected="true"] {
+  border-color: #494653;
+  background: #34313e;
+  color: #f0ebf9;
+}
+.quick-tabs > button > svg { flex: none; }
+
+.quick-tab-panel {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.quick-tab-panel[hidden] { display: none; }
+.quick-activity {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #5d576d transparent;
+}
+.quick-activity .quick-current {
+  margin: 0 0 15px;
+  padding: 14px;
+}
+.quick-activity .quick-current strong {
+  font-size: clamp(17px, 5.6vw, 23px);
+  overflow-wrap: anywhere;
+}
+.quick-activity .quick-actions { margin-top: 16px; }
+.quick-activity .quick-actions button { min-width: 0; }
+.quick-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: default;
+}
+.quick-tools:active { cursor: default; }
+.quick-entry-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #5d576d transparent;
+}
+.quick-entry-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0 3px 3px;
+  list-style: none;
+}
+.quick-empty {
+  margin: 0;
+  padding: 19px 12px;
+  border: 1px dashed #43414e;
+  border-radius: 10px;
+  color: #aaa7b6;
+  font-size: 12px;
+  text-align: center;
+}
+.quick-save-error {
+  margin: 0;
+  color: #f0b0af;
+  font-size: 11px;
+}
+
+.quick-todo-form, .quick-notes-toolbar, .quick-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.quick-todo-form { padding: 2px 3px; }
+.quick-todo-form input { flex: 1; width: 100%; }
+.quick-tools :is(input:not([type="checkbox"]), textarea) { font-size: 12px; }
+.quick-todo-form > button {
+  flex: none;
+  justify-content: center;
+  min-height: 41px;
+}
+.quick-tools .primary-btn {
+  background: #c9c4df;
+  border-color: #c9c4df;
+  color: #191722;
+}
+.quick-tools .primary-btn:disabled { opacity: .5; cursor: not-allowed; }
+.quick-todo-row, .quick-note {
+  border: 1px solid #393843;
+  border-radius: 9px;
+  background: #25242c;
+}
+.quick-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px 4px 10px;
+}
+.quick-todo-row > label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 32px;
+  color: #e4e0eb;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.quick-todo-row > label > input { cursor: pointer; }
+.quick-todo-row .quick-todo-done > span {
+  color: #aaa6b8;
+  text-decoration: line-through;
+}
+.quick-todo-row .quick-remove { width: 28px; height: 28px; flex: none; }
+
+.quick-notes-toolbar { justify-content: flex-end; padding: 2px 3px; }
+.quick-note-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 3px;
+}
+.quick-note-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #d9d5e3;
+  font-size: 11px;
+  font-weight: 600;
+}
+.quick-note-form .quick-note-text-field { flex: 1; }
+.quick-note-text-field textarea {
+  flex: 1;
+  min-height: 84px !important;
+  resize: none;
+}
+.quick-note-actions { justify-content: flex-end; }
+.quick-note > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  list-style: none;
+  color: #ece8f3;
+  font-size: 12px;
+  cursor: pointer;
+}
+.quick-note > summary::-webkit-details-marker { display: none; }
+.quick-note > summary > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.quick-note > summary > svg { flex: none; }
+.quick-note[open] > summary > svg:last-child { transform: rotate(90deg); }
+.quick-note > p {
+  margin: 0;
+  padding: 2px 12px 12px;
+  color: #c4bfce;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.quick-note > .quick-note-actions { padding: 0 10px 10px; }
+
+@media (max-width: 340px) {
+  .quick-tabs > button > svg { display: none; }
+  .quick-activity .quick-actions { flex-wrap: wrap; }
+}

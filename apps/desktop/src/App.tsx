@@ -6,6 +6,8 @@ import {useConfirm} from './ConfirmDialog';
 import {InboxPanel} from './InboxPanel';
 import {ScopedExceptionsPanel} from './ScopedExceptionsPanel';
 import {ResumeCard} from './ResumeCard';
+import {QuickPanel} from './QuickPanel';
+import {useQuickPanelData} from './useQuickPanelData';
 import {FocusWorkflowPanel} from './FocusWorkflowPanel';
 import {SettingsWorkspace,type SettingsSection} from './SettingsWorkspace';
 import {TrackingDoctor} from './TrackingDoctor';
@@ -75,6 +77,7 @@ function FormRule({onSubmit,readonly}:{onSubmit:(p:{name:string;domain:string;pa
 
 export default function App(){
  const confirm=useConfirm();
+ const quickPanelData=useQuickPanelData();
  const [mode,setMode]=useState<Mode>(isTauri?'pill':'full');const [page,setPage]=useState<Page>('Overview');
  const [settingsSection,setSettingsSection]=useState<SettingsSection>('general');
  const [setupActive,setSetupActive]=useState(false);
@@ -245,7 +248,7 @@ export default function App(){
  },[changeMode,openSearch,rememberLayout]);
  const beginDrag=(event:PointerEvent<HTMLElement>)=>{
    const target=event.target as Element;
-   if(event.button!==0||target.closest('button,a,input,textarea,select,label,summary,[contenteditable],[role="button"],[role="listbox"]'))return;
+   if(event.button!==0||target.closest('button,a,input,textarea,select,label,summary,[contenteditable],[role="button"],[role="listbox"],[data-quick-panel-tools]'))return;
    void dragWindow().catch(()=>{});
  };
  const run=async(action:()=>Promise<unknown>,success:string)=>{if(demo){setMessage('Sample preview only. Run the Windows agent to make changes.');return;}try{await action();setMessage(success);await read(true);}catch(e){setMessage(`Action failed: ${String(e)}`);}};
@@ -288,8 +291,31 @@ export default function App(){
 
 
  if(setupActive&&isTauri&&['full','popout'].includes(visibleMode))return <div className="onboarding-shell">{presentationPrivacy&&<PresentationShield privateActive={!!shown?.private_session?.active} paused={!!shown?.tracking_paused} offline={offline} onReveal={()=>setPresentationPrivacy(false)} onPause={pause}/>}<div className="workspace-content" hidden={presentationPrivacy} aria-hidden={presentationPrivacy||undefined} inert={presentationPrivacy||undefined}><header className="onboarding-top" onPointerDown={beginDrag}><div><span className="eyebrow">WELCOME TO DIGITAL DISCIPLINE</span><h1>Connect your browser</h1><p>Set up Brave once to enable Shorts, Reels and regular video counts. Windows app tracking works independently.</p></div><div className="onboarding-controls"><button type="button" className="secondary-btn" onClick={startTour}>Use app without browser</button><button aria-label={mode==='popout'?'Restore setup window':'Maximize setup window'} type="button" className="icon-btn window-control" onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button></div></header><main className="onboarding-main"><BrowserSetupWizard/><div className="onboarding-bottom"><p>Browser recording is optional and stays disabled until you opt in inside the Brave companion.</p><button type="button" className="primary-btn" onClick={async()=>{const r=await getBrowserPairState().catch(()=>null);if(!r?.pairs.length){setMessage('Authorize an extension in step 3 first, or choose Use app without browser.');return;}startTour();}}>Finish setup and open dashboard</button>{message&&<span role="status">{message}</span>}</div></main></div></div>;
- if(visibleMode==='pill')return <div className="pill-surface" title={message||undefined} data-tauri-drag-region><span className={`pill-status ${shown?.tracking_paused?'stopped':''}`}/><span className="pill-title">{pillText}</span><span className="pill-separator"/><span className="pill-count"><Icon name="video" size={14}/>{presentationPrivacy?'—':pillCount}</span><button aria-label="Open quick panel" className="pill-open" onClick={()=>void changeMode('quick')}><Icon name="chevron" size={16}/></button></div>;
- if(visibleMode==='quick')return <div className="quick-surface" onPointerDownCapture={beginDrag}><div className="quick-head"><div className="quick-brand"><span className="brand-symbol">◐</span><span>Digital Discipline</span></div><div className="quick-window-controls"><button className="icon-btn window-control" title="Maximize workspace" aria-label="Maximize workspace" onClick={()=>void changeMode('full')}><Icon name="maximize"/></button><button className="icon-btn window-control window-control-close" aria-label="Collapse to pill" title="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></div></div><div className="quick-current"><span className="eyebrow">CURRENT ACTIVITY</span><strong>{pillText}</strong><small>{presentationPrivacy?'Details hidden for screen sharing':(shown?.current?.category||'Unclassified')} · {shown?.tracking_paused?'Tracking paused':'Local observation'}</small></div><div className={presentationPrivacy?'quick-stats dd-privacy-quick':'quick-stats'}><div><span>Active today</span><strong>{duration(shown?.metrics.active_ms||0)}</strong></div><div><span>Short plays</span><strong>{pillCount}</strong></div><div><span>Development</span><strong>{duration(shown?.metrics.development_ms||0)}</strong></div></div>{!presentationPrivacy&&shown?.focus_goal_hint&&<div className="focus-context-hint">{shown.focus_goal_hint.text}<button onClick={()=>{setPage('Focus & Goals');void changeMode('full');}}>Review goal</button><button onClick={()=>snoozeHint('snooze_10m')}>10m snooze</button><button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}{!presentationPrivacy&&<ResumeCard readonly={demo||offline} onOpen={()=>{setPage('Focus & Goals');void changeMode('full');}}/>}<div className="quick-actions"><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'} size={16}/>{shown?.tracking_paused?'Resume':'Pause tracking'}</button><button className="primary-btn" onClick={()=>void changeMode('full')}>Open workspace <Icon name="expand" size={16}/></button></div>{offline&&<p className="tiny-muted">Start the local agent to see recorded activity.</p>}</div>;
+ if(visibleMode==='pill'){
+  const todoTotal=quickPanelData.todos.length;
+  const todoCompleted=quickPanelData.todos.filter(todo=>todo.completed).length;
+  return <div className="pill-surface" title={message||undefined} data-tauri-drag-region>
+   <span className={`pill-status ${shown?.tracking_paused?'stopped':''}`}/>
+   <span className="pill-title">{pillText}</span>
+   <span className="pill-separator"/>
+   <span className="pill-count"><Icon name="video" size={14}/>{presentationPrivacy?'—':pillCount}</span>
+   {!presentationPrivacy&&<span className="pill-todo-count" role="img" aria-label={`To-dos: ${todoCompleted} of ${todoTotal} completed`}>
+    <Icon name="checklist" size={14}/>{todoCompleted}/{todoTotal}
+   </span>}
+   <button aria-label="Open quick panel" className="pill-open" onClick={()=>void changeMode('quick')}>
+    <Icon name="chevron" size={16}/>
+   </button>
+  </div>;
+ }
+ if(visibleMode==='quick')return <QuickPanel data={quickPanelData} presentationPrivacy={presentationPrivacy}
+  onDrag={beginDrag} onOpenWorkspace={()=>void changeMode('full')} onCollapse={()=>void changeMode('pill')}>
+  <div className="quick-current"><span className="eyebrow">CURRENT ACTIVITY</span><strong>{pillText}</strong><small>{presentationPrivacy?'Details hidden for screen sharing':(shown?.current?.category||'Unclassified')} · {shown?.tracking_paused?'Tracking paused':'Local observation'}</small></div>
+  <div className={presentationPrivacy?'quick-stats dd-privacy-quick':'quick-stats'}><div><span>Active today</span><strong>{duration(shown?.metrics.active_ms||0)}</strong></div><div><span>Short plays</span><strong>{pillCount}</strong></div><div><span>Development</span><strong>{duration(shown?.metrics.development_ms||0)}</strong></div></div>
+  {!presentationPrivacy&&shown?.focus_goal_hint&&<div className="focus-context-hint">{shown.focus_goal_hint.text}<button onClick={()=>{setPage('Focus & Goals');void changeMode('full');}}>Review goal</button><button onClick={()=>snoozeHint('snooze_10m')}>10m snooze</button><button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}
+  {!presentationPrivacy&&<ResumeCard readonly={demo||offline} onOpen={()=>{setPage('Focus & Goals');void changeMode('full');}}/>}
+  <div className="quick-actions"><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'} size={16}/>{shown?.tracking_paused?'Resume':'Pause tracking'}</button><button className="primary-btn" onClick={()=>void changeMode('full')}>Open workspace <Icon name="expand" size={16}/></button></div>
+  {offline&&<p className="tiny-muted">Start the local agent to see recorded activity.</p>}
+ </QuickPanel>;
  return <div className="workspace">
   <aside className="sidebar"><div className="side-brand" onPointerDown={beginDrag}><div className="brand-symbol">◐</div><div className="brand-copy"><strong>digital discipline</strong><span>YOUR WORKSPACE</span></div></div><div className="side-group-label">WORKSPACE</div><nav aria-label="Primary navigation">{pages.map((p,i)=><button data-tour={['overview','live','history','videos','focus','blocking','automations','insights','coach','devices','settings'][i]} key={p} aria-label={p} className={`nav-item ${page===p?'selected':''}`} onClick={()=>setPage(p)}><Icon name={navIcons[i]} size={18}/><span>{p}</span>{stage[p]&&<small>{stage[p]?.replace('Phase ','P')}</small>}</button>)}</nav><div className="sidebar-footer"><div className="agent-health"><span className={`health-dot ${offline?'unavailable':shown?.tracking_paused?'stopped':'on'}`}/><div><strong>{demo?'Sample mode':offline?'Agent offline':shown?.tracking_paused?'Tracking paused':'Agent connected'}</strong><small>{demo?'Not recording actual usage':offline?'No live telemetry':shown?.browser_connected?'Browser signals received':'App-level only'}</small></div></div><p>LOCAL FIRST · DESKTOP v{desktopPackage.version}</p></div></aside>
   <section className="main-column"><header className="topbar" onPointerDown={beginDrag}><div className="breadcrumbs"><span>WORKSPACE</span><Icon name="chevron" size={14}/><strong>{page}</strong></div><div className="top-controls"><button type="button" className={presentationPrivacy?'tour-replay-btn dd-privacy-active':'tour-replay-btn'} title="Hide activity details during screen sharing" aria-pressed={presentationPrivacy} onClick={()=>setPresentationPrivacy(v=>!v)}>{presentationPrivacy?'Show details':'Presentation mode'}</button><button className="tour-replay-btn" type="button" title="Replay guided tour" onClick={startTour}><Icon name="history" size={15}/> Tour</button><button data-tour="command" className="command-trigger" onClick={showCommand}>Search · Ctrl K</button><span className="date-chip"><Icon name="clock" size={15}/>{dayTitle()}</span><button className={`connection-chip ${offline?'offline':''}`} onClick={()=>demo?setDemo(false):void read()}><span className="health-dot on"/>{demo?'Sample data':offline?'Disconnected':shown?.private_session?.active?'Private session':shown?.tracking_paused?'Paused':'Tracking on'}</button>{isTauri&&<><button className="icon-btn window-control" title={mode==='popout'?'Restore overlay':'Maximize as window'} aria-label={mode==='popout'?'Restore overlay':'Maximize as window'} onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button><button className="icon-btn window-control window-control-close" title="Collapse to pill" aria-label="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></>}</div></header>
