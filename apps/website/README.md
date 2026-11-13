@@ -28,11 +28,11 @@ The build produces a Cloudflare Worker in `dist/server` and client assets in `di
 - Working sample focus timer, floating controller, privacy preview, and browser boundary switch.
 - Responsive mobile navigation, accessible labels, keyboard focus, and reduced motion support.
 - Self-hosted Inter font, social image, metadata, canonical URL, robots.txt, and sitemap.
-- Direct same-origin Windows installer download, installation notes, and copyable SHA-256.
+- Direct Windows installer and Android APK downloads, with a copyable SHA-256 for each file.
 - No visitor tracking, external font requests, or cloud accounts required by this website.
 
-## Installer
+## Downloads
 
-`release.json` records the published Windows x64 version, companion version, source ref, filename, size, SHA-256, and signer thumbprint. The public site serves the Windows installer from its own origin. The GitHub source branch downloads it from the live site before development or builds and checks its size and SHA-256. The early-access installer uses a self-signed development certificate.
+`release.json` records the Windows installer and its companion version, source ref, size, SHA-256, and signer thumbprint. `android-release.json` records the signed Android APK, its Android version requirement, size, SHA-256, and signing certificate fingerprint. The site serves both files from its own origin. A source-only checkout fetches missing downloads from the live site and verifies their size and SHA-256.
 
-For a release, put the verified installer in `public/downloads/` and update the manifest. The download links, version, size, and release notes read from this file. The build publishes a copy at `/downloads/latest.json`.
+For a release, put the verified installer or APK in `public/downloads/` and update its manifest. The build validates both downloads and publishes the Windows updater metadata at `/downloads/latest.json`.

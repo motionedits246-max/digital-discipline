@@ -9,11 +9,11 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
   title: "Digital Discipline — Your time. Back in your hands.",
   description:
-    "Understand your day, set browser boundaries, and make room for what matters. Digital Discipline is a local-first Windows app for a more intentional digital life.",
+    "Understand your day and set boundaries with Digital Discipline. Download the local-first Windows app or the Android APK.",
   openGraph: {
     title: "Digital Discipline — Your time. Back in your hands.",
     description:
-      "Less autopilot. More of your day. Download the local-first Windows app.",
+      "Download Digital Discipline for Windows and Android.",
     type: "website",
     images: [
       {

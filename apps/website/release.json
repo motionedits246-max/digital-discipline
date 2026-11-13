@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.5.2",
-  "source_ref": "feature/window-resize-0.5.2",
+  "version": "0.5.3",
+  "source_ref": "feature/quick-panel-todos-notes",
   "companion_version": "0.4.0",
   "protocol": "1.0",
-  "filename": "Digital-Discipline-0.5.2-x64-setup.exe",
-  "bytes": 6451616,
-  "sha256": "88cabe8c93590e8b98aeeb8723f5396e3cf969a209ed541b4d6ef42873d73a7a",
+  "filename": "Digital-Discipline-0.5.3-x64-setup.exe",
+  "bytes": 6457488,
+  "sha256": "3540c4e36fcf6cc02f56e3369cc44c2b3c92a7355fed6c934c9377b8d8348795",
   "signing": "development",
-  "signer_thumbprint": "c7b624b6da7a8bbc3221b559ddfebb07cb694fff",
-  "notes": "Getting Started opens once the workspace reaches its minimum size. This download also includes dark form controls, custom categories and distraction labels, a dedicated Diagnostics panel, and a floating controller you can drag from anywhere outside its buttons."
+  "signer_thumbprint": "bc7948bfe54ce1ce8add0c64a755da16dcd8eab5",
+  "notes": "The floating pill shows how many to-dos are complete. Open the quick panel to check off tasks in a scrollable list or save notes with a heading and text. To-dos and notes save locally across restarts."
 }

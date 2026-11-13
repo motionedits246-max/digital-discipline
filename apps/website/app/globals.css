@@ -184,10 +184,6 @@ summary {
   box-shadow: none;
   font-size: 11px;
 }
-.header-download > svg:first-child {
-  width: 13px;
-  height: 13px;
-}
 .header-download > svg:last-child {
   width: 13px;
   height: 13px;
@@ -268,6 +264,32 @@ summary {
   gap: 21px;
   align-items: center;
   flex-wrap: wrap;
+}
+.hero-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.hero-downloads .download-button {
+  height: 46px;
+  padding-inline: 12px;
+  gap: 8px;
+  font-size: 11px;
+}
+.hero-downloads .download-button > svg:last-child {
+  width: 13px;
+  height: 13px;
+  margin-left: 2px;
+}
+.download-android {
+  border-color: #494950;
+  background: #292930;
+  color: #eeeef2;
+  box-shadow: none;
+}
+.download-android:hover {
+  background: #36363f;
+  box-shadow: 0 6px 24px #0003;
 }
 .explore-link {
   display: inline-flex;
@@ -1436,48 +1458,92 @@ summary {
 .download-section h2 > span {
   color: #9292a4;
 }
-.download-section > p:not(.development-note) {
+.download-section > p {
   font-size: 13px;
   color: #85859c;
   margin: 24px 0 28px;
 }
-.download-section > .download-button {
-  height: 53px;
-  padding-inline: 22px;
-  font-size: 12px;
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+  max-width: 690px;
+  margin: 0 auto;
+  text-align: left;
 }
-.download-meta {
+.download-card {
+  min-width: 0;
+  padding: clamp(17px, 3vw, 23px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.download-card-head {
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 10px;
-  font-size: 9px;
-  color: #85859c;
-  margin-top: 19px;
+  gap: 11px;
+  margin-bottom: 18px;
 }
-.download-meta i {
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
-  background: #66667a;
+.download-platform-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  border: 1px solid #41414a;
+  border-radius: 8px;
+  background: var(--inset);
+  color: #dedee7;
+}
+.download-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.download-card-title h3 {
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+}
+.download-card-title p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.download-version {
+  flex: none;
+  padding: 5px 7px;
+  border: 1px solid #41414a;
+  border-radius: 6px;
+  color: #c5c5d1;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.download-card > .download-button {
+  width: 100%;
+  height: 46px;
+  padding-inline: 12px;
+  font-size: 11px;
 }
 .development-note {
-  font-size: 9px;
-  line-height: 1.9;
-  color: #77778e;
-  margin-top: 17px;
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
 }
-.development-note > a {
+.download-install-notes {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #a5a5be;
+  margin-top: 7px;
+  color: #b5b5cc;
+  font-size: 10px;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .checksum {
-  margin: 24px auto 0;
-  max-width: 620px;
+  margin-top: 10px;
 }
 .checksum > summary {
   cursor: pointer;
@@ -1485,9 +1551,9 @@ summary {
   align-items: center;
   gap: 7px;
   list-style: none;
-  color: #696982;
-  font-size: 8px;
-  padding: 8px;
+  color: #b2b2c2;
+  font-size: 10px;
+  padding: 6px 0;
 }
 .checksum[open] > summary > svg {
   transform: rotate(90deg);
@@ -1496,7 +1562,7 @@ summary {
   background: #1b1b22;
   border: 1px solid #343443;
   border-radius: 7px;
-  padding: 18px;
+  padding: 12px;
   text-align: left;
   margin-top: 9px;
 }
@@ -1527,9 +1593,13 @@ summary {
   color: #c0c0d6;
 }
 .checksum small {
-  font-size: 8px;
+  display: block;
+  margin-top: 7px;
+  font-size: 9px;
   color: #9292a9;
-  margin-left: 12px;
+}
+.checksum small:empty {
+  display: none;
 }
 .source-card {
   display: flex;
@@ -1671,15 +1741,6 @@ summary {
   .hero-actions {
     gap: 10px;
   }
-  .hero-actions > .download-button {
-    height: 45px;
-    font-size: 10px;
-    padding-inline: 14px;
-    gap: 8px;
-  }
-  .hero-actions > .download-button > svg:last-child {
-    margin-left: 7px;
-  }
   .explore-link {
     font-size: 10px;
   }
@@ -1760,11 +1821,8 @@ summary {
     justify-content: center;
     gap: 22px;
   }
-  .hero-actions > .download-button {
-    height: 49px;
-    font-size: 12px;
-    padding-inline: 20px;
-    gap: 11px;
+  .hero-downloads {
+    justify-content: center;
   }
   .hero-meta {
     justify-content: center;
@@ -1872,9 +1930,6 @@ summary {
     font-size: 10px;
     gap: 7px;
   }
-  .header-download > svg:first-child {
-    display: none;
-  }
   .header-download > svg:last-child {
     margin-left: 4px;
   }
@@ -1944,11 +1999,6 @@ summary {
   .hero-actions {
     gap: 17px;
     flex-direction: column;
-  }
-  .hero-actions > .download-button {
-    height: 49px;
-    font-size: 11px;
-    padding-inline: 19px;
   }
   .explore-link {
     font-size: 10px;
@@ -2286,40 +2336,15 @@ summary {
     font-size: clamp(47px, 10.5vw, 64px);
     line-height: 1.09;
   }
-  .download-section > p:not(.development-note) {
+  .download-section > p {
     font-size: 11px;
     line-height: 1.8;
     margin: 22px auto 24px;
     max-width: 260px;
   }
-  .download-section > .download-button {
-    height: 49px;
-    font-size: 11px;
-  }
-  .download-meta {
-    font-size: 8px;
-    gap: 8px;
-    margin-top: 17px;
-  }
-  .development-note {
-    font-size: 8px;
-    line-height: 2;
-  }
-  .checksum {
-    margin-top: 18px;
-  }
-  .checksum > summary {
-    font-size: 7px;
-  }
-  .checksum code {
-    font-size: 9px;
-  }
-  .checksum > div {
-    padding: 15px;
-  }
-  .checksum small {
-    display: block;
-    margin: 10px 0 0;
+  .download-grid {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 410px;
   }
   .site-footer {
     padding: 27px 0 30px;

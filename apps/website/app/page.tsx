@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Shield,
   SlidersHorizontal,
+  Smartphone,
   Square,
   Star,
   Target,
@@ -32,11 +33,15 @@ import {
 } from "lucide-react";
 import { MotionTour } from "./motion-tour";
 import release from "../release.json";
+import androidRelease from "../android-release.json";
 
-const DOWNLOAD = "/downloads/" + release.filename;
-const CHECKSUM = release.sha256;
-const GITHUB_REPO = "https://github.com/motionedits246-max/digital-discipline-windows";
+const downloads = {
+  windows: { name: "Windows", shortLabel: "Windows x64", file: release },
+  android: { name: "Android", shortLabel: "Android APK", file: androidRelease },
+} as const;
+const GITHUB_REPO = "https://github.com/motionedits246-max/digital-discipline";
 type View = "overview" | "focus" | "insights";
+type Platform = keyof typeof downloads;
 
 function Mark({ className = "" }: { className?: string }) {
   return (
@@ -73,23 +78,95 @@ function WindowsMark() {
     </svg>
   );
 }
-function DownloadLink({
-  className = "",
-  children = "Download for Windows",
-}: {
-  className?: string;
-  children?: React.ReactNode;
-}) {
+function PlatformMark({ platform }: { platform: Platform }) {
+  return platform === "windows" ? <WindowsMark /> : <Smartphone size={17} aria-hidden="true" />;
+}
+function DownloadLink({ platform, compact = false }: { platform: Platform; compact?: boolean }) {
+  const { name, shortLabel, file } = downloads[platform];
+  const label = "Download for " + name;
   return (
     <a
-      href={DOWNLOAD}
-      download={release.filename}
-      className={"download-button " + className}
+      href={"/downloads/" + file.filename}
+      download={file.filename}
+      className={`download-button download-${platform}`}
+      aria-label={compact ? label : undefined}
     >
-      <WindowsMark />
-      <span>{children}</span>
-      <ArrowDown size={16} />
+      <PlatformMark platform={platform} />
+      <span>{compact ? shortLabel : label}</span>
+      <ArrowDown size={16} aria-hidden="true" />
     </a>
+  );
+}
+function DownloadChecksum({ platform }: { platform: Platform }) {
+  const { name, file } = downloads[platform];
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (copyStatus === "idle") return;
+    const timer = window.setTimeout(() => setCopyStatus("idle"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [copyStatus]);
+
+  async function copyChecksum() {
+    try {
+      await navigator.clipboard.writeText(file.sha256);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  return (
+    <details className="checksum">
+      <summary>
+        Verify {name} download
+        <ChevronRight size={12} aria-hidden="true" />
+      </summary>
+      <div>
+        <span>SHA-256</span>
+        <code>{file.sha256}</code>
+        <button type="button" onClick={() => void copyChecksum()}>
+          {copyStatus === "copied" && <Check size={13} aria-hidden="true" />}
+          {copyStatus === "copied" ? "Copied" : "Copy checksum"}
+        </button>
+        <small role="status">
+          {copyStatus === "copied" && "Checksum copied to clipboard."}
+          {copyStatus === "failed" && "Select the checksum to copy it."}
+        </small>
+      </div>
+    </details>
+  );
+}
+function DownloadCard({ platform }: { platform: Platform }) {
+  const { name, file } = downloads[platform];
+  const windows = platform === "windows";
+  const size = file.bytes >= 1_000_000
+    ? (file.bytes / 1_000_000).toFixed(2) + " MB"
+    : Math.round(file.bytes / 1000) + " KB";
+  return (
+    <section className="download-card" aria-labelledby={`download-${platform}-title`}>
+      <div className="download-card-head">
+        <span className="download-platform-icon"><PlatformMark platform={platform} /></span>
+        <div className="download-card-title">
+          <h3 id={`download-${platform}-title`}>{name}</h3>
+          <p>{windows ? "x64 installer" : `Android ${androidRelease.min_android_version}+`} · {size}</p>
+        </div>
+        <span className="download-version">v{file.version}</span>
+      </div>
+      <DownloadLink platform={platform} />
+      <p className="development-note">
+        {windows ? "Early access · Development-signed installer" : "Early access · Signed APK"}
+      </p>
+      {windows && (
+        <a className="download-install-notes" href="#install-notes" onClick={() => {
+          const item = document.querySelector<HTMLDetailsElement>("#install-notes");
+          if (item) item.open = true;
+        }}>
+          Read Windows installation notes
+          <ArrowUpRight size={12} aria-hidden="true" />
+        </a>
+      )}
+      <DownloadChecksum platform={platform} />
+    </section>
   );
 }
 const heat = Array.from({ length: 91 }, (_, i) => {
@@ -615,18 +692,18 @@ const faqs = [
       "The browser companion can apply domain and route restrictions, schedules and time budgets. Temporary exceptions and emergency recovery remain available. A Strict focus preset can minimize a selected Windows app once per session.",
   },
   {
-    question: "What should I know before installing?",
+    id: "install-notes",
+    question: "What should I know before installing on Windows?",
     answer:
       "Version " + release.version + " is an early-access Windows x64 development build. Its self-signed certificate may trigger a publisher or SmartScreen warning. Quit the previous version from its tray menu before installing. In Settings, open the companion folder and reload your existing Brave extension to get companion " + release.companion_version + ".",
   },
   {
-    question: "What's new in version " + release.version + "?",
+    question: "What's new in Windows v" + release.version + "?",
     answer: release.notes,
   },
 ];
 export default function Home() {
-  const [menuOpen, setMenuOpen] = useState(false),
-    [copied, setCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [previewView, setPreviewView] = useState<View>("overview");
   const [privateMode, setPrivateMode] = useState(false);
 
@@ -643,15 +720,6 @@ export default function Home() {
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
   }, [menuOpen]);
-  async function copyChecksum() {
-    try {
-      await navigator.clipboard.writeText(CHECKSUM);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
-    } catch {
-      setCopied(false);
-    }
-  }
   return (
     <>
       <a className="skip-link" href="#main">
@@ -679,12 +747,15 @@ export default function Home() {
             <a href="#source" onClick={() => setMenuOpen(false)}>
               Source
             </a>
-            <a className="mobile-download" href={DOWNLOAD} download>
-              Download for Windows
+            <a className="mobile-download" href="#download" onClick={() => setMenuOpen(false)}>
+              Downloads
             </a>
           </nav>
           <div className="header-actions">
-            <DownloadLink className="header-download">Get the app</DownloadLink>
+            <a className="download-button header-download" href="#download" onClick={() => setMenuOpen(false)}>
+              <span>Get the app</span>
+              <ArrowDown size={14} aria-hidden="true" />
+            </a>
             <button
               className="menu-toggle"
               aria-expanded={menuOpen}
@@ -701,9 +772,11 @@ export default function Home() {
           <div className="hero-copy">
             <a href="#download" className="release-tag">
               <span className="tag-dot" />
-              WINDOWS EARLY ACCESS
+              EARLY ACCESS
               <span className="tag-divider" />
-              v{release.version}
+              Windows v{release.version}
+              <span className="tag-divider" />
+              Android v{androidRelease.version}
               <ArrowUpRight size={12} />
             </a>
             <h1>
@@ -718,7 +791,10 @@ export default function Home() {
               room for the work—and life—you choose.
             </p>
             <div className="hero-actions">
-              <DownloadLink />
+              <div className="hero-downloads" role="group" aria-label="Download Digital Discipline">
+                <DownloadLink platform="windows" compact />
+                <DownloadLink platform="android" compact />
+              </div>
               <a href="#features" className="explore-link">
                 <span className="demo-play-icon">
                   <Play size={11} fill="currentColor" />
@@ -730,9 +806,9 @@ export default function Home() {
               <Monitor size={13} />
               Windows x64
               <span />
-              Local first
+              Android {androidRelease.min_android_version}+
               <span />
-              No account needed
+              Local first
             </p>
           </div>
           <div className="hero-product">
@@ -829,11 +905,8 @@ export default function Home() {
             </p>
           </div>
           <div className="faq-list">
-            {faqs.map((faq, i) => (
-              <details
-                key={faq.question}
-                id={i === 4 ? "install-notes" : undefined}
-              >
+            {faqs.map((faq) => (
+              <details key={faq.question} id={faq.id}>
                 <summary>
                   {faq.question}
                   <Plus size={17} />
@@ -853,48 +926,11 @@ export default function Home() {
             <br />
             <span>what matters.</span>
           </h2>
-          <p>Start with a clearer picture of your day.</p>
-          <DownloadLink />
-          <div className="download-meta">
-            <span>v{release.version}</span>
-            <i />
-            <span>Windows x64</span>
-            <i />
-            <span>{(release.bytes / 1_000_000).toFixed(2)} MB</span>
+          <p>Choose the build for your device.</p>
+          <div className="download-grid">
+            <DownloadCard platform="windows" />
+            <DownloadCard platform="android" />
           </div>
-          <p className="development-note">
-            Early access · Development-signed installer.
-            <br />
-            <a
-              href="#install-notes"
-              onClick={() => {
-                const item = document.getElementById(
-                  "install-notes",
-                ) as HTMLDetailsElement | null;
-                if (item) item.open = true;
-              }}
-            >
-              Read the installation notes
-              <ArrowUpRight size={11} />
-            </a>
-          </p>
-          <details className="checksum">
-            <summary>
-              Verify this download
-              <ChevronRight size={12} />
-            </summary>
-            <div>
-              <span>SHA-256</span>
-              <code>{CHECKSUM}</code>
-              <button onClick={() => void copyChecksum()}>
-                {copied ? <Check size={13} /> : <Square size={12} />}{" "}
-                {copied ? "Copied" : "Copy checksum"}
-              </button>
-              <small role="status">
-                {copied ? "Checksum copied to clipboard." : ""}
-              </small>
-            </div>
-          </details>
           <section id="source" className="source-card" aria-labelledby="source-title">
             <div className="source-copy">
               <h3 id="source-title">Source code</h3>
