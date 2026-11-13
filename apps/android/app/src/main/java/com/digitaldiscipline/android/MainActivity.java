@@ -1006,11 +1006,15 @@ public final class MainActivity extends Activity {
         float dy = destination == null ? -dp(25) : end[1] + destination.getHeight() / 2f - start[1] - size / 2f;
         float scale = destination == null ? 0.85f
             : (float) Math.min(destination.getWidth(), destination.getHeight()) / size;
-        overlay.animate().alpha(0).setStartDelay(65).setDuration(355).start();
+        ValueAnimator fade = ValueAnimator.ofInt(255, 0);
+        fade.setStartDelay(65);
+        fade.setDuration(355);
+        fade.addUpdateListener(step -> overlay.getBackground().setAlpha((int) step.getAnimatedValue()));
+        fade.start();
         content.setAlpha(.58f);
         content.animate().alpha(1).setDuration(420).start();
         splash.animate().translationX(dx).translationY(dy).scaleX(scale).scaleY(scale)
-            .rotation(-8).setDuration(420).withEndAction(() -> {
+            .setDuration(420).withEndAction(() -> {
                 if (destination != null) destination.setAlpha(1);
                 host.removeView(overlay);
             }).start();
