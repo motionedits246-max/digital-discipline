@@ -89,7 +89,8 @@ public final class MainActivity extends Activity {
     private String pendingPacket;
     private String pendingReadKind;
     private boolean busy;
-    private boolean rolling;
+    private boolean weekly;
+    private String detailApp;
     private boolean launchPending;
     private FrameLayout stage;
     private BrandMark heroMark;
@@ -106,14 +107,16 @@ public final class MainActivity extends Activity {
         launchPending = state == null;
         if (state != null) {
             tab = state.getInt("tab");
-            rolling = state.getBoolean("rolling");
+            weekly = state.getBoolean("weekly");
+            detailApp = state.getString("detailApp");
             choosingMode = state.getBoolean("choosingMode");
         }
     }
 
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("tab", tab);
-        out.putBoolean("rolling", rolling);
+        out.putBoolean("weekly", weekly);
+        out.putString("detailApp", detailApp);
         out.putBoolean("choosingMode", choosingMode);
         super.onSaveInstanceState(out);
     }
@@ -145,6 +148,7 @@ public final class MainActivity extends Activity {
         super.onStop();
         if (Rules.CHILD.equals(rules.mode()) && unlocked) {
             unlocked = false;
+            detailApp = null;
             tab = SETTINGS;
             render();
         }
@@ -166,7 +170,7 @@ public final class MainActivity extends Activity {
             action(panel, "Parent access", this::askPin);
             return;
         }
-        dashboardHeader(switch (mode) {
+        if (detailApp == null || tab != ACTIVITY) dashboardHeader(switch (mode) {
             case Rules.CHILD -> "Child device";
             case Rules.PARENT -> "Parent dashboard";
             default -> "Personal dashboard";
@@ -220,7 +224,8 @@ public final class MainActivity extends Activity {
         stage.setBackgroundColor(0xff0d0915);
         frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
-        frame.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+        if (tab == ACTIVITY && !rules.mode().isEmpty()) frame.setBackgroundColor(0xff100d16);
+        else frame.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
             new int[]{0xff151020, 0xff0d0915, 0xff151222}));
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -403,7 +408,7 @@ public final class MainActivity extends Activity {
         }
         if (Rules.CHILD.equals(mode)) {
             LinearLayout exchange = card("Parent file exchange");
-            text(exchange, "The activity file includes installed launcher apps, app-open times and foreground duration from the last 24 hours.", 15, MUTED, false);
+            text(exchange, "The activity file includes installed apps, today’s usage sessions, and available weekly activity totals.", 15, MUTED, false);
             action(exchange, "Export child activity", this::exportActivity);
             action(exchange, "Import parent rules", () -> openFile("rules"));
             action(root, "Lock parent settings", () -> {
@@ -556,7 +561,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (enrollStep > 0) {
+        if (detailApp != null) {
+            closeAppDetails();
+        } else if (enrollStep > 0) {
             backFromEnrollment();
         } else if (rules.mode().isEmpty() && choosingMode) {
             choosingMode = false;
@@ -804,91 +811,226 @@ public final class MainActivity extends Activity {
 
     private void showActivity(JSONObject report) {
         boolean parent = Rules.PARENT.equals(rules.mode());
-        if (report.has("hours") && report.optBoolean("tracked")) {
-            LinearLayout range = new LinearLayout(this);
-            range.setBackground(glass(0xff211a35, 0xff151023, 0xff453758));
-            range.setPadding(dp(3), dp(3), dp(3), dp(3));
-            root.addView(range, new LinearLayout.LayoutParams(-1, -2));
-            rangeButton(range, "Today", false);
-            rangeButton(range, "Last 24h", true);
+        boolean tracked = report.optBoolean("tracked");
+        java.time.ZoneId zone = reportZone(report);
+        if (detailApp != null) {
+            showAppDetails(report, zone);
+            return;
         }
-        LinearLayout summary = card("Screen time");
-        summary.setBackground(glass(0xff37274d, 0xff1b2730, 0xff786497));
-        LinearLayout figure = new LinearLayout(this);
-        figure.setGravity(Gravity.CENTER_VERTICAL);
-        summary.addView(figure, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout numbers = new LinearLayout(this);
-        numbers.setOrientation(LinearLayout.VERTICAL);
-        figure.addView(numbers, new LinearLayout.LayoutParams(0, -2, 1));
-        heroMark = new BrandMark(this, true);
-        figure.addView(heroMark, new LinearLayout.LayoutParams(dp(106), dp(106)));
-        if (!report.has("apps") || !report.optBoolean("tracked")) {
-            text(numbers, report.has("apps") ? "Usage Access needed" : "No activity report", 22, WHITE, true);
+        activityArtwork(weekly ? R.drawable.activity_week : R.drawable.activity_today, null);
+        LinearLayout range = new LinearLayout(this);
+        range.setBackground(surface(0xff1a1522));
+        range.setPadding(dp(3), dp(3), dp(3), dp(3));
+        LinearLayout.LayoutParams rangeSize = new LinearLayout.LayoutParams(-1, -2);
+        rangeSize.topMargin = dp(12);
+        root.addView(range, rangeSize);
+        rangeButton(range, "Today", false);
+        rangeButton(range, "Last 7 Days", true);
+        if (!tracked) {
+            LinearLayout summary = card(report.has("apps") ? "Usage Access needed" : "No activity report");
             if (parent) primary(summary, "Import child activity", () -> openFile("activity"));
             else primary(summary, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
             return;
         }
+        long end = report.optLong("at");
+        if (parent) text(root, "Report from " + date(end), 13, MUTED, false);
+        if (weekly) {
+            showWeek(report.optJSONArray("week"));
+        } else {
+            showToday(report, zone, end);
+        }
+        if (!parent) action(root, "Refresh activity", this::render);
+    }
 
+    private java.time.ZoneId reportZone(JSONObject report) {
+        try {
+            return java.time.ZoneId.of(report.optString("zone", java.time.ZoneId.systemDefault().getId()));
+        } catch (java.time.DateTimeException ignored) {
+            return java.time.ZoneId.systemDefault();
+        }
+    }
+
+    private void activityArtwork(int drawable, String appId) {
+        FrameLayout art = new FrameLayout(this);
+        art.setBackground(surface(0xff15111c));
+        art.setClipToOutline(true);
+        root.addView(art, new LinearLayout.LayoutParams(-1, dp(134)));
+        ImageView image = new ImageView(this);
+        image.setImageResource(drawable);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        art.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        if (appId == null) return;
+        FrameLayout.LayoutParams center = new FrameLayout.LayoutParams(dp(49), dp(49), Gravity.CENTER);
+        center.topMargin = dp(13);
+        art.addView(activityIcon(appId), center);
+    }
+
+    private void showWeek(JSONArray week) {
+        LinearLayout card = card("Activity heatmap");
+        if (week == null || week.length() != 7) {
+            text(card, "Weekly data is unavailable in this report.", 14, MUTED, false);
+            return;
+        }
+        card.addView(new WeekChart(this, week, this::sessionDuration));
+    }
+
+    private void showToday(JSONObject report, java.time.ZoneId zone, long end) {
         JSONArray apps = report.optJSONArray("apps");
         if (apps == null) return;
-        boolean today = report.has("hours") && !rolling;
-        String durationField = today ? "today" : "time";
-        long from = today ? Math.max(report.optLong("todayStart"), report.optLong("from")) : report.optLong("from");
-        long end = report.optLong("at");
-        java.time.ZoneId zone;
-        try {
-            zone = java.time.ZoneId.of(report.optString("zone", java.time.ZoneId.systemDefault().getId()));
-        } catch (java.time.DateTimeException ignored) {
-            zone = java.time.ZoneId.systemDefault();
+        boolean hasToday = report.has("todayStart");
+        String durationField = hasToday ? "today" : "time";
+        LinearLayout summary = card(hasToday ? "Screen time by hour" : "Recorded screen time");
+        JSONArray hours = report.optJSONArray("hours");
+        if (hours != null) {
+            HourChart chart = new HourChart(this, hours, report.optLong("hourStart"),
+                report.optLong("todayStart"), end, zone);
+            summary.addView(chart, new LinearLayout.LayoutParams(-1, dp(114)));
+            TextView detail = text(summary, "Tap a bar for hourly usage", 13, MUTED, false);
+            chart.setOnHourSelected((label, millis) -> detail.setText(label + " · " + duration(millis)));
+        } else {
+            text(summary, "This report predates hourly charts.", 14, MUTED, false);
         }
         Map<String, String> labels = new java.util.HashMap<>();
         List<JSONObject> used = new ArrayList<>();
-        long total = 0;
         for (int i = 0; i < apps.length(); i++) {
             JSONObject app = apps.optJSONObject(i);
             if (app == null) continue;
             labels.put(app.optString("id"), app.optString("name"));
-            long millis = app.optLong(durationField);
-            if (millis > 0) {
-                used.add(app);
-                total += millis;
-            }
+            if (app.optLong(durationField) > 0) used.add(app);
         }
-        text(numbers, duration(total), 43, WHITE, true).setLetterSpacing(-0.06f);
-        text(numbers, today ? "Today" : "Last 24 hours", 14, 0xffd7c0ff, false);
-        if (parent) text(summary, "Report from " + date(end), 13, MUTED, false);
-        JSONArray hours = report.optJSONArray("hours");
-        if (hours != null) {
-            HourChart chart = new HourChart(this, hours, report.optLong("hourStart"),
-                today ? report.optLong("todayStart") : end - 86_400_000L, end, zone);
-            summary.addView(chart, new LinearLayout.LayoutParams(-1, dp(114)));
-            TextView detail = text(summary, "Tap a bar for hourly usage", 13, MUTED, false);
-            chart.setOnHourSelected((label, millis) -> detail.setText(label + " · " + duration(millis)));
-        }
+        LinearLayout ranking = card("Top apps");
         if (used.isEmpty()) {
-            text(summary, "Activity appears after you use another app.", 14, MUTED, false);
-        } else {
-            LinearLayout breakdown = card("Top apps");
-            used.sort((a, b) -> Long.compare(b.optLong(durationField), a.optLong(durationField)));
-            for (JSONObject app : used) {
-                LinearLayout row = activityRow(breakdown, app.optString("id"), app.optString("name"),
-                    duration(app.optLong(durationField)));
-                row.setPadding(0, dp(4), 0, dp(3));
-                usageBar(breakdown, app.optLong(durationField), total);
-            }
+            text(ranking, "No foreground app use recorded today.", 14, MUTED, false);
+            return;
         }
-        if (!parent) action(summary, "Refresh activity", this::render);
-        showOpenHistory(report.optJSONArray("opens"), labels, from, zone);
+        used.sort((a, b) -> Long.compare(b.optLong(durationField), a.optLong(durationField)));
+        long most = used.get(0).optLong(durationField);
+        for (JSONObject app : used) addRankedApp(ranking, app, durationField, most);
+        if (!report.has("sessions")) {
+            long from = hasToday ? report.optLong("todayStart") : report.optLong("from");
+            showOpenHistory(report.optJSONArray("opens"), labels, from, zone);
+        }
     }
 
-    private void rangeButton(LinearLayout range, String title, boolean last24) {
-        Button item = button(title, () -> {
-            if (rolling == last24) return;
-            rolling = last24;
+    private void addRankedApp(LinearLayout parent, JSONObject app, String field, long most) {
+        String id = app.optString("id");
+        String name = app.optString("name", id);
+        long elapsed = app.optLong(field);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(52));
+        row.setPadding(dp(4), 0, dp(4), 0);
+        row.setBackground(ripple(surface(0xff211a2b)));
+        row.setContentDescription(name + ", " + sessionDuration(elapsed) + ", usage details");
+        row.setFocusable(true);
+        row.setTooltipText(name);
+        row.addView(activityIcon(id), new LinearLayout.LayoutParams(dp(30), dp(30)));
+        usageBar(row, elapsed, most);
+        TextView time = text(row, sessionDuration(elapsed), 14, WHITE, true);
+        time.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        time.setPadding(0, 0, dp(4), 0);
+        time.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        row.setOnClickListener(view -> {
+            detailApp = id;
             render();
             enter();
-        }, rolling == last24);
-        item.setSelected(rolling == last24);
+        });
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2);
+        size.bottomMargin = dp(5);
+        parent.addView(row, size);
+    }
+
+    private View activityIcon(String id) {
+        android.graphics.drawable.Drawable drawable = AppCatalog.icon(this, id);
+        if (drawable == null) return new BrandMark(this, false);
+        ImageView image = new ImageView(this);
+        image.setImageDrawable(drawable);
+        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return image;
+    }
+
+    private void showAppDetails(JSONObject report, java.time.ZoneId zone) {
+        action(root, "‹ Activity", this::closeAppDetails);
+        activityArtwork(R.drawable.activity_session, detailApp);
+        String name = detailApp;
+        long fallbackTotal = 0;
+        JSONArray apps = report.optJSONArray("apps");
+        if (apps != null) {
+            for (int i = 0; i < apps.length(); i++) {
+                JSONObject app = apps.optJSONObject(i);
+                if (app != null && detailApp.equals(app.optString("id"))) {
+                    name = app.optString("name", detailApp);
+                    fallbackTotal = app.optLong(report.has("todayStart") ? "today" : "time");
+                    break;
+                }
+            }
+        }
+        title(name, report.has("todayStart") ? "Usage sessions" : "Recorded usage");
+        LinearLayout list = card("Opened · Ended");
+        long total = 0;
+        JSONArray sessions = report.optJSONArray("sessions");
+        java.time.format.DateTimeFormatter clock = java.time.format.DateTimeFormatter
+            .ofLocalizedTime(java.time.format.FormatStyle.SHORT).withZone(zone);
+        if (sessions != null) {
+            for (int i = 0; i < sessions.length(); i++) {
+                JSONObject item = sessions.optJSONObject(i);
+                if (item == null || !detailApp.equals(item.optString("id"))) continue;
+                long from = item.optLong("from");
+                long to = item.optLong("to");
+                if (to <= from) continue;
+                long elapsed = to - from;
+                total += elapsed;
+                String finish = item.optBoolean("ongoing") ? "In progress" : clock.format(java.time.Instant.ofEpochMilli(to));
+                sessionLine(list, clock.format(java.time.Instant.ofEpochMilli(from)) + " – " + finish, sessionDuration(elapsed));
+                divider(list);
+            }
+        } else {
+            total = fallbackTotal;
+            text(list, "Session times are unavailable in this report.", 14, MUTED, false);
+        }
+        if (sessions != null && total == 0) text(list, "No sessions recorded for this app.", 14, MUTED, false);
+        sessionLine(list, "Total usage", sessionDuration(total));
+    }
+
+    private void sessionLine(LinearLayout list, String label, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(49));
+        list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        TextView times = text(row, label, 14, WHITE, false);
+        times.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+        times.setPadding(0, 0, dp(6), 0);
+        TextView duration = text(row, value, 14, ACCENT, true);
+        duration.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        duration.setPadding(0, 0, 0, 0);
+    }
+
+    private String sessionDuration(long millis) {
+        long seconds = millis / 1000;
+        if (millis > 0 && seconds == 0) return "<1s";
+        String main = duration(millis);
+        return seconds >= 60 && seconds % 60 != 0 ? main + " " + seconds % 60 + "s" : main;
+    }
+
+    private void closeAppDetails() {
+        detailApp = null;
+        render();
+        enter();
+    }
+
+    private void rangeButton(LinearLayout range, String title, boolean week) {
+        Button item = button(title, () -> {
+            if (weekly == week) return;
+            weekly = week;
+            render();
+            enter();
+        }, weekly == week);
+        item.setSelected(weekly == week);
+        if (weekly && week) {
+            item.setBackground(ripple(surface(0xffb4ead5)));
+            item.setTextColor(0xff102920);
+        }
         range.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
     }
 
@@ -1036,8 +1178,8 @@ public final class MainActivity extends Activity {
         bar.setProgressTintList(ColorStateList.valueOf(ACCENT));
         bar.setProgressBackgroundTintList(ColorStateList.valueOf(BORDER));
         bar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-1, dp(5));
-        layout.bottomMargin = dp(15);
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(0, dp(7), 1);
+        layout.setMargins(dp(10), 0, dp(10), 0);
         parent.addView(bar, layout);
     }
 
@@ -1215,6 +1357,7 @@ public final class MainActivity extends Activity {
         item.setOnClickListener(view -> {
             if (tab == page) return;
             tab = page;
+            detailApp = null;
             render();
             enter();
         });
