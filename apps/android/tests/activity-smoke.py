@@ -72,52 +72,37 @@ fixture_package, component = fixture
 
 adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
-adb("shell", "appops", "set", PACKAGE, "GET_USAGE_STATS", "allow")
-# This emulator is dedicated to this run. Production users grant access in Settings.
-adb("shell", "settings", "put", "secure", "enabled_accessibility_services", PACKAGE + "/.BlockService")
-adb("shell", "settings", "put", "secure", "accessibility_enabled", "1")
 launch(PACKAGE + "/.MainActivity")
-tap("Get started")
-tap("Individual", prefix=True)
+tap("Preview with sample data")
 tap("Last 7 Days")
 tap("Today")
-tap("Blocking")
-tap("Search installed apps")
-adb("shell", "input", "text", fixture_package)
-adb("shell", "input", "keyevent", "KEYCODE_BACK")
-tap("Block ", prefix=True)
-
-# A blocked launch should return to the launcher, regardless of the transient notice.
-home = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
-           "android.intent.action.MAIN", "-c", "android.intent.category.HOME").splitlines()[-1].split("/")[0]
-launch(component)
-wait_for(lambda: home + "/" in top_activity(), "Home after the selected app opens")
-time.sleep(1.2)
-assert home + "/" in top_activity(), top_activity()
-print("Block took effect for " + fixture_package, flush=True)
-
-adb("shell", "input", "keyevent", "KEYCODE_HOME")
-time.sleep(5.1)
+tap("Exit sample preview")
+tap("Get started")
+tap("Individual", prefix=True)
+tap("Focus")
+tap("15 minutes")
+tap("Pause")
+tap("Resume")
+adb("shell", "am", "force-stop", PACKAGE)
 launch(PACKAGE + "/.MainActivity")
-tap("Search installed apps")
-adb("shell", "input", "text", fixture_package)
-adb("shell", "input", "keyevent", "KEYCODE_BACK")
-tap("Block ", prefix=True)
+tap("Focus")
+tap("Pause")
+
+# Only the disposable CI device receives this scripted Usage Access grant.
+adb("shell", "appops", "set", PACKAGE, "GET_USAGE_STATS", "allow")
 launch(component)
 time.sleep(3)
 assert fixture_package + "/" in top_activity(), top_activity()
-print("The same app stays open after its rule is cleared.", flush=True)
-
 launch(PACKAGE + "/.MainActivity")
 tap("Activity")
 tap("Last 7 Days")
-tap("Activity heatmap")
-print("Activity opened and switched between Today and Last 7 Days.", flush=True)
-
+tap("Last 24h")
 tap("Today")
-tap({"com.android.deskclock": "Clock,", "com.android.calculator2": "Calculator,",
-     "com.android.chrome": "Chrome,"}[fixture_package], prefix=True)
-tap("Total usage")
-adb("shell", "input", "keyevent", "KEYCODE_BACK")
-tap("Screen time by hour")
-print("App session details and back navigation verified.", flush=True)
+tap("Settings")
+def usage_access_done():
+    adb("shell", "uiautomator", "dump", "/data/local/tmp/dd-window.xml")
+    tree = ET.fromstring(adb("exec-out", "cat", "/data/local/tmp/dd-window.xml"))
+    return any(node.get("text") == "Done" for node in tree.iter("node"))
+
+wait_for(usage_access_done, "Usage Access Done", attempts=5)
+print("Activity, timer restoration and app launch checked.", flush=True)

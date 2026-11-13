@@ -1,20 +1,18 @@
 # Digital Discipline for Android
 
-Prototype 0.5.0 supports Android 10 and later. It uses Android Usage Access for recent foreground app activity, and the explicitly enabled Digital Discipline accessibility service for blocking. The service receives window-change events and checks package names. If Usage Access is also enabled, it can check recent app lifecycle events when a window event is missed. It requests no window content. A block returns the phone to Home and shows a temporary notice. The blocking list shows launcher apps for the current Android profile. Android Settings, the home launcher, the current keyboard, the phone and messaging handlers, and system permission or install screens are protected.
+Version 0.6.0 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
 
-## Try Individual mode
+## What to test
 
-Install the signed APK, choose **Individual**, and grant **Usage access** in Settings. Enable **Digital Discipline app blocking** under Android Accessibility after reading the app’s disclosure. Check that the blocking service is marked **Done**. In **Blocking**, search the installed app list, select an eligible app, open it from the launcher, and check for the block notice. Disable the rule and confirm the app opens again. Open two unblocked apps for a minute each and refresh **Activity**. Today shows hourly screen time and app usage. Tap any app row to view estimated foreground sessions and their total. Last 7 Days shows a heatmap and daily totals from available Android events and locally saved summaries. Hatched cells indicate no observation.
+- **Preview** on the welcome screen opens sample Activity, app detail and Focus without granting Usage Access. Sample records stay out of saved history and reports.
+- **Activity** has Today, Last 7 Days and a separate rolling Last 24h view. Tap an hourly bar for its app breakdown, a heatmap row for that day, or any part of a top-app row for the session timeline and observed openings.
+- **Focus** starts from Today or from a saved duration in Focus. Add an optional task, then pause, resume, end or restart the session. Force-stop and reopen the app to check timer restoration.
+- **Settings** shows Done after Android grants Usage Access. Pause or resume collection, pick private apps, change retention or delete activity. Individual tracking, local storage and timers work offline. The app imports recent events when opened or refreshed. Android may discard older source events between visits, and foreground duration is estimated for split-screen and picture-in-picture.
+- **Family activity** keeps the visible supervision notice and existing encrypted manual transfer. Pair through the code in Settings, export the child’s activity from PIN-protected settings and import it on the parent phone. New files contain app totals and coarse activity windows. Parent and Child roadmap features that rely on rule delivery remain pending.
 
-## Try Parent and Child on two phones
+The release covers core measurement, privacy and timer work from R1. R2, R3 and Lab features are staged in the roadmap.
 
-1. Choose **Parent phone** on the parent’s device. Open **Settings → Pairing code → Copy code**. Keep the pairing code private. Copy and Paste use the local clipboard on each phone. Transfer the code privately between devices or enter it by hand.
-2. Choose **Child phone** on the child’s device. Paste or enter the 43-character pairing code, then set a separate 6–12 digit parent PIN and allow the visible supervision notification. The code is case-sensitive and accepts line breaks introduced by copying. With the child phone in hand, the parent can grant Usage Access and enable blocking under Android Accessibility.
-3. While parent settings are unlocked on the child device, go to **Settings → Export child activity** and save the encrypted .dd file. Transfer it using Android Files or Quick Share. On the parent phone choose **Settings → Import child activity**.
-4. On the parent phone open **Blocking**, select an eligible app and export a rules file. Transfer it to the child phone. Unlock **Parent access** with the PIN, then choose **Import parent rules**. Open the selected app to see the temporary block notice. The parent can export and import an empty selection to clear all rules.
-5. Confirm an incorrect PIN cannot open settings and that leaving Digital Discipline relocks the child dashboard. Check the supervision notification, then restart the child phone and check that it returns. Try importing the same or an older rules file to confirm it cannot roll back the rules.
-
-Files are authenticated with the pairing key. The prototype pairs a single child and exchanges files manually, with no server. Android retains the underlying usage events for a short period. Split-screen and picture-in-picture durations are estimates. The activity timeline shows up to 2,000 recent app opens. Standard Android controls can revoke permissions or uninstall the app. Android may require **Allow restricted settings** in the installed app’s info screen before its accessibility service can be enabled on a sideloaded device. The app does not collect screenshots.
+The Focus and Settings notebook photographs are by Kelly Sikkema on Unsplash. See [Focus photo](https://unsplash.com/photos/blank-notebook-with-a-pen-on-a-dark-surface-XH0VCNKhEkM) and [Settings photo](https://unsplash.com/photos/an-open-notebook-and-pens-on-a-desk-hBdaqrr5Z3k).
 
 ## Build and sign
 
@@ -24,9 +22,4 @@ Use JDK 17, Gradle 8.11.1, Android SDK Platform 35 and Build Tools 35.0.0. From 
 gradle -p apps/android :app:lintRelease :app:assembleRelease
 ```
 
-The unsigned APK is in `apps/android/app/build/outputs/apk/release/`. GitHub Actions uploads an aligned unsigned APK and its SHA-256 checksum in one artifact. Sign the APK with your own test key and verify it before installing. Use the same key for updates.
-
-```sh
-apksigner sign --ks YOUR_TEST_KEYSTORE --out Digital-Discipline-Android-0.5.0.apk Digital-Discipline-Android-0.5.0-unsigned.apk
-apksigner verify --verbose Digital-Discipline-Android-0.5.0.apk
-```
+GitHub Actions uploads the aligned unsigned APK and its SHA-256 checksum. Sign and verify with the existing test key before installing an update.

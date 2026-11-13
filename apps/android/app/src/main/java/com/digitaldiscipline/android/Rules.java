@@ -10,7 +10,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.provider.Settings;
 import android.util.Base64;
 
 import org.json.JSONObject;
@@ -18,9 +17,6 @@ import org.json.JSONObject;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
@@ -43,22 +39,6 @@ final class Rules {
     }
 
     String mode() { return prefs.getString("mode", ""); }
-
-    Set<String> blocks() { return new HashSet<>(prefs.getStringSet("blocks", java.util.Collections.emptySet())); }
-
-    void toggle(String id, boolean blocked) {
-        Set<String> next = blocks();
-        if (blocked) next.add(id); else next.remove(id);
-        prefs.edit().putStringSet("blocks", next).apply();
-    }
-
-    static Map<String, String> apps(Context context) {
-        return AppCatalog.names(context);
-    }
-
-    static boolean canBlock(Context context, String id) {
-        return AppCatalog.isLaunchable(context, id) && !AppCatalog.protectedPackages(context).contains(id);
-    }
 
     static byte[] random(int size) {
         byte[] bytes = new byte[size];
@@ -150,21 +130,9 @@ final class Rules {
             PendingIntent.FLAG_IMMUTABLE);
         Notification notice = new Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_discipline).setContentTitle("Digital Discipline supervision")
-            .setContentText("App rules and usage sharing are managed by your parent.")
+            .setContentText("Your parent can share an activity report from this device.")
             .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open).build();
         manager.notify(NOTICE, notice);
         return true;
-    }
-
-    static boolean serviceEnabled(Context context) {
-        String enabled = Settings.Secure.getString(context.getContentResolver(),
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        if (enabled == null) return false;
-        for (String item : enabled.split(":")) {
-            android.content.ComponentName name = android.content.ComponentName.unflattenFromString(item);
-            if (name != null && name.getPackageName().equals(context.getPackageName())
-                && name.getClassName().equals(BlockService.class.getName())) return true;
-        }
-        return false;
     }
 }

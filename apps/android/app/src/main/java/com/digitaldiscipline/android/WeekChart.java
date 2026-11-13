@@ -21,13 +21,14 @@ final class WeekChart extends LinearLayout {
     private static final int MINT = 0xffa5e7d0;
     private static final int[] LEVELS = {0xff25342f, 0xff35564a, 0xff47806d, 0xff6eb39b, MINT};
 
-    WeekChart(Context context, JSONArray week, LongFunction<String> duration) {
+    WeekChart(Context context, JSONArray week, LongFunction<String> duration, java.util.function.LongConsumer selectDay) {
         super(context);
         setOrientation(VERTICAL);
-        TextView period = label("Tap a period to see usage", 13);
+        TextView period = label("Tap a day to see usage", 13);
         String[] days = new String[7];
         long[] totals = new long[7];
         int[] counts = new int[7];
+        int[] expected = new int[7];
         long maximum = 1;
         LinearLayout heading = new LinearLayout(context);
         heading.addView(label("", 11), new LayoutParams(dp(39), -2));
@@ -43,6 +44,17 @@ final class WeekChart extends LinearLayout {
             String name = dayLabel(entry, day);
             days[day] = name;
             JSONArray bins = entry == null ? null : entry.optJSONArray("bins");
+            boolean hourly = bins != null && bins.length() >= 23;
+            expected[day] = bins == null ? 6 : bins.length();
+            if (hourly) {
+                addHours(context, entry, bins, name, duration, selectDay);
+                for (int slot = 0; slot < bins.length(); slot++) {
+                    if (!bins.isNull(slot)) counts[day]++;
+                    totals[day] += bins.optLong(slot);
+                }
+                maximum = Math.max(maximum, totals[day]);
+                continue;
+            }
             LinearLayout row = new LinearLayout(context);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.addView(label(name, 12), new LayoutParams(dp(39), -2));
@@ -83,10 +95,15 @@ final class WeekChart extends LinearLayout {
             boolean known = counts[day] > 0;
             Mark bar = new Mark(context, MINT, known, totals[day] / (float) maximum);
             String caption = days[day] + " · " + (known ? duration.apply(totals[day]) : "No observation");
-            if (known && counts[day] < 6) caption += " · partial coverage";
+            if (known && counts[day] < expected[day]) caption += " · partial coverage";
             bar.setContentDescription(caption);
             bar.setFocusable(true);
-            bar.setOnClickListener(view -> dayDetail.setText(bar.getContentDescription()));
+            JSONObject entry = week.optJSONObject(day);
+            long start = entry == null ? 0 : entry.optLong("start");
+            bar.setOnClickListener(view -> {
+                if (start > 0) selectDay.accept(start);
+                else dayDetail.setText(bar.getContentDescription());
+            });
             column.addView(bar, new LayoutParams(-1, dp(94)));
             column.addView(label(days[day], 11), new LayoutParams(-2, -2));
             if (ValueAnimator.areAnimatorsEnabled()) {
@@ -97,6 +114,32 @@ final class WeekChart extends LinearLayout {
         }
         addView(columns);
         addView(dayDetail, new LayoutParams(-1, dp(36)));
+    }
+
+    private void addHours(Context context, JSONObject entry, JSONArray bins, String name,
+                          LongFunction<String> duration, java.util.function.LongConsumer selectDay) {
+        LinearLayout row = new LinearLayout(context);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView day = label(name, 12);
+        row.addView(day, new LayoutParams(dp(39), -2));
+        for (int slot = 0; slot < bins.length(); slot++) {
+            boolean known = !bins.isNull(slot);
+            long used = Math.max(0L, bins.optLong(slot));
+            int level = (int) Math.min(4, (used + 899_999L) / 900_000L);
+            Mark mark = new Mark(context, LEVELS[level], known, 1);
+            row.addView(mark, new LayoutParams(0, dp(32), 1));
+        }
+        row.setFocusable(true);
+        int observed = 0;
+        long total = 0;
+        for (int slot = 0; slot < bins.length(); slot++) {
+            if (!bins.isNull(slot)) observed++;
+            total += bins.optLong(slot);
+        }
+        row.setContentDescription(name + " · " + (observed > 0 ? duration.apply(total) : "No observation")
+            + " · Open day");
+        row.setOnClickListener(view -> selectDay.accept(entry.optLong("start")));
+        addView(row, new LayoutParams(-1, -2));
     }
 
     private String dayLabel(JSONObject entry, int index) {
@@ -137,7 +180,7 @@ final class WeekChart extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            float x = dp(3);
+            float x = Math.min(dp(3), getWidth() * .18f);
             float right = getWidth() - x;
             float bottom = getHeight() - dp(4);
             float top = known ? bottom - Math.max(dp(2), (bottom - dp(4)) * proportion)

@@ -142,11 +142,9 @@ final class DisciplineArt extends View {
                 path.moveTo(3, 17); path.lineTo(3, 20); path.lineTo(21, 20);
                 path.moveTo(5, 13); path.lineTo(9, 8); path.lineTo(13, 12); path.lineTo(20, 5);
                 break;
-            case "Blocking":
-                c.drawRoundRect(5, 10, 19, 21, 3, 3, paint);
-                c.drawArc(8, 3, 16, 12, 180, 180, false, paint);
-                c.drawLine(8, 7, 8, 10, paint); c.drawLine(16, 7, 16, 10, paint);
-                c.drawLine(12, 14, 12, 17, paint);
+            case "Focus":
+                c.drawRoundRect(4, 4, 20, 20, 4, 4, paint);
+                path.moveTo(10, 8); path.lineTo(16, 12); path.lineTo(10, 16); path.close();
                 break;
             case "Settings":
                 c.drawCircle(12, 12, 7.5f, paint);

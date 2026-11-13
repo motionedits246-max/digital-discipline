@@ -25,7 +25,7 @@ final class HourChart extends LinearLayout {
     private Selection listener;
 
     interface Selection {
-        void onHour(String label, long duration);
+        void onHour(String label, long start, long end, long duration);
     }
 
     HourChart(Context context, JSONArray values, long first, long from, long end, ZoneId zone) {
@@ -38,11 +38,11 @@ final class HourChart extends LinearLayout {
         DateTimeFormatter format = DateTimeFormatter.ofPattern("HH:mm").withZone(zone);
         for (int i = 0; i < values.length(); i++) {
             long at = first + i * HOUR;
-            if (at + HOUR <= from || at > end) continue;
-            long duration = values.optLong(i);
+            if (at + HOUR <= from || at >= end) continue;
+            long duration = values.isNull(i) ? -1 : values.optLong(i);
             String label = format.format(Instant.ofEpochMilli(Math.max(from, at))) + "–"
                 + format.format(Instant.ofEpochMilli(Math.min(end, at + HOUR)));
-            Bar bar = new Bar(context, label, duration);
+            Bar bar = new Bar(context, label, Math.max(from, at), Math.min(end, at + HOUR), duration);
             maximum = Math.max(maximum, duration);
             bars.add(bar);
             row.addView(bar, new LayoutParams(0, -1, 1));
@@ -80,11 +80,11 @@ final class HourChart extends LinearLayout {
         private final String label;
         private final long duration;
 
-        Bar(Context context, String label, long duration) {
+        Bar(Context context, String label, long start, long end, long duration) {
             super(context);
             this.label = label;
             this.duration = duration;
-            setContentDescription(label + ", " + Math.round(duration / 60000f) + " minutes");
+            setContentDescription(label + ", " + (duration < 0 ? "No observation" : Math.round(duration / 60000f) + " minutes"));
             setFocusable(true);
             setOnClickListener(view -> {
                 if (selected != null) {
@@ -94,15 +94,15 @@ final class HourChart extends LinearLayout {
                 selected = this;
                 setSelected(true);
                 invalidate();
-                if (listener != null) listener.onHour(label, duration);
+                if (listener != null) listener.onHour(label, start, end, duration);
             });
         }
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             float bottom = getHeight() - 5;
-            float height = duration == 0 ? 2 : 4 + (bottom - 10) * growth * duration / maximum;
-            paint.setColor(isSelected() ? 0xffb0f8de : duration == 0 ? 0xff554766
+            float height = duration <= 0 ? (duration < 0 ? 7 : 2) : 4 + (bottom - 10) * growth * duration / maximum;
+            paint.setColor(isSelected() ? 0xffb0f8de : duration < 0 ? 0xff302938 : duration == 0 ? 0xff554766
                 : duration == maximum ? 0xffffc5ab : 0xffa37bd7);
             float pad = Math.max(1, getWidth() * .16f);
             canvas.drawRoundRect(pad, bottom - height, getWidth() - pad, bottom, 4, 4, paint);

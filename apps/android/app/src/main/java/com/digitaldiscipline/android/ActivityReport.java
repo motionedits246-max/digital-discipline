@@ -11,17 +11,20 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.concurrent.TimeUnit;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
 
 final class ActivityReport {
-    private static final long HOUR = TimeUnit.HOURS.toMillis(1);
-    private static final long DAY = TimeUnit.HOURS.toMillis(24);
+    static final long HOUR = 3_600_000L;
+    private static final long DAY = UsageHistory.DAY;
 
     static boolean allowed(Context context) {
         AppOpsManager ops = context.getSystemService(AppOpsManager.class);
@@ -30,205 +33,209 @@ final class ActivityReport {
             Process.myUid(), context.getPackageName()) == AppOpsManager.MODE_ALLOWED;
     }
 
-    static JSONObject read(Context context, long enrolled, boolean includeActivity) throws JSONException {
-        long end = System.currentTimeMillis();
-        java.time.ZonedDateTime reportTime = java.time.Instant.ofEpochMilli(end).atZone(java.time.ZoneId.systemDefault());
-        long today = reportTime.toLocalDate().atStartOfDay(reportTime.getZone()).toInstant().toEpochMilli();
-        long lastHour = reportTime.withMinute(0).withSecond(0).withNano(0).toInstant().toEpochMilli();
-        long start = Math.max(Math.min(end - DAY, today), enrolled);
-        ZoneId zone = reportTime.getZone();
-        LocalDate firstDay = reportTime.toLocalDate().minusDays(6);
-        long weekStart = firstDay.atStartOfDay(zone).toInstant().toEpochMilli();
-        long queryStart = Math.max(0L, Math.min(start, Math.max(weekStart, enrolled)) - DAY);
-        long[] boundaries = new long[43];
-        for (int i = 0; i < boundaries.length; i++) {
-            boundaries[i] = firstDay.plusDays(i / 6).atTime((i % 6) * 4, 0).atZone(zone).toInstant().toEpochMilli();
+    static synchronized JSONObject read(Context context, long enrolled, boolean includeSessions) throws JSONException {
+        long now = System.currentTimeMillis();
+        ZoneId zone = ZoneId.systemDefault();
+        Map<String, String> apps = new TreeMap<>(AppCatalog.names(context));
+        try (UsageHistory history = new UsageHistory(context)) {
+            boolean access = collectRecent(context, history, apps.keySet(), enrolled, now);
+            long oldest = now - history.retention() * DAY;
+            List<UsageHistory.Session> sessions = history.sessions(oldest, now);
+            if (!includeSessions) {
+                Set<String> excluded = history.exclusions();
+                sessions.removeIf(session -> excluded.contains(session.id()));
+            }
+            return summarize(now, zone, apps, sessions, history.coverage(oldest, now),
+                access, history.pausedUntil(), includeSessions);
         }
-        long[] weekBins = new long[42];
-        long firstObservation = Long.MAX_VALUE;
-        boolean[] observedBins = new boolean[42];
-        JSONArray sessions = new JSONArray();
-        Map<String, String> apps = Rules.apps(context);
-        Map<String, Long> totals = new HashMap<>();
-        Map<String, Long> todayTotals = new HashMap<>();
-        long[] hourly = new long[25];
-        long firstHour = lastHour - 24 * HOUR;
-        ArrayDeque<JSONObject> opens = new ArrayDeque<>();
-        boolean tracking = includeActivity && allowed(context);
-        if (tracking) {
-            UsageStatsManager manager = context.getSystemService(UsageStatsManager.class);
-            UsageEvents events = manager.queryEvents(queryStart, end);
-            tracking = events != null;
-            if (tracking) {
-                UsageEvents.Event event = new UsageEvents.Event();
-                String active = null;
-                String activity = null;
-                long activeSince = start;
-                boolean screenOn = true;
-                boolean unlocked = true;
-                while (events.hasNextEvent()) {
-                    events.getNextEvent(event);
-                    String id = event.getPackageName();
-                    long time = event.getTimeStamp();
-                    if (time >= Math.max(weekStart, enrolled)) {
-                        firstObservation = Math.min(firstObservation, time);
-                        int bin = bucket(boundaries, time);
-                        if (bin >= 0) observedBins[bin] = true;
-                    }
-                    switch (event.getEventType()) {
-                        case UsageEvents.Event.SCREEN_NON_INTERACTIVE:
-                            screenOn = false;
-                            break;
-                        case UsageEvents.Event.SCREEN_INTERACTIVE:
-                            screenOn = true;
-                            continue;
-                        case UsageEvents.Event.KEYGUARD_SHOWN:
-                            unlocked = false;
-                            break;
-                        case UsageEvents.Event.KEYGUARD_HIDDEN:
-                            unlocked = true;
-                            continue;
-                        case UsageEvents.Event.DEVICE_SHUTDOWN:
-                        case UsageEvents.Event.DEVICE_STARTUP:
-                            break;
-                        case UsageEvents.Event.ACTIVITY_RESUMED:
-                            if (!screenOn || !unlocked) continue;
-                            if (id != null && id.equals(active)) {
-                                activity = event.getClassName();
-                                continue;
-                            }
-                            capture(sessions, weekBins, boundaries, observedBins, active, activeSince,
-                                time, enrolled, today, end, apps);
-                            add(totals, todayTotals, hourly, firstHour, today, active, activeSince, time, start, end, apps);
-                            active = id;
-                            activity = event.getClassName();
-                            activeSince = time;
-                            if (time >= start && apps.containsKey(id)) {
-                                if (opens.size() == 2000) opens.removeFirst();
-                                opens.add(new JSONObject().put("id", id).put("time", time));
-                            }
-                            continue;
-                        case UsageEvents.Event.ACTIVITY_PAUSED:
-                        case UsageEvents.Event.ACTIVITY_STOPPED:
-                            if (!java.util.Objects.equals(active, id)
-                                || !java.util.Objects.equals(activity, event.getClassName())) continue;
-                            break;
-                        default:
-                            continue;
-                    }
-                    capture(sessions, weekBins, boundaries, observedBins, active, activeSince,
-                        time, enrolled, today, end, apps);
-                    add(totals, todayTotals, hourly, firstHour, today, active, activeSince, time, start, end, apps);
-                    active = null;
-                    activity = null;
+    }
+
+    static synchronized void collectRecent(Context context, long enrolled) {
+        try (UsageHistory history = new UsageHistory(context)) {
+            collectRecent(context, history, AppCatalog.names(context).keySet(), enrolled, System.currentTimeMillis());
+        }
+    }
+
+    private static boolean collectRecent(Context context, UsageHistory history, Set<String> apps,
+                                         long enrolled, long now) {
+        boolean access = allowed(context);
+        if (!access) history.markAccessLost();
+        if (access && history.accessWasLost()) history.restoreAccess(now);
+        long checkpoint = history.checkpoint();
+        if (access && now >= history.pausedUntil() && (checkpoint < now || checkpoint - now > DAY)) {
+            long from = Math.max(Math.max(enrolled, now - 7 * DAY), checkpoint > now ? now : checkpoint);
+            collect(context, history, apps, from, now);
+        }
+        history.prune(now);
+        return access;
+    }
+
+    private static void collect(Context context, UsageHistory history, Set<String> apps, long from, long end) {
+        if (from >= end) return;
+        UsageStatsManager manager = context.getSystemService(UsageStatsManager.class);
+        UsageEvents events = manager.queryEvents(Math.max(0, from - DAY), end);
+        if (events == null) return;
+        ArrayList<UsageHistory.Session> result = new ArrayList<>();
+        Set<String> excluded = history.exclusions();
+        UsageEvents.Event event = new UsageEvents.Event();
+        long first = Long.MAX_VALUE;
+        long began = 0;
+        String active = null;
+        String activity = null;
+        boolean interactive = true;
+        boolean unlocked = true;
+        while (events.getNextEvent(event)) {
+            long at = event.getTimeStamp();
+            first = Math.min(first, at);
+            String id = event.getPackageName();
+            switch (event.getEventType()) {
+                case UsageEvents.Event.SCREEN_INTERACTIVE -> { interactive = true; continue; }
+                case UsageEvents.Event.KEYGUARD_HIDDEN -> { unlocked = true; continue; }
+                case UsageEvents.Event.SCREEN_NON_INTERACTIVE -> interactive = false;
+                case UsageEvents.Event.KEYGUARD_SHOWN -> unlocked = false;
+                case UsageEvents.Event.DEVICE_SHUTDOWN, UsageEvents.Event.DEVICE_STARTUP -> {
+                    interactive = true;
+                    unlocked = true;
                 }
-                capture(sessions, weekBins, boundaries, observedBins, active, activeSince,
-                    end, enrolled, today, end, apps);
-                add(totals, todayTotals, hourly, firstHour, today, active, activeSince, end, start, end, apps);
-            }
-        }
-
-        JSONArray rows = new JSONArray();
-        ArrayList<String> ids = new ArrayList<>(apps.keySet());
-        ids.sort((left, right) -> apps.get(left).compareToIgnoreCase(apps.get(right)));
-        java.util.Set<String> protectedApps = AppCatalog.protectedPackages(context);
-        for (String id : ids) {
-            rows.put(new JSONObject().put("id", id).put("name", apps.get(id))
-                .put("time", totals.getOrDefault(id, 0L)).put("today", todayTotals.getOrDefault(id, 0L)).put("blockable", !protectedApps.contains(id)));
-        }
-        JSONArray hours = new JSONArray();
-        for (long duration : hourly) hours.put(duration);
-        JSONObject report = new JSONObject().put("from", start).put("at", end).put("tracked", tracking)
-            .put("todayStart", today).put("hourStart", firstHour).put("hours", hours)
-            .put("zone", reportTime.getZone().getId())
-            .put("apps", rows).put("opens", new JSONArray(opens));
-        if (tracking) {
-            report.put("sessions", sessions).put("week", week(context, firstDay, zone, boundaries,
-                weekBins, observedBins, firstObservation, end));
-        }
-        return report;
-    }
-
-    private static int bucket(long[] boundaries, long time) {
-        int found = java.util.Arrays.binarySearch(boundaries, time);
-        int slot = found >= 0 ? found : -found - 2;
-        return slot < 0 || slot >= boundaries.length - 1 ? -1 : slot;
-    }
-
-    private static void capture(JSONArray sessions, long[] bins, long[] boundaries, boolean[] observed,
-                                String id, long began, long finished, long enrolled, long today,
-                                long end, Map<String, String> apps) throws JSONException {
-        if (id == null || !apps.containsKey(id)) return;
-        long from = Math.max(Math.max(enrolled, boundaries[0]), began);
-        long to = Math.min(end, finished);
-        if (from >= to) return;
-        for (int slot = bucket(boundaries, from); slot >= 0 && slot < bins.length
-                && boundaries[slot] < to; slot++) {
-            long amount = Math.min(to, boundaries[slot + 1]) - Math.max(from, boundaries[slot]);
-            if (amount > 0) {
-                bins[slot] += amount;
-                observed[slot] = true;
-            }
-        }
-        long todayFrom = Math.max(from, today);
-        if (todayFrom < to) sessions.put(new JSONObject().put("id", id)
-            .put("from", todayFrom).put("to", to).put("ongoing", to == end));
-    }
-
-    private static synchronized JSONArray week(Context context, LocalDate firstDay, ZoneId zone,
-                                    long[] boundaries, long[] bins, boolean[] observed,
-                                    long firstObservation, long end) throws JSONException {
-        android.content.SharedPreferences prefs = context.getSharedPreferences("activity-week", Context.MODE_PRIVATE);
-        JSONObject saved;
-        try {
-            saved = new JSONObject(prefs.getString(zone.getId(), "{}"));
-        } catch (JSONException malformed) {
-            saved = new JSONObject();
-        }
-        JSONObject snapshot = new JSONObject();
-        JSONArray days = new JSONArray();
-        for (int day = 0; day < 7; day++) {
-            String key = firstDay.plusDays(day).toString();
-            JSONArray previous = saved.optJSONArray(key);
-            JSONArray values = new JSONArray();
-            JSONArray archive = new JSONArray();
-            for (int bin = 0; bin < 6; bin++) {
-                int slot = day * 6 + bin;
-                boolean past = boundaries[slot] < end;
-                boolean complete = boundaries[slot + 1] <= end && firstObservation <= boundaries[slot];
-                Object old = previous == null || previous.isNull(bin) ? JSONObject.NULL : previous.opt(bin);
-                Object value = JSONObject.NULL;
-                if (past) {
-                    if (complete) value = bins[slot];
-                    else if (old instanceof Number prior) value = Math.max(prior.longValue(), bins[slot]);
-                    else if (observed[slot]) value = bins[slot];
+                case UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    if (!interactive || !unlocked) continue;
+                    if (id != null && id.equals(active)) {
+                        activity = event.getClassName();
+                        continue;
+                    }
+                    capture(result, apps, excluded, active, began, at, from);
+                    active = id;
+                    activity = event.getClassName();
+                    began = at;
+                    continue;
                 }
-                values.put(value);
-                archive.put(boundaries[slot + 1] <= end ? value : old);
+                case UsageEvents.Event.ACTIVITY_PAUSED, UsageEvents.Event.ACTIVITY_STOPPED -> {
+                    if (!Objects.equals(active, id) || !Objects.equals(activity, event.getClassName())) continue;
+                }
+                default -> { continue; }
             }
-            snapshot.put(key, archive);
-            days.put(new JSONObject().put("day", key).put("bins", values));
+            capture(result, apps, excluded, active, began, at, from);
+            active = null;
+            activity = null;
         }
-        prefs.edit().clear().putString(zone.getId(), snapshot.toString()).apply();
-        return days;
+        if (first == Long.MAX_VALUE) return;
+        capture(result, apps, excluded, active, began, end, from);
+        history.save(Math.max(first, from), end, result);
     }
 
-    private static void add(Map<String, Long> totals, Map<String, Long> todayTotals,
-                            long[] hourly, long firstHour, long today, String id,
-                            long began, long finished, long start, long end, Map<String, String> apps) {
-        if (id == null || !apps.containsKey(id)) return;
-        long from = Math.max(start, began);
-        long to = Math.min(end, finished);
-        if (to <= from) return;
-        totals.merge(id, to - from, Long::sum);
-        long todayTime = to - Math.max(today, from);
-        if (todayTime > 0) todayTotals.merge(id, todayTime, Long::sum);
-        for (long cursor = Math.max(firstHour, from); cursor < to;) {
-            int slot = (int) ((cursor - firstHour) / HOUR);
-            if (slot >= hourly.length) break;
-            long next = Math.min(to, firstHour + (slot + 1L) * HOUR);
-            hourly[slot] += next - cursor;
-            cursor = next;
+    private static void capture(List<UsageHistory.Session> result, Set<String> apps, Set<String> excluded,
+                                String id, long began, long end, long from) {
+        long start = Math.max(began, from);
+        if (id != null && end > start && apps.contains(id) && !excluded.contains(id)) {
+            result.add(new UsageHistory.Session(id, start, end, began >= from));
         }
     }
+
+    static JSONObject sample() throws JSONException {
+        long now = System.currentTimeMillis();
+        ZoneId zone = ZoneId.systemDefault();
+        long today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli();
+        // Anchor demo times to the afternoon so preview content is available at any hour.
+        long end = today + 18 * HOUR;
+        long hour = today + 9 * HOUR;
+        List<UsageHistory.Session> sessions = java.util.Arrays.asList(
+            new UsageHistory.Session("com.android.chrome", hour, hour + 24 * 60_000L, true),
+            new UsageHistory.Session("com.google.android.youtube", hour + HOUR, hour + HOUR + 18 * 60_000L, true),
+            new UsageHistory.Session("com.android.chrome", hour + 2 * HOUR, hour + 2 * HOUR + 37 * 60_000L, true));
+        Map<String, String> apps = new TreeMap<>();
+        apps.put("com.android.chrome", "Chrome");
+        apps.put("com.google.android.youtube", "YouTube");
+        return summarize(end, zone, apps, sessions,
+            java.util.Collections.singletonList(new UsageHistory.Window(today, end)), true, 0, true).put("sample", true);
+    }
+
+    static JSONObject summarize(long end, ZoneId zone, Map<String, String> apps,
+                                List<UsageHistory.Session> stored, List<UsageHistory.Window> coverage,
+                                boolean access, long paused, boolean includeSessions) throws JSONException {
+        LocalDate today = Instant.ofEpochMilli(end).atZone(zone).toLocalDate();
+        long dayStart = midnight(today, zone);
+        long rolling = end - DAY;
+        long firstHour = Instant.ofEpochMilli(Math.min(dayStart, rolling)).atZone(zone)
+            .truncatedTo(ChronoUnit.HOURS).toInstant().toEpochMilli();
+        int hours = (int) ((end - firstHour) / HOUR) + 1;
+        JSONArray hourly = new JSONArray();
+        JSONArray rollingHours = new JSONArray();
+        for (int slot = 0; slot < hours; slot++) {
+            long start = firstHour + slot * HOUR;
+            addBin(hourly, stored, coverage, Math.max(start, dayStart), Math.min(start + HOUR, end));
+            addBin(rollingHours, stored, coverage, Math.max(start, rolling), Math.min(start + HOUR, end));
+        }
+
+        JSONArray week = new JSONArray();
+        for (int index = 6; index >= 0; index--) {
+            LocalDate day = today.minusDays(index);
+            long start = midnight(day, zone);
+            long stop = Math.min(end, midnight(day.plusDays(1), zone));
+            JSONArray bins = new JSONArray();
+            for (long at = start; at < midnight(day.plusDays(1), zone); at += HOUR) {
+                addBin(bins, stored, coverage, at, Math.min(at + HOUR, stop));
+            }
+            week.put(new JSONObject().put("day", day.toString()).put("start", start).put("end", stop)
+                .put("bins", bins));
+        }
+        Map<String, JSONObject> rows = new TreeMap<>();
+        JSONArray timeline = new JSONArray();
+        JSONArray opens = new JSONArray();
+        long start = midnight(today.minusDays(6), zone);
+        for (UsageHistory.Session session : stored) {
+            if (session.to() <= start) continue;
+            String id = session.id();
+            JSONObject row = rows.get(id);
+            if (row == null) {
+                row = new JSONObject().put("id", id).put("name", apps.getOrDefault(id, id));
+                rows.put(id, row);
+            }
+            row.put("time", row.optLong("time") + overlap(rolling, end, session.from(), session.to()));
+            row.put("today", row.optLong("today") + overlap(dayStart, end, session.from(), session.to()));
+            if (includeSessions) {
+                timeline.put(new JSONObject().put("id", id).put("from", session.from())
+                    .put("to", session.to()).put("ongoing", access && paused <= end && session.to() == end)
+                    .put("opened", session.open()));
+                if (session.open() && session.from() >= rolling && opens.length() < 2000) {
+                    opens.put(new JSONObject().put("id", id).put("time", session.from()));
+                }
+            }
+        }
+        long last = coverage.isEmpty() ? 0 : coverage.get(coverage.size() - 1).to();
+        return new JSONObject().put("from", rolling).put("at", end).put("summaryOnly", !includeSessions)
+            .put("tracked", access || last > 0).put("access", access).put("lastCollected", last)
+            .put("pausedUntil", paused).put("zone", zone.getId()).put("todayStart", dayStart)
+            .put("hourStart", firstHour).put("hours", hourly).put("rollingHours", rollingHours)
+            .put("week", week).put("apps", new JSONArray(rows.values())).put("opens", opens)
+            .put("sessions", timeline)
+            .put("todayObserved", observed(coverage, dayStart, end))
+            .put("rollingObserved", observed(coverage, rolling, end));
+    }
+
+    private static long observed(List<UsageHistory.Window> coverage, long from, long to) {
+        long total = 0;
+        for (UsageHistory.Window window : coverage) total += overlap(from, to, window.from(), window.to());
+        return total;
+    }
+
+    private static void addBin(JSONArray bins, List<UsageHistory.Session> sessions,
+                               List<UsageHistory.Window> coverage, long from, long to) {
+        if (to <= from || observed(coverage, from, to) == 0) {
+            bins.put(JSONObject.NULL);
+            return;
+        }
+        long total = 0;
+        for (UsageHistory.Session session : sessions) total += overlap(from, to, session.from(), session.to());
+        bins.put(total);
+    }
+
+    static long overlap(long a, long b, long from, long to) {
+        return Math.max(0, Math.min(b, to) - Math.max(a, from));
+    }
+
+    static long midnight(LocalDate day, ZoneId zone) {
+        return day.atStartOfDay(zone).toInstant().toEpochMilli();
+    }
+
+    private ActivityReport() {}
 }

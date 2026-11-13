@@ -30,7 +30,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,8 +46,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public final class MainActivity extends Activity {
@@ -65,20 +62,6 @@ public final class MainActivity extends Activity {
     private static final int READ_FILE = 41;
     private static final int MAX_PACKET = 512 * 1024;
     private Rules rules;
-    private TextView serviceStatus;
-    private final Handler ui = new Handler(Looper.getMainLooper());
-    private final Runnable refreshServiceStatus = new Runnable() {
-        @Override public void run() {
-            if (serviceStatus == null) return;
-            boolean enabled = Rules.serviceEnabled(MainActivity.this);
-            String label = BlockService.isConnected() && enabled ? "Done"
-                : enabled ? "Waiting for service" : "Off";
-            if (!label.contentEquals(serviceStatus.getText())) {
-                setBadge(serviceStatus, label, "Done".equals(label) ? MINT : PEACH);
-            }
-            ui.postDelayed(this, 850);
-        }
-    };
     private LinearLayout root;
     private LinearLayout frame;
     private boolean unlocked;
@@ -89,14 +72,25 @@ public final class MainActivity extends Activity {
     private String pendingPacket;
     private String pendingReadKind;
     private boolean busy;
-    private boolean weekly;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private FocusTimer focus;
+    private final Runnable tickFocus = this::updateFocus;
+    private TextView focusTime;
+    private boolean focusCompleted;
+    private android.widget.ProgressBar focusProgress;
+    private boolean sample;
+    private int range;
+    private long selectedDay;
+    private static final int TODAY = 0;
+    private static final int WEEK = 1;
+    private static final int ROLLING = 2;
     private String detailApp;
     private boolean launchPending;
     private FrameLayout stage;
     private BrandMark heroMark;
     private int tab;
     private static final int ACTIVITY = 0;
-    private static final int BLOCKING = 1;
+    private static final int FOCUS = 1;
     private static final int SETTINGS = 2;
 
     @Override public void onCreate(Bundle state) {
@@ -104,10 +98,17 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         rules = new Rules(this);
+        if (rules.prefs.contains("blocks") || rules.prefs.contains("sent_revision")
+                || rules.prefs.contains("applied_revision")) {
+            rules.prefs.edit().remove("blocks").remove("sent_revision").remove("applied_revision").apply();
+        }
+        focus = new FocusTimer(this);
         launchPending = state == null;
         if (state != null) {
             tab = state.getInt("tab");
-            weekly = state.getBoolean("weekly");
+            range = state.getInt("range");
+            sample = state.getBoolean("sample");
+            selectedDay = state.getLong("selectedDay");
             detailApp = state.getString("detailApp");
             choosingMode = state.getBoolean("choosingMode");
         }
@@ -115,7 +116,9 @@ public final class MainActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("tab", tab);
-        out.putBoolean("weekly", weekly);
+        out.putInt("range", range);
+        out.putBoolean("sample", sample);
+        out.putLong("selectedDay", selectedDay);
         out.putString("detailApp", detailApp);
         out.putBoolean("choosingMode", choosingMode);
         super.onSaveInstanceState(out);
@@ -124,6 +127,10 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (Rules.CHILD.equals(rules.mode())) Rules.showChildNotice(this);
+        if (Rules.INDIVIDUAL.equals(rules.mode()) && tab != ACTIVITY) {
+            try { ActivityReport.collectRecent(this, rules.prefs.getLong("enrolled", 0)); }
+            catch (RuntimeException ignored) { /* Activity can retry when opened. */ }
+        }
         if (enrollStep == 0) render();
         if (launchPending) {
             launchPending = false;
@@ -139,13 +146,9 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override protected void onPause() {
-        ui.removeCallbacks(refreshServiceStatus);
-        super.onPause();
-    }
-
     @Override protected void onStop() {
         super.onStop();
+        ui.removeCallbacks(tickFocus);
         if (Rules.CHILD.equals(rules.mode()) && unlocked) {
             unlocked = false;
             detailApp = null;
@@ -157,7 +160,7 @@ public final class MainActivity extends Activity {
     private void render() {
         mount();
         String mode = rules.mode();
-        if (mode.isEmpty()) {
+        if (mode.isEmpty() && !sample) {
             if (enrollStep != 0) renderEnrollment();
             else if (choosingMode) chooseMode();
             else welcome();
@@ -166,7 +169,7 @@ public final class MainActivity extends Activity {
         if (Rules.CHILD.equals(mode) && !unlocked) {
             LinearLayout panel = card("Supervised device");
             panel.setGravity(Gravity.CENTER_HORIZONTAL);
-            text(panel, "Your parent manages app rules on this phone.", 16, MUTED, false);
+            text(panel, "Your parent can review activity reports shared from this phone.", 16, MUTED, false);
             action(panel, "Parent access", this::askPin);
             return;
         }
@@ -181,44 +184,29 @@ public final class MainActivity extends Activity {
         nav.setBackgroundColor(0xff1e1827);
         frame.addView(nav, new LinearLayout.LayoutParams(-1, -2));
         navButton(nav, "Activity", ACTIVITY);
-        navButton(nav, "Blocking", BLOCKING);
-        navButton(nav, "Settings", SETTINGS);
+        if (!Rules.PARENT.equals(mode)) navButton(nav, "Focus", FOCUS);
+        if (!sample) navButton(nav, "Settings", SETTINGS);
         if (tab == SETTINGS) {
             settings(mode);
             return;
         }
-        if (Rules.PARENT.equals(mode)) {
-            try {
-                JSONObject report = new JSONObject(rules.prefs.getString("report", "{}"));
-                if (tab == ACTIVITY) showActivity(report);
-                else {
-                    showBlocks(report.optJSONArray("apps"), true);
-                    if (report.has("apps")) action(root, "Export rules file", this::exportRules);
-                }
-            } catch (Exception e) {
-                text(root, "The saved report could not be opened.", 15, MUTED, false);
-            }
-        } else if (tab == BLOCKING) {
-            if (Rules.CHILD.equals(mode)) {
-                LinearLayout box = card("Applied rules");
-                Set<String> blocks = rules.blocks();
-                text(box, blocks.size() + " blocked apps", 16, WHITE, false);
-                action(box, "Import parent rules", () -> openFile("rules"));
-            } else {
-                showBlocks(localAppList(), false);
-            }
-        } else {
-            try {
-                showActivity(ActivityReport.read(this, rules.prefs.getLong("enrolled", 0), true));
-            } catch (Exception e) {
-                text(root, "Android usage data is currently unavailable.", 15, MUTED, false);
-            }
+        if (tab == FOCUS) {
+            showFocus();
+            return;
+        }
+        try {
+            JSONObject report = sample ? ActivityReport.sample() : Rules.PARENT.equals(mode)
+                ? new JSONObject(rules.prefs.getString("report", "{}"))
+                : ActivityReport.read(this, rules.prefs.getLong("enrolled", 0), true);
+            showActivity(report);
+        } catch (Exception e) {
+            text(root, "Activity is currently unavailable.", 15, MUTED, false);
         }
     }
 
     private void mount() {
-        ui.removeCallbacks(refreshServiceStatus);
-        serviceStatus = null;
+        ui.removeCallbacks(tickFocus);
+        focusTime = null;
         heroMark = null;
         stage = new FrameLayout(this);
         stage.setBackgroundColor(0xff0d0915);
@@ -256,9 +244,14 @@ public final class MainActivity extends Activity {
         TextView heading = text(root, "Make time for\nwhat matters.", 39, WHITE, true);
         heading.setGravity(Gravity.CENTER);
         heading.setLetterSpacing(-0.045f);
-        TextView description = text(root, "Digital Discipline helps you see where your time goes and put limits on distractions.", 16, MUTED, false);
+        TextView description = text(root, "Digital Discipline helps you see where your time goes and set aside time to focus.", 16, MUTED, false);
         description.setGravity(Gravity.CENTER);
         description.setMaxWidth(dp(330));
+        action(root, "Preview with sample data", () -> {
+            sample = true;
+            render();
+            enter();
+        });
         primary(root, "Get started", () -> {
             choosingMode = true;
             render();
@@ -272,19 +265,19 @@ public final class MainActivity extends Activity {
             render();
         });
         title("Make it yours", "Choose how you’ll use Digital Discipline.");
-        modeRow("Individual", "Track your time and manage your own app rules.", "Activity", () -> {
+        modeRow("Individual", "Track your time and run focus sessions on this phone.", "Activity", () -> {
             rules.prefs.edit().putString("mode", Rules.INDIVIDUAL)
                 .putLong("enrolled", System.currentTimeMillis()).apply();
             render();
             enter();
         });
-        modeRow("Parent phone", "Review activity and set rules for a child device.", "Settings", () -> {
+        modeRow("Parent phone", "Review activity reports shared from a child phone.", "Settings", () -> {
             rules.prefs.edit().putString("mode", Rules.PARENT).putString("key", Rules.newKey()).apply();
             tab = SETTINGS;
             render();
             enter();
         });
-        modeRow("Child phone", "Connect to your parent’s Digital Discipline app.", "Blocking", () -> {
+        modeRow("Child phone", "Connect to your parent’s Digital Discipline app.", "Settings", () -> {
             enrollStep = 1;
             render();
             enter();
@@ -329,23 +322,19 @@ public final class MainActivity extends Activity {
         name.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
         name.setPadding(dp(5), 0, 0, 0);
         root.addView(brand, new LinearLayout.LayoutParams(-1, dp(36)));
+        if (sample) action(root, "Exit sample preview", this::exitSample);
         if (tab == ACTIVITY) {
             text(root, "Activity", 36, WHITE, true).setLetterSpacing(-0.045f);
             if (!"Personal dashboard".equals(description)) text(root, description, 14, MUTED, false);
             return;
         }
         String heading = switch (tab) {
-            case BLOCKING -> "App blocking";
+            case FOCUS -> "Focus";
             case SETTINGS -> "Settings";
             default -> "Your activity";
         };
-        String scene = switch (tab) {
-            case BLOCKING -> "Blocking";
-            case SETTINGS -> "Settings";
-            default -> "Activity";
-        };
         int[] colors = switch (tab) {
-            case BLOCKING -> new int[]{0xff50293d, 0xff2c203a};
+            case FOCUS -> new int[]{0xff342344, 0xff211b32};
             case SETTINGS -> new int[]{0xff24423e, 0xff252239};
             default -> new int[]{0xff443362, 0xff2c2146};
         };
@@ -359,17 +348,22 @@ public final class MainActivity extends Activity {
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
         hero.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView eyebrow = text(words, description, 13, tab == SETTINGS ? MINT : tab == BLOCKING ? PEACH : ACCENT, true);
+        TextView eyebrow = text(words, description, 13, tab == SETTINGS ? MINT : ACCENT, true);
         eyebrow.setPadding(0, 0, 0, dp(5));
         text(words, heading, 30, WHITE, true).setLetterSpacing(-0.045f);
         String subtitle = switch (tab) {
-            case BLOCKING -> "Choose what to put out of reach.";
+            case FOCUS -> "Set a task and start a session.";
             case SETTINGS -> "Manage access and your device.";
             default -> "See where your time goes.";
         };
         text(words, subtitle, 14, MUTED, false).setPadding(0, 0, 0, 0);
-        hero.addView(new DisciplineArt(this, "scene-" + scene),
-            new LinearLayout.LayoutParams(dp(104), dp(110)));
+        ImageView artwork = new ImageView(this);
+        artwork.setImageResource(tab == FOCUS ? R.drawable.focus_notebook : R.drawable.settings_notebook);
+        artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        artwork.setBackground(surface(PANEL));
+        artwork.setClipToOutline(true);
+        artwork.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        hero.addView(artwork, new LinearLayout.LayoutParams(dp(104), dp(94)));
         root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
     }
 
@@ -386,7 +380,7 @@ public final class MainActivity extends Activity {
             text(pair, "On the child phone, choose Child phone and enter this pairing code. Set a separate parent PIN on that phone.", 15, MUTED, false);
             primary(pair, "Pairing code", this::showKey);
             LinearLayout files = card("Exchange files");
-            text(files, "Import the child’s activity file here. In Blocking, select apps and export a rules file for the child phone.", 15, MUTED, false);
+            text(files, "Import an encrypted activity file shared from the child phone.", 15, MUTED, false);
             action(files, "Import child activity", () -> openFile("activity"));
             return;
         }
@@ -398,32 +392,16 @@ public final class MainActivity extends Activity {
         if (usageAllowed) action(usage, "Manage Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
         else primary(usage, "Allow Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
 
-        LinearLayout blocking = card("Blocking service");
-        serviceBadge(blocking);
-        text(blocking, "The Accessibility Service applies your selected app blocks.", 15, MUTED, false);
-        if (Rules.serviceEnabled(this)) {
-            action(blocking, "Manage Accessibility", () -> launchSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-        } else {
-            primary(blocking, "Set up app blocking", this::explainBlocking);
-        }
+        showPrivacy();
         if (Rules.CHILD.equals(mode)) {
             LinearLayout exchange = card("Parent file exchange");
-            text(exchange, "The activity file includes installed apps, today’s usage sessions, and available weekly activity totals.", 15, MUTED, false);
+            text(exchange, "The encrypted file includes names and totals for apps with recorded activity and available weekly totals.", 15, MUTED, false);
             action(exchange, "Export child activity", this::exportActivity);
-            action(exchange, "Import parent rules", () -> openFile("rules"));
             action(root, "Lock parent settings", () -> {
                 unlocked = false;
                 render();
             });
         }
-    }
-
-    private void explainBlocking() {
-        new AlertDialog.Builder(this).setTitle("Enable app blocking")
-            .setMessage("Digital Discipline checks the package name of the active app. If you selected that app for blocking, it returns to Home and shows a short notice. The service does not read screen content. You can turn it off in Android Accessibility settings.")
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Open Android settings", (dialog, which) -> launchSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            .show();
     }
 
     private void renderEnrollment() {
@@ -563,6 +541,11 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() {
         if (detailApp != null) {
             closeAppDetails();
+        } else if (sample) {
+            exitSample();
+        } else if (selectedDay != 0) {
+            selectedDay = 0;
+            render();
         } else if (enrollStep > 0) {
             backFromEnrollment();
         } else if (rules.mode().isEmpty() && choosingMode) {
@@ -642,152 +625,6 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private JSONArray localAppList() {
-        JSONArray rows = new JSONArray();
-        Set<String> protectedApps = AppCatalog.protectedPackages(this);
-        Map<String, String> names = Rules.apps(this);
-        List<Map.Entry<String, String>> apps = new ArrayList<>(names.entrySet());
-        apps.sort(Map.Entry.comparingByValue(String.CASE_INSENSITIVE_ORDER));
-        for (var app : apps) {
-            try {
-                rows.put(new JSONObject().put("id", app.getKey()).put("name", app.getValue())
-                    .put("blockable", !protectedApps.contains(app.getKey())));
-            } catch (org.json.JSONException e) {
-                throw new IllegalStateException(e);
-            }
-        }
-        return rows;
-    }
-
-    private void showBlocks(JSONArray rows, boolean remote) {
-        LinearLayout box = card(remote ? "Child app rules" : "Installed apps");
-        if (rows == null) {
-            text(box, "Import an activity file to see the child phone’s apps and choose which ones to block.", 15, MUTED, false);
-            primary(box, "Import child activity", () -> openFile("activity"));
-            return;
-        }
-        if (!remote) {
-            serviceBadge(box);
-            if (!BlockService.isConnected() || !Rules.serviceEnabled(this)) {
-                text(box, "Rules only take effect while the blocking service is connected.", 14, MUTED, false);
-                action(box, "Open Accessibility setup", this::explainBlocking);
-            }
-        }
-        TextView selectionCount = text(box, "", 14, MUTED, false);
-        EditText search = new EditText(this);
-        search.setSingleLine(true);
-        search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        search.setTextSize(15);
-        search.setHint("Search installed apps");
-        search.setContentDescription("Search installed apps");
-        search.setTextColor(WHITE);
-        search.setHintTextColor(MUTED);
-        search.setPadding(dp(14), 0, dp(14), 0);
-        search.setBackground(surface(BG));
-        LinearLayout.LayoutParams searchSize = new LinearLayout.LayoutParams(-1, dp(49));
-        searchSize.bottomMargin = dp(9);
-        box.addView(search, searchSize);
-
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        box.addView(list, new LinearLayout.LayoutParams(-1, -2));
-        Runnable updateCount = () -> {
-            Set<String> selected = rules.blocks();
-            int enabled = 0;
-            for (int i = 0; i < rows.length(); i++) {
-                JSONObject app = rows.optJSONObject(i);
-                if (app != null && app.optBoolean("blockable") && selected.contains(app.optString("id"))) enabled++;
-            }
-            selectionCount.setText(getString(R.string.app_list_count, rows.length(), enabled));
-        };
-        Runnable filter = () -> {
-            list.removeAllViews();
-            String match = search.getText().toString().trim().toLowerCase(Locale.ROOT);
-            for (int index = 0; index < rows.length(); index++) {
-                JSONObject app = rows.optJSONObject(index);
-                if (app == null) continue;
-                String id = app.optString("id");
-                String name = app.optString("name", id);
-                if (id.isEmpty() || !(name.toLowerCase(Locale.ROOT).contains(match)
-                    || id.toLowerCase(Locale.ROOT).contains(match))) continue;
-                if (list.getChildCount() > 0) divider(list);
-                appRow(list, id, name, app.optBoolean("blockable"), remote, updateCount);
-            }
-            if (list.getChildCount() == 0) text(list, "No matching apps.", 15, MUTED, false);
-        };
-        search.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence value, int start, int before, int count) {
-                filter.run();
-            }
-            @Override public void afterTextChanged(Editable value) {}
-        });
-        updateCount.run();
-        filter.run();
-    }
-
-    private void appRow(LinearLayout list, String id, String name, boolean blockable, boolean remote, Runnable updateCount) {
-        LinearLayout row = new LinearLayout(this);
-        row.setMinimumHeight(dp(64));
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(8), 0, dp(8));
-        list.addView(row, new LinearLayout.LayoutParams(-1, -2));
-
-        ImageView icon = new ImageView(this);
-        android.graphics.drawable.Drawable appIcon = AppCatalog.icon(this, id);
-        if (appIcon != null) {
-            icon.setImageDrawable(appIcon);
-            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            row.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        } else {
-            TextView initial = new TextView(this);
-            initial.setGravity(Gravity.CENTER);
-            initial.setTextColor(ACCENT);
-            initial.setTextSize(20);
-            initial.setText(name.isEmpty() ? "?" : name.substring(0, name.offsetByCodePoints(0, 1)));
-            initial.setBackground(surface(0xff342746));
-            initial.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            row.addView(initial, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        }
-
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams copy = new LinearLayout.LayoutParams(0, -2, 1);
-        copy.setMargins(dp(11), 0, dp(8), 0);
-        row.addView(labels, copy);
-        text(labels, name, 16, WHITE, true).setPadding(0, 0, 0, 0);
-        if (!blockable) {
-            text(labels, "Protected system app", 12, MINT, false).setPadding(0, dp(3), 0, 0);
-            return;
-        }
-
-        Switch item = new Switch(this);
-        item.setContentDescription(getString(R.string.block_app_switch, name));
-        item.setShowText(false);
-        item.setMinHeight(dp(48));
-        item.setMinWidth(dp(48));
-        int[][] states = {{android.R.attr.state_checked}, {}};
-        item.setThumbTintList(new ColorStateList(states, new int[]{ACCENT, 0xffc6bdcd}));
-        item.setTrackTintList(new ColorStateList(states, new int[]{0xff9471c6, 0xff5d5367}));
-        item.setChecked(rules.blocks().contains(id));
-        item.setOnCheckedChangeListener((view, checked) -> {
-            if (!remote && !Rules.canBlock(this, id)) {
-                render();
-                return;
-            }
-            rules.toggle(id, checked);
-            updateCount.run();
-        });
-        row.addView(item, new LinearLayout.LayoutParams(-2, dp(48)));
-    }
-
-    private void serviceBadge(LinearLayout box) {
-        serviceStatus = badge(box, "", PEACH);
-        ui.removeCallbacks(refreshServiceStatus);
-        refreshServiceStatus.run();
-    }
-
     private TextView badge(LinearLayout parent, String label, int color) {
         TextView badge = new TextView(this);
         badge.setTextSize(13);
@@ -809,37 +646,303 @@ public final class MainActivity extends Activity {
         badge.setText(label);
     }
 
+    private void showFocus() {
+        if (sample) {
+            badge(root, "Sample preview", ACCENT);
+            LinearLayout demo = card("Focus session");
+            TextView clock = text(demo, "25:00", 52, WHITE, true);
+            primary(demo, "Preview countdown", () -> {
+                long started = android.os.SystemClock.elapsedRealtime();
+                Runnable preview = new Runnable() {
+                    @Override public void run() {
+                        if (!clock.isAttachedToWindow()) return;
+                        long seconds = Math.max(0, 25 - (android.os.SystemClock.elapsedRealtime() - started) / 1000);
+                        clock.setText(String.format(Locale.getDefault(), "00:%02d", seconds));
+                        if (seconds > 0) clock.postDelayed(this, 250);
+                    }
+                };
+                preview.run();
+            });
+            return;
+        }
+        FocusTimer.Session session = focus.current();
+        LinearLayout panel = card(session == null ? "Start a session"
+            : session.completed() ? "Session complete" : session.paused() ? "Paused" : "In focus");
+        if (session == null) {
+            EditText task = field(panel, "What will you work on?", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            task.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
+            for (int minutes : new int[]{15, 25, 45, 60}) {
+                String label = minutes + " minutes";
+                addButton(panel, label, () -> {
+                    focus.start(minutes, task.getText().toString().trim());
+                    hideKeyboard();
+                    render();
+                    enter();
+                }, minutes == focus.minutes());
+            }
+            return;
+        }
+        if (!session.task().isEmpty()) text(panel, session.task(), 20, WHITE, true);
+        focusTime = text(panel, "", 52, WHITE, true);
+        focusTime.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        focusProgress = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        focusProgress.setMax(1000);
+        focusProgress.setProgressTintList(ColorStateList.valueOf(MINT));
+        focusProgress.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        panel.addView(focusProgress, new LinearLayout.LayoutParams(-1, dp(14)));
+        if (session.completed()) {
+            primary(panel, "Start another " + session.minutes() + " min session", () -> {
+                focus.start(session.minutes(), session.task());
+                render();
+                enter();
+            });
+            action(panel, "Done", () -> {
+                focus.finish();
+                render();
+            });
+        } else {
+            primary(panel, session.paused() ? "Resume" : "Pause", () -> {
+                if (session.paused()) focus.resume(); else focus.pause();
+                render();
+            });
+            action(panel, "End session", () -> new AlertDialog.Builder(this).setTitle("End this focus session?")
+                .setNegativeButton("Keep session", null).setPositiveButton("End session", (dialog, which) -> {
+                    focus.finish();
+                    render();
+                }).show());
+        }
+        focusCompleted = session.completed();
+        updateFocus();
+    }
+
+    private void updateFocus() {
+        if (focusTime == null) return;
+        FocusTimer.Session session = focus.current();
+        if (session == null) return;
+        if (session.completed() != focusCompleted) {
+            render();
+            enter();
+            return;
+        }
+        long remaining = (session.remaining() + 999) / 1000;
+        focusTime.setText(session.completed() ? session.minutes() + " min"
+            : String.format(Locale.getDefault(), "%02d:%02d", remaining / 60, remaining % 60));
+        int progress = (int) ((session.duration() - session.remaining()) * 1000 / session.duration());
+        focusProgress.setProgress(progress, ValueAnimator.areAnimatorsEnabled());
+        if (!session.completed() && !session.paused()) ui.postDelayed(tickFocus, 500);
+    }
+
+    private void showPrivacy() {
+        LinearLayout panel = card("Activity privacy");
+        text(panel, "Activity is saved on this phone. Collection runs when you open or refresh Digital Discipline.", 14, MUTED, false);
+        try (UsageHistory history = new UsageHistory(this)) {
+            long now = System.currentTimeMillis();
+            long pause = history.pausedUntil();
+            if (pause > now) {
+                badge(panel, "Paused until " + date(pause), PEACH);
+                action(panel, "Resume collection", () -> updateHistory(store -> store.resume(System.currentTimeMillis())));
+            } else {
+                action(panel, "Pause collection", () -> new AlertDialog.Builder(this).setTitle("Pause collection")
+                    .setItems(new String[]{"1 hour", "Until tomorrow", "24 hours"}, (dialog, index) -> {
+                        long current = System.currentTimeMillis();
+                        long length = switch (index) {
+                            case 0 -> ActivityReport.HOUR;
+                            case 1 -> ActivityReport.midnight(java.time.LocalDate.now().plusDays(1), java.time.ZoneId.systemDefault()) - current;
+                            default -> UsageHistory.DAY;
+                        };
+                        updateHistory(store -> store.pause(current, length));
+                    }).show());
+            }
+            int days = history.retention();
+            action(panel, "Keep history for " + days + " days", () -> new AlertDialog.Builder(this)
+                .setTitle("History retention")
+                .setItems(new String[]{"7 days", "14 days", "30 days"}, (dialog, index) -> {
+                    int selected = new int[]{7, 14, 30}[index];
+                    updateHistory(store -> store.retention(selected, System.currentTimeMillis()));
+                }).show());
+        }
+        action(panel, "Private apps", this::privateApps);
+        action(panel, "Delete history", () -> new AlertDialog.Builder(this).setTitle("Delete activity")
+            .setItems(new String[]{"Today", "Last 7 days", "All history"}, (dialog, index) -> {
+                new AlertDialog.Builder(this).setTitle("Permanently delete activity?")
+                    .setMessage("The selected activity will be removed from this phone.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Delete", (confirm, which) -> {
+                        long now = System.currentTimeMillis();
+                        updateHistory(store -> {
+                            if (index == 2) store.deleteAll(now);
+                            else store.deleteSince(ActivityReport.midnight(java.time.LocalDate.now().minusDays(index == 1 ? 6 : 0),
+                                java.time.ZoneId.systemDefault()), now);
+                        });
+                    }).show();
+            }).show());
+        LinearLayout health = card("Data freshness");
+        try (UsageHistory history = new UsageHistory(this)) {
+            long now = System.currentTimeMillis();
+            long checkpoint = history.checkpoint();
+            String label = history.pausedUntil() > now ? "Collection paused"
+                : checkpoint <= 0 || checkpoint > now ? "No recent refresh"
+                : "Last collection check " + date(checkpoint);
+            text(health, label, 14, MUTED, false);
+        }
+        action(health, "How usage is measured", this::showCoverage);
+    }
+
+    private void updateHistory(java.util.function.Consumer<UsageHistory> change) {
+        try (UsageHistory store = new UsageHistory(this)) {
+            synchronized (ActivityReport.class) {
+                change.accept(store);
+            }
+        } catch (RuntimeException error) {
+            status("Could not update saved activity.");
+        }
+        render();
+    }
+
+    private void privateApps() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(18), dp(8), dp(18), dp(16));
+        EditText search = field(panel, "Search installed apps", InputType.TYPE_CLASS_TEXT);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min(dp(360), getResources().getDisplayMetrics().heightPixels / 3)));
+        List<Map.Entry<String, String>> apps = new ArrayList<>(AppCatalog.names(this).entrySet());
+        try (UsageHistory store = new UsageHistory(this)) {
+            for (String id : store.exclusions()) {
+                if (apps.stream().noneMatch(entry -> entry.getKey().equals(id))) apps.add(new java.util.AbstractMap.SimpleImmutableEntry<>(id, id));
+            }
+        }
+        apps.sort(Map.Entry.comparingByValue(String.CASE_INSENSITIVE_ORDER));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Private apps").setView(panel)
+            .setPositiveButton("Done", null).create();
+        Runnable filter = () -> {
+            list.removeAllViews();
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            for (var app : apps) {
+                String id = app.getKey();
+                String name = app.getValue();
+                if (!id.toLowerCase(Locale.ROOT).contains(query) && !name.toLowerCase(Locale.ROOT).contains(query)) continue;
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setMinimumHeight(dp(60));
+                list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+                row.addView(activityIcon(id), new LinearLayout.LayoutParams(dp(30), dp(30)));
+                TextView label = text(row, name + "\n" + id, 14, WHITE, false);
+                label.setPadding(dp(10), dp(8), dp(8), dp(8));
+                label.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+                row.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    privateApp(id, name);
+                });
+                row.setFocusable(true);
+                divider(list);
+            }
+            if (list.getChildCount() == 0) text(list, "No matching apps.", 14, MUTED, false);
+        };
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence value, int start, int before, int count) { filter.run(); }
+            @Override public void afterTextChanged(Editable value) {}
+        });
+        filter.run();
+        dialog.show();
+    }
+
+    private void privateApp(String id, String name) {
+        boolean excluded;
+        try (UsageHistory store = new UsageHistory(this)) {
+            excluded = store.exclusions().contains(id);
+        }
+        new AlertDialog.Builder(this).setTitle(name)
+            .setItems(new String[]{excluded ? "Include future activity and exports" : "Exclude future activity and exports", "Delete saved history"},
+                (dialog, index) -> {
+                    if (index == 0) {
+                        updateHistory(store -> {
+                            store.exclude(id, !excluded);
+                            store.resetCoverageAt(System.currentTimeMillis());
+                        });
+                        return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("Delete " + name + " history?")
+                        .setNegativeButton("Cancel", null).setPositiveButton("Delete",
+                            (confirm, which) -> updateHistory(store -> store.deleteApp(id, System.currentTimeMillis()))).show();
+                }).show();
+    }
+
     private void showActivity(JSONObject report) {
         boolean parent = Rules.PARENT.equals(rules.mode());
-        boolean tracked = report.optBoolean("tracked");
         java.time.ZoneId zone = reportZone(report);
+        if (sample) badge(root, "Sample data", ACCENT);
         if (detailApp != null) {
             showAppDetails(report, zone);
             return;
         }
-        activityArtwork(weekly ? R.drawable.activity_week : R.drawable.activity_today, null);
-        LinearLayout range = new LinearLayout(this);
-        range.setBackground(surface(0xff1a1522));
-        range.setPadding(dp(3), dp(3), dp(3), dp(3));
+        activityArtwork(range == WEEK ? R.drawable.activity_week : R.drawable.activity_today, null);
+        LinearLayout ranges = new LinearLayout(this);
+        ranges.setBackground(surface(0xff1a1522));
+        ranges.setPadding(dp(3), dp(3), dp(3), dp(3));
         LinearLayout.LayoutParams rangeSize = new LinearLayout.LayoutParams(-1, -2);
         rangeSize.topMargin = dp(12);
-        root.addView(range, rangeSize);
-        rangeButton(range, "Today", false);
-        rangeButton(range, "Last 7 Days", true);
-        if (!tracked) {
-            LinearLayout summary = card(report.has("apps") ? "Usage Access needed" : "No activity report");
-            if (parent) primary(summary, "Import child activity", () -> openFile("activity"));
-            else primary(summary, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+        root.addView(ranges, rangeSize);
+        rangeButton(ranges, "Today", TODAY);
+        rangeButton(ranges, "Last 7 Days", WEEK);
+        rangeButton(ranges, "Last 24h", ROLLING);
+        if (Rules.INDIVIDUAL.equals(rules.mode()) && range == TODAY) {
+            action(root, focus.current() == null ? "Start " + focus.minutes() + " min focus" : "Open focus session", () -> {
+                if (focus.current() == null) focus.start(focus.minutes(), "");
+                tab = FOCUS;
+                render();
+                enter();
+            });
+        }
+        if (!parent && !sample) {
+            if (!report.optBoolean("access")) {
+                LinearLayout setup = card("Usage Access needed");
+                text(setup, "Grant access to refresh your activity. Saved observations are still available.", 14, MUTED, false);
+                primary(setup, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+            }
+            long paused = report.optLong("pausedUntil");
+            if (paused > System.currentTimeMillis()) badge(root, "Collection paused until " + date(paused), PEACH);
+        }
+        if (!report.optBoolean("tracked")) {
+            if (parent) primary(card("No activity report"), "Import child activity", () -> openFile("activity"));
             return;
         }
         long end = report.optLong("at");
         if (parent) text(root, "Report from " + date(end), 13, MUTED, false);
-        if (weekly) {
+        if (range == WEEK && selectedDay == 0) {
             showWeek(report.optJSONArray("week"));
         } else {
+            if (range == WEEK) action(root, "‹ Last 7 Days", () -> {
+                selectedDay = 0;
+                render();
+                enter();
+            });
             showToday(report, zone, end);
         }
-        if (!parent) action(root, "Refresh activity", this::render);
+        if (!parent && !sample) {
+            long refreshed = report.optLong("lastCollected");
+            if (refreshed > 0) text(root, "Last collected " + date(refreshed), 13, MUTED, false);
+            action(root, "Refresh activity", this::render);
+            action(root, "How usage is measured", this::showCoverage);
+        }
+    }
+
+    private void exitSample() {
+        sample = false;
+        detailApp = null;
+        range = TODAY;
+        tab = ACTIVITY;
+        render();
+        enter();
+    }
+
+    private void showCoverage() {
+        new AlertDialog.Builder(this).setTitle("Activity coverage")
+            .setMessage("Digital Discipline imports recent Android foreground events when you open or refresh the app. Open it regularly to retain more history. A blank chart period means there was no observation. A partial period shows only its recorded time. Split-screen and picture-in-picture are estimates. Paused collection and denied access can leave gaps.")
+            .setPositiveButton("Done", null).show();
     }
 
     private java.time.ZoneId reportZone(JSONObject report) {
@@ -860,6 +963,11 @@ public final class MainActivity extends Activity {
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         art.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            image.setScaleX(1.08f);
+            image.setScaleY(1.08f);
+            image.animate().scaleX(1).scaleY(1).setDuration(520).start();
+        }
         if (appId == null) return;
         FrameLayout.LayoutParams center = new FrameLayout.LayoutParams(dp(49), dp(49), Gravity.CENTER);
         center.topMargin = dp(13);
@@ -867,50 +975,126 @@ public final class MainActivity extends Activity {
     }
 
     private void showWeek(JSONArray week) {
-        LinearLayout card = card("Activity heatmap");
+        LinearLayout panel = card("Activity heatmap");
         if (week == null || week.length() != 7) {
-            text(card, "Weekly data is unavailable in this report.", 14, MUTED, false);
+            text(panel, "Weekly data is unavailable in this report.", 14, MUTED, false);
             return;
         }
-        card.addView(new WeekChart(this, week, this::sessionDuration));
+        panel.addView(new WeekChart(this, week, this::sessionDuration, day -> {
+            selectedDay = day;
+            render();
+            enter();
+        }));
+    }
+
+    private long rangeStart(JSONObject report) {
+        if (range == WEEK) return selectedDay;
+        return range == ROLLING ? report.optLong("from") : report.optLong("todayStart", report.optLong("from"));
+    }
+
+    private long rangeEnd(JSONObject report, java.time.ZoneId zone, long end) {
+        if (range != WEEK) return end;
+        return Math.min(end, java.time.Instant.ofEpochMilli(selectedDay).atZone(zone)
+            .toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli());
+    }
+
+    private Map<String, Long> appTotals(JSONObject report, long from, long to) {
+        Map<String, Long> totals = new java.util.HashMap<>();
+        JSONArray timeline = report.optJSONArray("sessions");
+        if (timeline == null) return totals;
+        for (int i = 0; i < timeline.length(); i++) {
+            JSONObject session = timeline.optJSONObject(i);
+            if (session == null) continue;
+            long usage = ActivityReport.overlap(from, to, session.optLong("from"), session.optLong("to"));
+            if (usage > 0) totals.merge(session.optString("id"), usage, Long::sum);
+        }
+        return totals;
     }
 
     private void showToday(JSONObject report, java.time.ZoneId zone, long end) {
         JSONArray apps = report.optJSONArray("apps");
         if (apps == null) return;
-        boolean hasToday = report.has("todayStart");
-        String durationField = hasToday ? "today" : "time";
-        LinearLayout summary = card(hasToday ? "Screen time by hour" : "Recorded screen time");
-        JSONArray hours = report.optJSONArray("hours");
-        if (hours != null) {
-            HourChart chart = new HourChart(this, hours, report.optLong("hourStart"),
-                report.optLong("todayStart"), end, zone);
-            summary.addView(chart, new LinearLayout.LayoutParams(-1, dp(114)));
-            TextView detail = text(summary, "Tap a bar for hourly usage", 13, MUTED, false);
-            chart.setOnHourSelected((label, millis) -> detail.setText(label + " · " + duration(millis)));
-        } else {
-            text(summary, "This report predates hourly charts.", 14, MUTED, false);
+        long from = rangeStart(report);
+        long to = rangeEnd(report, zone, end);
+        boolean modern = report.has("rollingHours");
+        String durationField = range == ROLLING || !report.has("todayStart") ? "time" : "today";
+        LinearLayout summary = card("Screen time by hour");
+        summary.setBackground(glass(0xff272038, 0xff1e2930, 0xff625375));
+        TextView interval = text(summary, date(from, zone) + " – " + date(to, zone), 13, MUTED, false);
+        if (!modern && range == ROLLING) {
+            text(summary, "A rolling 24-hour breakdown is unavailable in this report.", 14, MUTED, false);
+            return;
+        }
+        JSONArray hours = report.optJSONArray(range == ROLLING ? "rollingHours" : "hours");
+        long firstHour = report.optLong("hourStart");
+        if (range == WEEK) {
+            hours = null;
+            JSONArray week = report.optJSONArray("week");
+            for (int i = 0; week != null && i < week.length(); i++) {
+                JSONObject day = week.optJSONObject(i);
+                if (day != null && day.optLong("start") == from) hours = day.optJSONArray("bins");
+            }
+            firstHour = from;
         }
         Map<String, String> labels = new java.util.HashMap<>();
         List<JSONObject> used = new ArrayList<>();
+        Map<String, Long> totals = range == WEEK ? appTotals(report, from, to) : java.util.Collections.emptyMap();
+        long total = 0;
+        if (range == WEEK && report.optBoolean("summaryOnly")) {
+            for (int i = 0; hours != null && i < hours.length(); i++) total += hours.optLong(i);
+        }
         for (int i = 0; i < apps.length(); i++) {
             JSONObject app = apps.optJSONObject(i);
             if (app == null) continue;
-            labels.put(app.optString("id"), app.optString("name"));
-            if (app.optLong(durationField) > 0) used.add(app);
+            String id = app.optString("id");
+            labels.put(id, app.optString("name", id));
+            long amount = range == WEEK ? totals.getOrDefault(id, 0L) : app.optLong(durationField);
+            if (amount > 0) {
+                total += amount;
+                try { used.add(new JSONObject().put("id", id).put("name", labels.get(id)).put("usage", amount)); }
+                catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
+            }
         }
+        long observed = report.optLong(range == ROLLING ? "rollingObserved" : "todayObserved", -1);
+        boolean anyBins = false;
+        for (int i = 0; hours != null && i < hours.length(); i++) if (!hours.isNull(i)) anyBins = true;
+        if (modern && !anyBins) {
+            interval.setText(interval.getText() + "\nNo observation for this period");
+        } else {
+            text(summary, sessionDuration(total), 35, WHITE, true);
+            if (modern && range != WEEK && observed >= 0 && observed < to - from) {
+                text(summary, "Partial coverage", 13, PEACH, false);
+            }
+        }
+        if (hours != null) {
+            HourChart chart = new HourChart(this, hours, firstHour, from, to, zone);
+            summary.addView(chart, new LinearLayout.LayoutParams(-1, dp(114)));
+            TextView detail = text(summary, "Tap an hour to see usage", 13, MUTED, false);
+            chart.setOnHourSelected((label, start, stop, millis) -> {
+                if (millis < 0) {
+                    detail.setText(label + " · No observation");
+                    return;
+                }
+                List<String> contributions = new ArrayList<>();
+                appTotals(report, start, stop).entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .forEach(entry -> contributions.add(labels.getOrDefault(entry.getKey(), entry.getKey())
+                        + " · " + sessionDuration(entry.getValue())));
+                detail.setText(label + " · " + sessionDuration(millis)
+                    + (contributions.isEmpty() ? "" : "\n" + String.join("\n", contributions)));
+            });
+        }
+        if (range == WEEK && report.optBoolean("summaryOnly")) return;
         LinearLayout ranking = card("Top apps");
         if (used.isEmpty()) {
-            text(ranking, "No foreground app use recorded today.", 14, MUTED, false);
+            text(ranking, modern && !anyBins ? "Activity will appear after a recorded app visit."
+                : "No foreground app use recorded in this period.", 14, MUTED, false);
             return;
         }
-        used.sort((a, b) -> Long.compare(b.optLong(durationField), a.optLong(durationField)));
-        long most = used.get(0).optLong(durationField);
-        for (JSONObject app : used) addRankedApp(ranking, app, durationField, most);
-        if (!report.has("sessions")) {
-            long from = hasToday ? report.optLong("todayStart") : report.optLong("from");
-            showOpenHistory(report.optJSONArray("opens"), labels, from, zone);
-        }
+        used.sort((a, b) -> Long.compare(b.optLong("usage"), a.optLong("usage")));
+        long most = used.get(0).optLong("usage");
+        for (JSONObject app : used) addRankedApp(ranking, app, "usage", most);
+        if (!report.has("sessions")) showOpenHistory(report.optJSONArray("opens"), labels, from, zone);
     }
 
     private void addRankedApp(LinearLayout parent, JSONObject app, String field, long most) {
@@ -961,7 +1145,7 @@ public final class MainActivity extends Activity {
                 JSONObject app = apps.optJSONObject(i);
                 if (app != null && detailApp.equals(app.optString("id"))) {
                     name = app.optString("name", detailApp);
-                    fallbackTotal = app.optLong(report.has("todayStart") ? "today" : "time");
+                    fallbackTotal = app.optLong(range == ROLLING || !report.has("todayStart") ? "time" : "today");
                     break;
                 }
             }
@@ -969,19 +1153,23 @@ public final class MainActivity extends Activity {
         title(name, report.has("todayStart") ? "Usage sessions" : "Recorded usage");
         LinearLayout list = card("Opened · Ended");
         long total = 0;
-        JSONArray sessions = report.optJSONArray("sessions");
+        int openings = 0;
+        long start = rangeStart(report);
+        long end = rangeEnd(report, zone, report.optLong("at"));
+        JSONArray sessions = report.optBoolean("summaryOnly") ? null : report.optJSONArray("sessions");
         java.time.format.DateTimeFormatter clock = java.time.format.DateTimeFormatter
             .ofLocalizedTime(java.time.format.FormatStyle.SHORT).withZone(zone);
         if (sessions != null) {
             for (int i = 0; i < sessions.length(); i++) {
                 JSONObject item = sessions.optJSONObject(i);
                 if (item == null || !detailApp.equals(item.optString("id"))) continue;
-                long from = item.optLong("from");
-                long to = item.optLong("to");
+                long from = Math.max(start, item.optLong("from"));
+                long to = Math.min(end, item.optLong("to"));
                 if (to <= from) continue;
                 long elapsed = to - from;
                 total += elapsed;
-                String finish = item.optBoolean("ongoing") ? "In progress" : clock.format(java.time.Instant.ofEpochMilli(to));
+                if (item.optBoolean("opened") && item.optLong("from") >= start) openings++;
+                String finish = item.optBoolean("ongoing") && to == report.optLong("at") ? "In progress" : clock.format(java.time.Instant.ofEpochMilli(to));
                 sessionLine(list, clock.format(java.time.Instant.ofEpochMilli(from)) + " – " + finish, sessionDuration(elapsed));
                 divider(list);
             }
@@ -990,6 +1178,7 @@ public final class MainActivity extends Activity {
             text(list, "Session times are unavailable in this report.", 14, MUTED, false);
         }
         if (sessions != null && total == 0) text(list, "No sessions recorded for this app.", 14, MUTED, false);
+        if (report.has("rollingHours") && sessions != null) sessionLine(list, "Observed openings", Integer.toString(openings));
         sessionLine(list, "Total usage", sessionDuration(total));
     }
 
@@ -1019,19 +1208,21 @@ public final class MainActivity extends Activity {
         enter();
     }
 
-    private void rangeButton(LinearLayout range, String title, boolean week) {
+    private void rangeButton(LinearLayout bar, String title, int period) {
         Button item = button(title, () -> {
-            if (weekly == week) return;
-            weekly = week;
+            if (range == period && selectedDay == 0) return;
+            range = period;
+            selectedDay = 0;
             render();
             enter();
-        }, weekly == week);
-        item.setSelected(weekly == week);
-        if (weekly && week) {
+        }, range == period);
+        item.setSelected(range == period);
+        item.setPadding(dp(4), dp(6), dp(4), dp(6));
+        if (range == WEEK && period == WEEK) {
             item.setBackground(ripple(surface(0xffb4ead5)));
             item.setTextColor(0xff102920);
         }
-        range.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
     }
 
     private LinearLayout activityRow(LinearLayout parent, String id, String name, String value) {
@@ -1192,7 +1383,7 @@ public final class MainActivity extends Activity {
         busy = true;
         new Thread(() -> {
             try {
-                JSONObject report = ActivityReport.read(this, rules.prefs.getLong("enrolled", 0), true);
+                JSONObject report = ActivityReport.read(this, rules.prefs.getLong("enrolled", 0), false);
                 String packet = rules.pack("activity", report);
                 runOnUiThread(() -> {
                     busy = false;
@@ -1205,21 +1396,6 @@ public final class MainActivity extends Activity {
                 });
             }
         }, "activity-report").start();
-    }
-
-    private void exportRules() {
-        try {
-            long revision = rules.prefs.getLong("sent_revision", 0) + 1;
-            if (!rules.prefs.edit().putLong("sent_revision", revision).commit()) {
-                status("Could not save the rule revision.");
-                return;
-            }
-            JSONObject policy = new JSONObject().put("revision", revision)
-                .put("apps", new JSONArray(rules.blocks()));
-            saveFile("rules", rules.pack("rules", policy));
-        } catch (Exception e) {
-            status("Could not create the rules file.");
-        }
     }
 
     private void saveFile(String kind, String packet) {
@@ -1283,23 +1459,6 @@ public final class MainActivity extends Activity {
             rules.prefs.edit().putLong("report_time", time).putString("report", content.toString()).apply();
             tab = ACTIVITY;
             status("Child activity imported.");
-        } else if ("rules".equals(kind) && Rules.CHILD.equals(rules.mode())) {
-            long revision = content.getLong("revision");
-            if (revision <= rules.prefs.getLong("applied_revision", 0)) {
-                status("Newer or identical rules are already applied.");
-                return;
-            }
-            JSONArray ids = content.getJSONArray("apps");
-            Set<String> eligible = Rules.apps(this).keySet();
-            Set<String> blocks = new HashSet<>();
-            for (int i = 0; i < ids.length(); i++) {
-                String id = ids.getString(i);
-                if (eligible.contains(id) && Rules.canBlock(this, id)) blocks.add(id);
-            }
-            if (!rules.prefs.edit().putLong("applied_revision", revision).putStringSet("blocks", blocks).commit()) {
-                throw new IllegalStateException();
-            }
-            status(blocks.size() + " blocked apps saved.");
         }
     }
 
@@ -1313,6 +1472,11 @@ public final class MainActivity extends Activity {
 
     private String date(long time) {
         return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(time));
+    }
+
+    private String date(long time, java.time.ZoneId zone) {
+        return java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.SHORT)
+            .withZone(zone).format(java.time.Instant.ofEpochMilli(time));
     }
 
     private String duration(long millis) {
