@@ -25,6 +25,15 @@ def wait_for(predicate, description, attempts=25):
     raise AssertionError(f"Timed out waiting for {description}: {top_activity()}")
 
 
+def has_label(label):
+    try:
+        adb("shell", "uiautomator", "dump", "/data/local/tmp/dd-window.xml")
+        tree = ET.fromstring(adb("exec-out", "cat", "/data/local/tmp/dd-window.xml"))
+        return any(node.get("text") == label for node in tree.iter("node"))
+    except (ET.ParseError, subprocess.SubprocessError):
+        return False
+
+
 def tap(label, prefix=False):
     last_labels = []
 
@@ -81,12 +90,12 @@ tap("Get started")
 tap("Individual", prefix=True)
 tap("Focus")
 tap("15 minutes")
-tap("Pause")
-tap("Resume")
+# Android's UI dump waits for an idle view hierarchy. Check persistent
+# timer state from the static Today shortcut while the countdown runs.
+time.sleep(2)
 adb("shell", "am", "force-stop", PACKAGE)
 launch(PACKAGE + "/.MainActivity")
-tap("Focus")
-tap("Pause")
+wait_for(lambda: has_label("Open focus session"), "restored focus shortcut", attempts=5)
 
 # Only the disposable CI device receives this scripted Usage Access grant.
 adb("shell", "appops", "set", PACKAGE, "GET_USAGE_STATS", "allow")
@@ -99,10 +108,5 @@ tap("Last 7 Days")
 tap("Last 24h")
 tap("Today")
 tap("Settings")
-def usage_access_done():
-    adb("shell", "uiautomator", "dump", "/data/local/tmp/dd-window.xml")
-    tree = ET.fromstring(adb("exec-out", "cat", "/data/local/tmp/dd-window.xml"))
-    return any(node.get("text") == "Done" for node in tree.iter("node"))
-
-wait_for(usage_access_done, "Usage Access Done", attempts=5)
+wait_for(lambda: has_label("Done"), "Usage Access Done", attempts=5)
 print("Activity, timer restoration and app launch checked.", flush=True)
