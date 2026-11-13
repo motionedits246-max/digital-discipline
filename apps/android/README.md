@@ -1,6 +1,6 @@
 # Digital Discipline for Android
 
-Prototype 0.3.0 supports Android 10 and later. It uses Android Usage Access for recent foreground app activity, and the explicitly enabled Digital Discipline accessibility service for blocking. The service receives window-change events and checks package names. If Usage Access is also enabled, it can check recent app lifecycle events when a window event is missed. It requests no window content. A block returns the phone to Home and shows a temporary notice. The blocking list shows launcher apps for the current Android profile. Android Settings, the home launcher, the current keyboard, the phone and messaging handlers, and system permission or install screens are protected.
+Prototype 0.4.0 supports Android 10 and later. It uses Android Usage Access for recent foreground app activity, and the explicitly enabled Digital Discipline accessibility service for blocking. The service receives window-change events and checks package names. If Usage Access is also enabled, it can check recent app lifecycle events when a window event is missed. It requests no window content. A block returns the phone to Home and shows a temporary notice. The blocking list shows launcher apps for the current Android profile. Android Settings, the home launcher, the current keyboard, the phone and messaging handlers, and system permission or install screens are protected.
 
 ## Try Individual mode
 
@@ -27,6 +27,6 @@ gradle -p apps/android :app:lintRelease :app:assembleRelease
 The unsigned APK is in `apps/android/app/build/outputs/apk/release/`. GitHub Actions uploads an aligned unsigned APK and its SHA-256 checksum in one artifact. Sign the APK with your own test key and verify it before installing. Use the same key for updates.
 
 ```sh
-apksigner sign --ks YOUR_TEST_KEYSTORE --out Digital-Discipline-Android-0.3.0.apk Digital-Discipline-Android-0.3.0-unsigned.apk
-apksigner verify --verbose Digital-Discipline-Android-0.3.0.apk
+apksigner sign --ks YOUR_TEST_KEYSTORE --out Digital-Discipline-Android-0.4.0.apk Digital-Discipline-Android-0.4.0-unsigned.apk
+apksigner verify --verbose Digital-Discipline-Android-0.4.0.apk
 ```

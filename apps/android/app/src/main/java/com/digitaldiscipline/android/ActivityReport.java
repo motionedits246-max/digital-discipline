@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 final class ActivityReport {
+    private static final long HOUR = TimeUnit.HOURS.toMillis(1);
     private static final long DAY = TimeUnit.HOURS.toMillis(24);
 
     static boolean allowed(Context context) {
@@ -29,9 +30,15 @@ final class ActivityReport {
 
     static JSONObject read(Context context, long enrolled, boolean includeActivity) throws JSONException {
         long end = System.currentTimeMillis();
+        java.time.ZonedDateTime reportTime = java.time.Instant.ofEpochMilli(end).atZone(java.time.ZoneId.systemDefault());
+        long today = reportTime.toLocalDate().atStartOfDay(reportTime.getZone()).toInstant().toEpochMilli();
+        long lastHour = reportTime.withMinute(0).withSecond(0).withNano(0).toInstant().toEpochMilli();
         long start = Math.max(end - DAY, enrolled);
         Map<String, String> apps = Rules.apps(context);
         Map<String, Long> totals = new HashMap<>();
+        Map<String, Long> todayTotals = new HashMap<>();
+        long[] hourly = new long[25];
+        long firstHour = lastHour - 24 * HOUR;
         ArrayDeque<JSONObject> opens = new ArrayDeque<>();
         boolean tracking = includeActivity && allowed(context);
         if (tracking) {
@@ -71,7 +78,7 @@ final class ActivityReport {
                                 activity = event.getClassName();
                                 continue;
                             }
-                            add(totals, active, activeSince, time, start, end, apps);
+                            add(totals, todayTotals, hourly, firstHour, today, active, activeSince, time, start, end, apps);
                             active = id;
                             activity = event.getClassName();
                             activeSince = time;
@@ -88,11 +95,11 @@ final class ActivityReport {
                         default:
                             continue;
                     }
-                    add(totals, active, activeSince, time, start, end, apps);
+                    add(totals, todayTotals, hourly, firstHour, today, active, activeSince, time, start, end, apps);
                     active = null;
                     activity = null;
                 }
-                add(totals, active, activeSince, end, start, end, apps);
+                add(totals, todayTotals, hourly, firstHour, today, active, activeSince, end, start, end, apps);
             }
         }
 
@@ -102,16 +109,32 @@ final class ActivityReport {
         java.util.Set<String> protectedApps = AppCatalog.protectedPackages(context);
         for (String id : ids) {
             rows.put(new JSONObject().put("id", id).put("name", apps.get(id))
-                .put("time", totals.getOrDefault(id, 0L)).put("blockable", !protectedApps.contains(id)));
+                .put("time", totals.getOrDefault(id, 0L)).put("today", todayTotals.getOrDefault(id, 0L)).put("blockable", !protectedApps.contains(id)));
         }
+        JSONArray hours = new JSONArray();
+        for (long duration : hourly) hours.put(duration);
         return new JSONObject().put("from", start).put("at", end).put("tracked", tracking)
+            .put("todayStart", today).put("hourStart", firstHour).put("hours", hours)
+            .put("zone", reportTime.getZone().getId())
             .put("apps", rows).put("opens", new JSONArray(opens));
     }
 
-    private static void add(Map<String, Long> totals, String id, long began, long finished,
-                            long start, long end, Map<String, String> apps) {
+    private static void add(Map<String, Long> totals, Map<String, Long> todayTotals,
+                            long[] hourly, long firstHour, long today, String id,
+                            long began, long finished, long start, long end, Map<String, String> apps) {
         if (id == null || !apps.containsKey(id)) return;
-        long time = Math.min(end, finished) - Math.max(start, began);
-        if (time > 0) totals.merge(id, time, Long::sum);
+        long from = Math.max(start, began);
+        long to = Math.min(end, finished);
+        if (to <= from) return;
+        totals.merge(id, to - from, Long::sum);
+        long todayTime = to - Math.max(today, from);
+        if (todayTime > 0) todayTotals.merge(id, todayTime, Long::sum);
+        for (long cursor = Math.max(firstHour, from); cursor < to;) {
+            int slot = (int) ((cursor - firstHour) / HOUR);
+            if (slot >= hourly.length) break;
+            long next = Math.min(to, firstHour + (slot + 1L) * HOUR);
+            hourly[slot] += next - cursor;
+            cursor = next;
+        }
     }
 }

@@ -89,7 +89,10 @@ public final class MainActivity extends Activity {
     private String pendingPacket;
     private String pendingReadKind;
     private boolean busy;
-    private int historyLimit = 30;
+    private boolean rolling;
+    private boolean launchPending;
+    private FrameLayout stage;
+    private BrandMark heroMark;
     private int tab;
     private static final int ACTIVITY = 0;
     private static final int BLOCKING = 1;
@@ -100,14 +103,17 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         rules = new Rules(this);
+        launchPending = state == null;
         if (state != null) {
             tab = state.getInt("tab");
+            rolling = state.getBoolean("rolling");
             choosingMode = state.getBoolean("choosingMode");
         }
     }
 
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putInt("tab", tab);
+        out.putBoolean("rolling", rolling);
         out.putBoolean("choosingMode", choosingMode);
         super.onSaveInstanceState(out);
     }
@@ -116,6 +122,18 @@ public final class MainActivity extends Activity {
         super.onResume();
         if (Rules.CHILD.equals(rules.mode())) Rules.showChildNotice(this);
         if (enrollStep == 0) render();
+        if (launchPending) {
+            launchPending = false;
+            animateLaunch();
+        }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+            launchPending = true;
+        }
     }
 
     @Override protected void onPause() {
@@ -197,9 +215,13 @@ public final class MainActivity extends Activity {
     private void mount() {
         ui.removeCallbacks(refreshServiceStatus);
         serviceStatus = null;
+        heroMark = null;
+        stage = new FrameLayout(this);
+        stage.setBackgroundColor(0xff0d0915);
         frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
-        frame.setBackgroundColor(BG);
+        frame.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{0xff151020, 0xff0d0915, 0xff151222}));
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
@@ -217,13 +239,15 @@ public final class MainActivity extends Activity {
             }
             return insets;
         });
-        setContentView(frame);
+        stage.addView(frame, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(stage);
         frame.requestApplyInsets();
     }
 
     private void welcome() {
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.addView(new DisciplineArt(this, "hero"), new LinearLayout.LayoutParams(-1, dp(210), 1));
+        heroMark = new BrandMark(this, true);
+        root.addView(heroMark, new LinearLayout.LayoutParams(-1, dp(210), 1));
         TextView heading = text(root, "Make time for\nwhat matters.", 39, WHITE, true);
         heading.setGravity(Gravity.CENTER);
         heading.setLetterSpacing(-0.045f);
@@ -293,7 +317,18 @@ public final class MainActivity extends Activity {
     }
 
     private void dashboardHeader(String description) {
-        text(root, "Digital Discipline", 15, ACCENT, true);
+        LinearLayout brand = new LinearLayout(this);
+        brand.setGravity(Gravity.CENTER_VERTICAL);
+        brand.addView(new BrandMark(this, false), new LinearLayout.LayoutParams(dp(27), dp(27)));
+        TextView name = text(brand, "Digital Discipline", 16, WHITE, true);
+        name.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        name.setPadding(dp(5), 0, 0, 0);
+        root.addView(brand, new LinearLayout.LayoutParams(-1, dp(36)));
+        if (tab == ACTIVITY) {
+            text(root, "Activity", 36, WHITE, true).setLetterSpacing(-0.045f);
+            if (!"Personal dashboard".equals(description)) text(root, description, 14, MUTED, false);
+            return;
+        }
         String heading = switch (tab) {
             case BLOCKING -> "App blocking";
             case SETTINGS -> "Settings";
@@ -768,65 +803,217 @@ public final class MainActivity extends Activity {
     }
 
     private void showActivity(JSONObject report) {
-        LinearLayout summary = card("Last 24 hours");
-        if (!report.has("apps")) {
-            text(summary, "Import an activity file to see app usage from the child phone.", 15, MUTED, false);
-            primary(summary, "Import child activity", () -> openFile("activity"));
+        boolean parent = Rules.PARENT.equals(rules.mode());
+        if (report.has("hours") && report.optBoolean("tracked")) {
+            LinearLayout range = new LinearLayout(this);
+            range.setBackground(glass(0xff211a35, 0xff151023, 0xff453758));
+            range.setPadding(dp(3), dp(3), dp(3), dp(3));
+            root.addView(range, new LinearLayout.LayoutParams(-1, -2));
+            rangeButton(range, "Today", false);
+            rangeButton(range, "Last 24h", true);
+        }
+        LinearLayout summary = card("Screen time");
+        summary.setBackground(glass(0xff37274d, 0xff1b2730, 0xff786497));
+        LinearLayout figure = new LinearLayout(this);
+        figure.setGravity(Gravity.CENTER_VERTICAL);
+        summary.addView(figure, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout numbers = new LinearLayout(this);
+        numbers.setOrientation(LinearLayout.VERTICAL);
+        figure.addView(numbers, new LinearLayout.LayoutParams(0, -2, 1));
+        heroMark = new BrandMark(this, true);
+        figure.addView(heroMark, new LinearLayout.LayoutParams(dp(106), dp(106)));
+        if (!report.has("apps") || !report.optBoolean("tracked")) {
+            text(numbers, report.has("apps") ? "Usage Access needed" : "No activity report", 22, WHITE, true);
+            if (parent) primary(summary, "Import child activity", () -> openFile("activity"));
+            else primary(summary, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
             return;
         }
-        if (Rules.PARENT.equals(rules.mode())) {
-            text(summary, "Report from " + date(report.optLong("at")), 14, MUTED, false);
-        }
-        if (!report.optBoolean("tracked")) {
-            text(summary, "Usage access is unavailable on the reporting phone.", 15, MUTED, false);
-            if (!Rules.PARENT.equals(rules.mode())) {
-                primary(summary, "Open Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
-            }
-            return;
-        }
+
         JSONArray apps = report.optJSONArray("apps");
         if (apps == null) return;
-        java.util.Map<String, String> labels = new java.util.HashMap<>();
-        java.util.List<JSONObject> used = new java.util.ArrayList<>();
+        boolean today = report.has("hours") && !rolling;
+        String durationField = today ? "today" : "time";
+        long from = today ? Math.max(report.optLong("todayStart"), report.optLong("from")) : report.optLong("from");
+        long end = report.optLong("at");
+        java.time.ZoneId zone;
+        try {
+            zone = java.time.ZoneId.of(report.optString("zone", java.time.ZoneId.systemDefault().getId()));
+        } catch (java.time.DateTimeException ignored) {
+            zone = java.time.ZoneId.systemDefault();
+        }
+        Map<String, String> labels = new java.util.HashMap<>();
+        List<JSONObject> used = new ArrayList<>();
         long total = 0;
         for (int i = 0; i < apps.length(); i++) {
             JSONObject app = apps.optJSONObject(i);
             if (app == null) continue;
             labels.put(app.optString("id"), app.optString("name"));
-            long time = app.optLong("time");
-            if (time > 0) {
+            long millis = app.optLong(durationField);
+            if (millis > 0) {
                 used.add(app);
-                total += time;
+                total += millis;
             }
         }
-        text(summary, duration(total), 46, ACCENT, true).setLetterSpacing(-0.045f);
-        text(summary, "Foreground app usage · since " + date(report.optLong("from")), 14, MUTED, false);
-        if (!Rules.PARENT.equals(rules.mode())) action(summary, "Refresh activity", this::render);
+        text(numbers, duration(total), 43, WHITE, true).setLetterSpacing(-0.06f);
+        text(numbers, today ? "Today" : "Last 24 hours", 14, 0xffd7c0ff, false);
+        if (parent) text(summary, "Report from " + date(end), 13, MUTED, false);
+        JSONArray hours = report.optJSONArray("hours");
+        if (hours != null) {
+            HourChart chart = new HourChart(this, hours, report.optLong("hourStart"),
+                today ? report.optLong("todayStart") : end - 86_400_000L, end, zone);
+            summary.addView(chart, new LinearLayout.LayoutParams(-1, dp(114)));
+            TextView detail = text(summary, "Tap a bar for hourly usage", 13, MUTED, false);
+            chart.setOnHourSelected((label, millis) -> detail.setText(label + " · " + duration(millis)));
+        }
         if (used.isEmpty()) {
-            text(card("App usage"), "Activity will appear after you spend time in other apps.", 15, MUTED, false);
+            text(summary, "Activity appears after you use another app.", 14, MUTED, false);
         } else {
-            LinearLayout breakdown = card("Time by app");
-            used.sort((a, b) -> Long.compare(b.optLong("time"), a.optLong("time")));
+            LinearLayout breakdown = card("Top apps");
+            used.sort((a, b) -> Long.compare(b.optLong(durationField), a.optLong(durationField)));
             for (JSONObject app : used) {
-                text(breakdown, app.optString("name") + "  ·  " + duration(app.optLong("time")), 15, WHITE, false);
-                usageBar(breakdown, app.optLong("time"), total);
+                LinearLayout row = activityRow(breakdown, app.optString("id"), app.optString("name"),
+                    duration(app.optLong(durationField)));
+                row.setPadding(0, dp(4), 0, dp(3));
+                usageBar(breakdown, app.optLong(durationField), total);
             }
         }
-        JSONArray opens = report.optJSONArray("opens");
-        if (opens == null || opens.length() == 0) return;
-        LinearLayout history = card("App-open history");
-        for (int i = opens.length() - 1; i >= Math.max(0, opens.length() - historyLimit); i--) {
+        if (!parent) action(summary, "Refresh activity", this::render);
+        showOpenHistory(report.optJSONArray("opens"), labels, from, zone);
+    }
+
+    private void rangeButton(LinearLayout range, String title, boolean last24) {
+        Button item = button(title, () -> {
+            if (rolling == last24) return;
+            rolling = last24;
+            render();
+            enter();
+        }, rolling == last24);
+        item.setSelected(rolling == last24);
+        range.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+    }
+
+    private LinearLayout activityRow(LinearLayout parent, String id, String name, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(48));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        android.graphics.drawable.Drawable icon = AppCatalog.icon(this, id);
+        if (icon != null) {
+            ImageView image = new ImageView(this);
+            image.setImageDrawable(icon);
+            image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.addView(image, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        } else {
+            row.addView(new BrandMark(this, false), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        }
+        TextView title = text(row, name, 16, WHITE, true);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+        title.setPadding(dp(9), 0, dp(8), 0);
+        TextView trailing = text(row, value, 14, 0xffdec9fc, false);
+        trailing.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        trailing.setPadding(0, 0, 0, 0);
+        return row;
+    }
+
+    private void showOpenHistory(JSONArray opens, Map<String, String> labels, long from, java.time.ZoneId zone) {
+        if (opens == null) return;
+        Map<java.time.LocalDate, Map<String, List<Long>>> days = new java.util.LinkedHashMap<>();
+        for (int i = opens.length() - 1; i >= 0; i--) {
             JSONObject event = opens.optJSONObject(i);
-            if (event == null) continue;
-            String id = event.optString("id");
-            text(history, labels.getOrDefault(id, id) + "  ·  " + date(event.optLong("time")), 14, MUTED, false);
+            if (event == null || event.optLong("time") < from) continue;
+            long time = event.optLong("time");
+            java.time.LocalDate day = java.time.Instant.ofEpochMilli(time).atZone(zone).toLocalDate();
+            days.computeIfAbsent(day, ignored -> new java.util.LinkedHashMap<>())
+                .computeIfAbsent(event.optString("id"), ignored -> new ArrayList<>()).add(time);
         }
-        if (opens.length() > historyLimit) {
-            action(history, "Show 30 more", () -> {
-                historyLimit += 30;
-                render();
+        if (days.isEmpty()) return;
+        LinearLayout history = card("App-open history");
+        java.time.format.DateTimeFormatter dayLabel = java.time.format.DateTimeFormatter
+            .ofLocalizedDate(java.time.format.FormatStyle.MEDIUM);
+        java.time.format.DateTimeFormatter timeLabel = java.time.format.DateTimeFormatter
+            .ofLocalizedTime(java.time.format.FormatStyle.SHORT).withZone(zone);
+        days.forEach((day, groups) -> {
+            text(history, day.equals(java.time.LocalDate.now(zone)) ? "Today" : dayLabel.format(day),
+                14, MUTED, true);
+            groups.forEach((id, times) -> {
+                String count = getResources().getQuantityString(R.plurals.app_opens, times.size(), times.size());
+                LinearLayout row = activityRow(history, id, labels.getOrDefault(id, id), count + "  ⌄");
+                row.setBackground(ripple(surface(0xff282039)));
+                row.setPadding(dp(8), 0, dp(8), 0);
+                row.setFocusable(true);
+                LinearLayout details = new LinearLayout(this);
+                details.setOrientation(LinearLayout.VERTICAL);
+                details.setPadding(dp(49), dp(8), 0, 0);
+                details.setVisibility(View.GONE);
+                history.addView(details, new LinearLayout.LayoutParams(-1, -2));
+                row.setOnClickListener(view -> {
+                    boolean expand = details.getVisibility() != View.VISIBLE;
+                    if (expand && details.getChildCount() == 0) {
+                        for (long time : times) {
+                            text(details, timeLabel.format(java.time.Instant.ofEpochMilli(time)), 14, WHITE, false);
+                        }
+                    }
+                    if (ValueAnimator.areAnimatorsEnabled()) {
+                        android.transition.TransitionManager.beginDelayedTransition(history,
+                            new android.transition.AutoTransition().setDuration(180));
+                    }
+                    details.setVisibility(expand ? View.VISIBLE : View.GONE);
+                    ((TextView) row.getChildAt(2)).setText(count + (expand ? "  ⌃" : "  ⌄"));
+                });
+                View gap = new View(this);
+                history.addView(gap, new LinearLayout.LayoutParams(1, dp(6)));
             });
-        }
+        });
+    }
+
+    private GradientDrawable glass(int top, int bottom, int edge) {
+        GradientDrawable layer = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{top, bottom});
+        layer.setCornerRadius(dp(22));
+        layer.setStroke(dp(1), edge);
+        return layer;
+    }
+
+    private void animateLaunch() {
+        if (!ValueAnimator.areAnimatorsEnabled() || stage == null) return;
+        FrameLayout host = stage;
+        LinearLayout content = frame;
+        BrandMark destination = heroMark;
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xff0d0915);
+        overlay.setClickable(true);
+        host.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        BrandMark splash = new BrandMark(this, true);
+        int size = dp(155);
+        overlay.addView(splash, new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
+        if (destination != null) destination.setAlpha(0);
+        host.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                host.getViewTreeObserver().removeOnPreDrawListener(this);
+                if (host == stage) animateMark(host, content, destination, overlay, splash, size);
+                return true;
+            }
+        });
+    }
+
+    private void animateMark(FrameLayout host, LinearLayout content, BrandMark destination,
+                             FrameLayout overlay, BrandMark splash, int size) {
+        int[] start = new int[2];
+        int[] end = new int[2];
+        splash.getLocationInWindow(start);
+        if (destination != null) destination.getLocationInWindow(end);
+        float dx = destination == null ? 0 : end[0] + destination.getWidth() / 2f - start[0] - size / 2f;
+        float dy = destination == null ? -dp(25) : end[1] + destination.getHeight() / 2f - start[1] - size / 2f;
+        float scale = destination == null ? 0.85f
+            : (float) Math.min(destination.getWidth(), destination.getHeight()) / size;
+        overlay.animate().alpha(0).setStartDelay(65).setDuration(355).start();
+        content.setAlpha(.58f);
+        content.animate().alpha(1).setDuration(420).start();
+        splash.animate().translationX(dx).translationY(dy).scaleX(scale).scaleY(scale)
+            .rotation(-8).setDuration(420).withEndAction(() -> {
+                if (destination != null) destination.setAlpha(1);
+                host.removeView(overlay);
+            }).start();
     }
 
     private void divider(LinearLayout parent) {
@@ -839,7 +1026,9 @@ public final class MainActivity extends Activity {
         android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null,
             android.R.attr.progressBarStyleHorizontal);
         bar.setMax(1000);
-        bar.setProgress((int) Math.max(1, (time * 1000) / total));
+        int progress = (int) Math.max(1, (time * 1000) / total);
+        if (ValueAnimator.areAnimatorsEnabled()) bar.post(() -> bar.setProgress(progress, true));
+        else bar.setProgress(progress);
         bar.setProgressTintList(ColorStateList.valueOf(ACCENT));
         bar.setProgressBackgroundTintList(ColorStateList.valueOf(BORDER));
         bar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -1022,7 +1211,6 @@ public final class MainActivity extends Activity {
         item.setOnClickListener(view -> {
             if (tab == page) return;
             tab = page;
-            historyLimit = 30;
             render();
             enter();
         });
