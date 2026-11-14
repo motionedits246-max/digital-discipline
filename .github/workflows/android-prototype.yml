@@ -42,14 +42,14 @@ jobs:
       - name: Verify alignment and prepare artifact
         run: |
           mkdir -p artifact
-          apk=artifact/Digital-Discipline-Android-0.7.0-unsigned.apk
+          apk=artifact/Digital-Discipline-Android-0.7.1-unsigned.apk
           cp apps/android/app/build/outputs/apk/release/app-release-unsigned.apk "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$apk"
           cd artifact
           sha256sum ./*.apk > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: Digital-Discipline-Android-0.7.0-unsigned
+          name: Digital-Discipline-Android-0.7.1-unsigned
           path: artifact/
           if-no-files-found: error
 
@@ -65,7 +65,7 @@ jobs:
           java-version: '17'
       - uses: actions/download-artifact@v4
         with:
-          name: Digital-Discipline-Android-0.7.0-unsigned
+          name: Digital-Discipline-Android-0.7.1-unsigned
           path: artifact
       - name: Prepare test APK and Android emulator
         run: |
@@ -81,7 +81,7 @@ jobs:
           printf 'no\n' | "$tools/avdmanager" create avd --force --name discipline-ci --package "$image" --device pixel_6
           "$sdk/emulator/emulator" -list-avds | grep -Fx discipline-ci
           keytool -genkeypair -keystore "$RUNNER_TEMP/dd-test.p12" -storepass android -keypass android -alias test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Digital Discipline emulator'
-          "$sdk/build-tools/35.0.0/apksigner" sign --ks "$RUNNER_TEMP/dd-test.p12" --ks-pass pass:android --out "$RUNNER_TEMP/dd-test.apk" artifact/Digital-Discipline-Android-0.7.0-unsigned.apk
+          "$sdk/build-tools/35.0.0/apksigner" sign --ks "$RUNNER_TEMP/dd-test.p12" --ks-pass pass:android --out "$RUNNER_TEMP/dd-test.apk" artifact/Digital-Discipline-Android-0.7.1-unsigned.apk
       - name: Check activity and focus on Android
         run: |
           acceleration=()
@@ -92,7 +92,7 @@ jobs:
           fi
           emulator -avd discipline-ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect "${acceleration[@]}" > "$RUNNER_TEMP/dd-emulator.log" 2>&1 &
           pid=$!
-          trap 'code=$?; if [[ $code != 0 ]]; then tail -60 "$RUNNER_TEMP/dd-emulator.log"; fi; kill "$pid" 2>/dev/null || true' EXIT
+          trap 'code=$?; if [[ $code != 0 ]]; then tail -60 "$RUNNER_TEMP/dd-emulator.log"; adb logcat -b crash -d -t 100 || true; fi; kill "$pid" 2>/dev/null || true' EXIT
           for attempt in {1..100}; do
             kill -0 "$pid" || { echo "Emulator exited during boot"; exit 1; }
             boot="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"

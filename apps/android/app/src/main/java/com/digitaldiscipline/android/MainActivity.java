@@ -79,6 +79,7 @@ public final class MainActivity extends Activity {
     private SavedLinks links;
     private AlertDialog workspaceDialog;
     private Runnable workspaceTick;
+    private Runnable redrawWorkspace;
     private int workspacePage;
     private final Runnable tickFocus = this::updateFocus;
     private static final int WRITE_SUMMARY = 53;
@@ -361,11 +362,14 @@ public final class MainActivity extends Activity {
         int limit = getResources().getDisplayMetrics().heightPixels / 2;
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min(dp(330), limit)));
         action(panel, "Close", () -> workspaceDialog.dismiss());
-        workspaceDialog = new AlertDialog.Builder(this).setView(panel).create();
-        workspaceDialog.setOnDismissListener(dialog -> {
+        AlertDialog current = new AlertDialog.Builder(this).setView(panel).create();
+        workspaceDialog = current;
+        current.setOnDismissListener(dialog -> {
+            if (workspaceDialog != current) return;
             if (workspaceTick != null) ui.removeCallbacks(workspaceTick);
             workspaceTick = null;
             workspaceDialog = null;
+            redrawWorkspace = null;
         });
         String[] labels = {"Focus", "To-do", "Notes"};
         Runnable draw = () -> {
@@ -395,8 +399,9 @@ public final class MainActivity extends Activity {
             tabButton.setPadding(dp(4), dp(8), dp(4), dp(8));
             tabs.addView(tabButton, new LinearLayout.LayoutParams(0, -2, 1));
         }
+        redrawWorkspace = draw;
+        current.show();
         draw.run();
-        workspaceDialog.show();
         WindowManager.LayoutParams params = workspaceDialog.getWindow().getAttributes();
         workspaceDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         workspaceDialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
@@ -409,6 +414,10 @@ public final class MainActivity extends Activity {
             panel.setTranslationY(-dp(12));
             panel.animate().alpha(1).translationY(0).setDuration(240).start();
         }
+    }
+
+    private void refreshWorkspace() {
+        if (redrawWorkspace != null) redrawWorkspace.run();
     }
 
     private void workspaceFocus(LinearLayout body) {
@@ -446,14 +455,12 @@ public final class MainActivity extends Activity {
         if (current == null) {
             primary(body, "Start " + focus.plan().minutes() + " min", () -> {
                 focus.start(focus.plan(), "");
-                workspaceDialog.dismiss();
-                openWorkspace();
+                refreshWorkspace();
             });
         } else if (!current.completed()) {
             primary(body, current.paused() ? "Resume focus" : "Pause focus", () -> {
                 if (current.paused()) focus.resume(); else focus.pause();
-                workspaceDialog.dismiss();
-                openWorkspace();
+                refreshWorkspace();
             });
         }
         action(body, "Open Focus", () -> openFromWorkspace(FOCUS));
@@ -526,8 +533,7 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle(tasks ? "Delete task?" : "Delete note?")
                 .setNegativeButton("Cancel", null).setPositiveButton("Delete", (confirm, action) -> {
                     workspace.remove(list, entry.optString("id"));
-                    workspaceDialog.dismiss();
-                    openWorkspace();
+                    refreshWorkspace();
                 }).show());
         AlertDialog edit = editor.create();
         edit.show();
@@ -541,8 +547,7 @@ public final class MainActivity extends Activity {
             workspace.save(list, entry == null ? null : entry.optString("id"), value,
                 tasks ? "" : notes.getText().toString(), entry != null && entry.optBoolean("done"));
             edit.dismiss();
-            workspaceDialog.dismiss();
-            openWorkspace();
+            refreshWorkspace();
         });
     }
 
