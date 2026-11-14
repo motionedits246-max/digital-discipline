@@ -827,8 +827,8 @@ public final class MainActivity extends Activity {
 
         if (Rules.INDIVIDUAL.equals(mode)) {
             floatingSetting();
-            shortsDetectionSettings();
             timerSoundSettings();
+            shortsDetectionSettings();
             action(root, "Saved links", this::showSavedLinks);
         }
         showPrivacy();
