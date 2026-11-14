@@ -49,7 +49,8 @@ def tap(label, prefix=False, widget=None):
             last_labels.extend(value for value in values if value)
             if widget and not node.get("class", "").endswith(widget):
                 continue
-            if label in values or prefix and any(value.startswith(label) for value in values):
+            if any(value.casefold() == label.casefold() or prefix and value.casefold().startswith(label.casefold())
+                   for value in values):
                 bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
                 if len(bounds) != 4 or bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
                     continue
