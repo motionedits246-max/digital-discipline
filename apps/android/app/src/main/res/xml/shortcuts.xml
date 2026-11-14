@@ -1,0 +1,17 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="today" android:icon="@drawable/ic_discipline"
+        android:shortcutShortLabel="@string/shortcut_today">
+        <intent android:action="com.digitaldiscipline.android.OPEN_TODAY"
+            android:targetPackage="com.digitaldiscipline.android" android:targetClass="com.digitaldiscipline.android.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="focus" android:icon="@drawable/ic_discipline"
+        android:shortcutShortLabel="@string/shortcut_focus">
+        <intent android:action="com.digitaldiscipline.android.OPEN_FOCUS"
+            android:targetPackage="com.digitaldiscipline.android" android:targetClass="com.digitaldiscipline.android.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="workspace" android:icon="@drawable/ic_discipline"
+        android:shortcutShortLabel="@string/shortcut_workspace">
+        <intent android:action="com.digitaldiscipline.android.OPEN_WORKSPACE"
+            android:targetPackage="com.digitaldiscipline.android" android:targetClass="com.digitaldiscipline.android.MainActivity" />
+    </shortcut>
+</shortcuts>

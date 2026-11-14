@@ -73,8 +73,16 @@ public final class MainActivity extends Activity {
     private String pendingReadKind;
     private boolean busy;
     private final Handler ui = new Handler(Looper.getMainLooper());
+    static final String OPEN_WORKSPACE = "com.digitaldiscipline.android.OPEN_WORKSPACE";
     private FocusTimer focus;
+    private WorkspaceStore workspace;
+    private SavedLinks links;
+    private AlertDialog workspaceDialog;
+    private Runnable workspaceTick;
+    private int workspacePage;
     private final Runnable tickFocus = this::updateFocus;
+    private static final int WRITE_SUMMARY = 53;
+    private String pendingSummary;
     private TextView focusTime;
     private boolean focusCompleted;
     private android.widget.ProgressBar focusProgress;
@@ -103,6 +111,8 @@ public final class MainActivity extends Activity {
             rules.prefs.edit().remove("blocks").remove("sent_revision").remove("applied_revision").apply();
         }
         focus = new FocusTimer(this);
+        workspace = new WorkspaceStore(this);
+        links = new SavedLinks(this);
         launchPending = state == null;
         if (state != null) {
             tab = state.getInt("tab");
@@ -136,6 +146,7 @@ public final class MainActivity extends Activity {
             launchPending = false;
             animateLaunch();
         }
+        receiveShortcut();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -149,6 +160,7 @@ public final class MainActivity extends Activity {
     @Override protected void onStop() {
         super.onStop();
         ui.removeCallbacks(tickFocus);
+        if (workspaceDialog != null) workspaceDialog.dismiss();
         if (Rules.CHILD.equals(rules.mode()) && unlocked) {
             unlocked = false;
             detailApp = null;
@@ -160,6 +172,7 @@ public final class MainActivity extends Activity {
     private void render() {
         mount();
         String mode = rules.mode();
+        if (Rules.INDIVIDUAL.equals(mode)) addWorkspaceButton();
         if (mode.isEmpty() && !sample) {
             if (enrollStep != 0) renderEnrollment();
             else if (choosingMode) chooseMode();
@@ -314,6 +327,360 @@ public final class MainActivity extends Activity {
         root.addView(row, layout);
     }
 
+    private void addWorkspaceButton() {
+        if (FloatingWorkspace.visible && Settings.canDrawOverlays(this)) return;
+        FrameLayout button = new FrameLayout(this);
+        BrandMark mark = new BrandMark(this, false);
+        mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        button.addView(mark, new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
+        button.setBackground(ripple(surface(PANEL)));
+        button.setContentDescription("Open Digital Discipline workspace");
+        button.setFocusable(true);
+        button.setOnClickListener(view -> openWorkspace());
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(48), dp(48));
+        size.gravity = Gravity.CENTER_HORIZONTAL;
+        size.bottomMargin = dp(6);
+        root.addView(button, size);
+    }
+
+    private void openWorkspace() {
+        if (!Rules.INDIVIDUAL.equals(rules.mode()) || isFinishing()) return;
+        if (workspaceDialog != null && workspaceDialog.isShowing()) return;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(12), dp(16), dp(12));
+        panel.setBackground(glass(0xff2b213a, 0xff191523, 0xff77638c));
+        TextView heading = text(panel, "Workspace", 25, WHITE, true);
+        heading.setAccessibilityHeading(true);
+        LinearLayout tabs = new LinearLayout(this);
+        panel.addView(tabs);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(body);
+        int limit = getResources().getDisplayMetrics().heightPixels / 2;
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min(dp(330), limit)));
+        action(panel, "Close", () -> workspaceDialog.dismiss());
+        workspaceDialog = new AlertDialog.Builder(this).setView(panel).create();
+        workspaceDialog.setOnDismissListener(dialog -> {
+            if (workspaceTick != null) ui.removeCallbacks(workspaceTick);
+            workspaceTick = null;
+            workspaceDialog = null;
+        });
+        String[] labels = {"Focus", "To-do", "Notes"};
+        Runnable draw = () -> {
+            if (workspaceTick != null) ui.removeCallbacks(workspaceTick);
+            workspaceTick = null;
+            body.removeAllViews();
+            scroll.scrollTo(0, 0);
+            for (int i = 0; i < tabs.getChildCount(); i++) {
+                Button button = (Button) tabs.getChildAt(i);
+                boolean selected = i == workspacePage;
+                button.setSelected(selected);
+                button.setTextColor(selected ? BG : WHITE);
+                button.setBackground(ripple(surface(selected ? ACCENT : PANEL)));
+            }
+            if (workspacePage == 0) {
+                workspaceFocus(body);
+            } else {
+                workspaceEntries(body, workspacePage == 1 ? WorkspaceStore.TASKS : WorkspaceStore.NOTES);
+            }
+        };
+        for (int i = 0; i < labels.length; i++) {
+            final int page = i;
+            Button tabButton = button(labels[i], () -> {
+                workspacePage = page;
+                draw.run();
+            }, false);
+            tabButton.setPadding(dp(4), dp(8), dp(4), dp(8));
+            tabs.addView(tabButton, new LinearLayout.LayoutParams(0, -2, 1));
+        }
+        draw.run();
+        workspaceDialog.show();
+        WindowManager.LayoutParams params = workspaceDialog.getWindow().getAttributes();
+        workspaceDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        workspaceDialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        params.y = dp(56);
+        params.width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(26), dp(460));
+        workspaceDialog.getWindow().setAttributes(params);
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            panel.setAlpha(0);
+            panel.setTranslationY(-dp(12));
+            panel.animate().alpha(1).translationY(0).setDuration(240).start();
+        }
+    }
+
+    private void workspaceFocus(LinearLayout body) {
+        try {
+            JSONObject report = ActivityReport.read(this, rules.prefs.getLong("enrolled", 0), false);
+            if (report.optLong("todayObserved") > 0) {
+                JSONArray apps = report.optJSONArray("apps");
+                long total = 0;
+                for (int i = 0; apps != null && i < apps.length(); i++) {
+                    JSONObject app = apps.optJSONObject(i);
+                    if (app != null) total += app.optLong("today");
+                }
+                sessionLine(body, "Screen time today", sessionDuration(total));
+            } else {
+                text(body, "No screen time recorded today", 14, MUTED, false);
+            }
+        } catch (Exception ignored) {
+            text(body, "Activity is unavailable", 14, MUTED, false);
+        }
+        TextView timer = text(body, "", 34, ACCENT, true);
+        timer.setPadding(0, dp(12), 0, dp(8));
+        workspaceTick = new Runnable() {
+            @Override public void run() {
+                if (workspaceDialog == null) return;
+                FocusTimer.Session session = focus.current();
+                long minutes = session == null ? focus.plan().minutes() : (session.remaining() + 59_999) / 60_000;
+                String label = session == null ? minutes + " min ready" : session.completed() ? "Session complete"
+                    : minutes + " min left" + (session.paused() ? " · Paused" : "");
+                if (!label.contentEquals(timer.getText())) timer.setText(label);
+                ui.postDelayed(this, 1000);
+            }
+        };
+        workspaceTick.run();
+        FocusTimer.Session current = focus.current();
+        if (current == null) {
+            primary(body, "Start " + focus.plan().minutes() + " min", () -> {
+                focus.start(focus.plan(), "");
+                workspaceDialog.dismiss();
+                openWorkspace();
+            });
+        } else if (!current.completed()) {
+            primary(body, current.paused() ? "Resume focus" : "Pause focus", () -> {
+                if (current.paused()) focus.resume(); else focus.pause();
+                workspaceDialog.dismiss();
+                openWorkspace();
+            });
+        }
+        action(body, "Open Focus", () -> openFromWorkspace(FOCUS));
+        action(body, "Open Activity", () -> openFromWorkspace(ACTIVITY));
+        action(body, "Open Settings", () -> openFromWorkspace(SETTINGS));
+    }
+
+    private void openFromWorkspace(int page) {
+        workspaceDialog.dismiss();
+        tab = page;
+        detailApp = null;
+        render();
+        enter();
+    }
+
+    private void workspaceEntries(LinearLayout body, String list) {
+        boolean tasks = WorkspaceStore.TASKS.equals(list);
+        primary(body, tasks ? "Add task" : "New note", () -> editWorkspace(list, null));
+        JSONArray entries = workspace.entries(list);
+        if (entries.length() == 0) text(body, tasks ? "No tasks yet." : "No notes yet.", 14, MUTED, false);
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.optJSONObject(index);
+            if (entry == null) continue;
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            if (tasks) {
+                android.widget.CheckBox check = new android.widget.CheckBox(this);
+                check.setChecked(entry.optBoolean("done"));
+                check.setContentDescription("Complete " + entry.optString("title"));
+                check.setMinHeight(dp(48));
+                check.setMinWidth(dp(48));
+                check.setOnCheckedChangeListener((view, checked) -> {
+                    workspace.save(list, entry.optString("id"), entry.optString("title"), "", checked);
+                    try { entry.put("done", checked); } catch (org.json.JSONException impossible) {
+                        throw new IllegalStateException(impossible);
+                    }
+                });
+                row.addView(check);
+            }
+            Button label = button(entry.optString("title"), () -> editWorkspace(list, entry), false);
+            label.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+            body.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            divider(body);
+        }
+    }
+
+    private void editWorkspace(String list, JSONObject entry) {
+        boolean tasks = WorkspaceStore.TASKS.equals(list);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(18), dp(6), dp(18), dp(8));
+        EditText title = field(fields, tasks ? "Task" : "Title", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        title.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(100)});
+        EditText notes = tasks ? null : field(fields, "Note", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        if (!tasks) {
+            notes.setSingleLine(false);
+            notes.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            notes.setMinLines(4);
+            notes.setMaxLines(8);
+            notes.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});
+        }
+        if (entry != null) {
+            title.setText(entry.optString("title"));
+            if (notes != null) notes.setText(entry.optString("body"));
+        }
+        AlertDialog.Builder editor = new AlertDialog.Builder(this).setTitle(tasks ? "Task" : "Note")
+            .setView(fields).setNegativeButton("Cancel", null).setPositiveButton("Save", null);
+        if (entry != null) editor.setNeutralButton("Delete", (dialog, which) ->
+            new AlertDialog.Builder(this).setTitle(tasks ? "Delete task?" : "Delete note?")
+                .setNegativeButton("Cancel", null).setPositiveButton("Delete", (confirm, action) -> {
+                    workspace.remove(list, entry.optString("id"));
+                    workspaceDialog.dismiss();
+                    openWorkspace();
+                }).show());
+        AlertDialog edit = editor.create();
+        edit.show();
+        edit.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        edit.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String value = title.getText().toString().trim();
+            if (value.isEmpty()) {
+                title.setError(tasks ? "Enter a task" : "Enter a title");
+                return;
+            }
+            workspace.save(list, entry == null ? null : entry.optString("id"), value,
+                tasks ? "" : notes.getText().toString(), entry != null && entry.optBoolean("done"));
+            edit.dismiss();
+            workspaceDialog.dismiss();
+            openWorkspace();
+        });
+    }
+
+    private void floatingSetting() {
+        LinearLayout panel = card("Floating workspace");
+        text(panel, "Show a small button below the camera area. Android requires display-over-other-apps access and a visible notification. Hide it at any time from the notification.", 14, MUTED, false);
+        if (FloatingWorkspace.visible && !Settings.canDrawOverlays(this)) {
+            stopService(new Intent(this, FloatingWorkspace.class));
+        }
+        if (FloatingWorkspace.visible && Settings.canDrawOverlays(this)) {
+            action(panel, "Hide floating button", () -> {
+                stopService(new Intent(this, FloatingWorkspace.class));
+                ui.postDelayed(this::render, 120);
+            });
+            return;
+        }
+        action(panel, "Show floating button", () -> {
+            if (!Settings.canDrawOverlays(this)) {
+                try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName()))); }
+                catch (android.content.ActivityNotFoundException e) { status("Display-over-other-apps settings are unavailable."); }
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 51);
+                return;
+            }
+            if (!FloatingWorkspace.notificationsAllowed(this)) {
+                startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                return;
+            }
+            try {
+                startForegroundService(new Intent(this, FloatingWorkspace.class));
+                ui.postDelayed(this::render, 250);
+            } catch (IllegalStateException | SecurityException error) {
+                status("The floating workspace could not start.");
+            }
+        });
+    }
+
+    private void receiveShortcut() {
+        Intent intent = getIntent();
+        if (intent == null) return;
+        if (OPEN_WORKSPACE.equals(intent.getAction())) {
+            setIntent(new Intent());
+            openWorkspace();
+            return;
+        }
+        if ("com.digitaldiscipline.android.OPEN_TODAY".equals(intent.getAction())
+                || "com.digitaldiscipline.android.OPEN_FOCUS".equals(intent.getAction())) {
+            setIntent(new Intent());
+            if (!Rules.INDIVIDUAL.equals(rules.mode())) return;
+            tab = "com.digitaldiscipline.android.OPEN_FOCUS".equals(intent.getAction()) ? FOCUS : ACTIVITY;
+            range = TODAY;
+            selectedDay = 0;
+            detailApp = null;
+            render();
+            enter();
+            return;
+        }
+        if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
+        setIntent(new Intent());
+        if (!Rules.INDIVIDUAL.equals(rules.mode())) {
+            status("Set up Individual mode to save links.");
+            return;
+        }
+        if (!"text/plain".equals(intent.getType())) return;
+        CharSequence shared = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+        SavedLinks.Link link = SavedLinks.parse(shared == null ? null : shared.toString());
+        if (link == null) {
+            status("Share a web link from the other app.");
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle(link.kind())
+            .setMessage(link.url() + "\n\nSave this link to Digital Discipline on this phone?")
+            .setNegativeButton("Cancel", null).setPositiveButton("Save link", (dialog, which) -> {
+                links.save(link);
+                showSavedLinks();
+            }).show();
+    }
+
+    private void shortFormCard(JSONObject report) {
+        long now = System.currentTimeMillis();
+        long from = rangeStart(report);
+        long end = range == WEEK && selectedDay == 0 ? now : rangeEnd(report, reportZone(report), report.optLong("at", now));
+        if (range == WEEK && selectedDay == 0) from = ActivityReport.midnight(java.time.LocalDate.now().minusDays(6),
+            java.time.ZoneId.systemDefault());
+        int shorts = 0;
+        int reels = 0;
+        JSONArray items = links.all();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null || item.optLong("at") < from || item.optLong("at") > end) continue;
+            if (SavedLinks.SHORT.equals(item.optString("kind"))) shorts++;
+            if (SavedLinks.REEL.equals(item.optString("kind"))) reels++;
+        }
+        LinearLayout panel = card("Shorts and Reels");
+        sessionLine(panel, "YouTube Shorts saved", Integer.toString(shorts));
+        sessionLine(panel, "Instagram Reels saved", Integer.toString(reels));
+        text(panel, "Use Share in YouTube or Instagram and choose Digital Discipline to count a video here.", 14, MUTED, false);
+        action(panel, "Saved links", this::showSavedLinks);
+    }
+
+    private void showSavedLinks() {
+        JSONArray entries = links.all();
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(18), dp(8), dp(18), dp(14));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Saved links").setView(scroll)
+            .setPositiveButton("Done", null).create();
+        if (entries.length() == 0) text(list, "Share a link to Digital Discipline to save it here.", 15, MUTED, false);
+        for (int i = 0; i < Math.min(entries.length(), 100); i++) {
+            JSONObject entry = entries.optJSONObject(i);
+            if (entry == null) continue;
+            String url = entry.optString("url");
+            action(list, entry.optString("kind") + " · " + date(entry.optLong("at")), () -> {
+                dialog.dismiss();
+                new AlertDialog.Builder(this).setTitle(entry.optString("kind")).setMessage(url)
+                    .setNegativeButton("Back", (choice, which) -> showSavedLinks())
+                    .setNeutralButton("Remove", (choice, which) -> {
+                        links.remove(entry.optLong("at"), url);
+                        render();
+                        showSavedLinks();
+                    })
+                    .setPositiveButton("Open link", (choice, which) -> {
+                        try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+                        catch (android.content.ActivityNotFoundException error) { status("No app can open this link."); }
+                    }).show();
+            });
+        }
+        dialog.show();
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
     private void dashboardHeader(String description) {
         LinearLayout brand = new LinearLayout(this);
         brand.setGravity(Gravity.CENTER_VERTICAL);
@@ -328,43 +695,12 @@ public final class MainActivity extends Activity {
             if (!"Personal dashboard".equals(description)) text(root, description, 14, MUTED, false);
             return;
         }
-        String heading = switch (tab) {
-            case FOCUS -> "Focus";
-            case SETTINGS -> "Settings";
-            default -> "Your activity";
-        };
-        int[] colors = switch (tab) {
-            case FOCUS -> new int[]{0xff342344, 0xff211b32};
-            case SETTINGS -> new int[]{0xff24423e, 0xff252239};
-            default -> new int[]{0xff443362, 0xff2c2146};
-        };
-        LinearLayout hero = new LinearLayout(this);
-        hero.setGravity(Gravity.CENTER_VERTICAL);
-        hero.setPadding(dp(18), dp(13), dp(7), dp(13));
-        GradientDrawable tint = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
-        tint.setCornerRadius(dp(24));
-        tint.setStroke(dp(1), 0xff665679);
-        hero.setBackground(tint);
-        LinearLayout words = new LinearLayout(this);
-        words.setOrientation(LinearLayout.VERTICAL);
-        hero.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView eyebrow = text(words, description, 13, tab == SETTINGS ? MINT : ACCENT, true);
-        eyebrow.setPadding(0, 0, 0, dp(5));
-        text(words, heading, 30, WHITE, true).setLetterSpacing(-0.045f);
-        String subtitle = switch (tab) {
-            case FOCUS -> "Set a task and start a session.";
-            case SETTINGS -> "Manage access and your device.";
-            default -> "See where your time goes.";
-        };
-        text(words, subtitle, 14, MUTED, false).setPadding(0, 0, 0, 0);
-        ImageView artwork = new ImageView(this);
-        artwork.setImageResource(tab == FOCUS ? R.drawable.focus_notebook : R.drawable.settings_notebook);
-        artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        artwork.setBackground(surface(PANEL));
-        artwork.setClipToOutline(true);
-        artwork.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        hero.addView(artwork, new LinearLayout.LayoutParams(dp(104), dp(94)));
-        root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
+        if (tab == FOCUS) {
+            text(root, "Focus", 36, WHITE, true).setLetterSpacing(-0.045f);
+            activityArtwork(R.drawable.focus_hourglass, null);
+        } else {
+            text(root, "Settings", 36, WHITE, true).setLetterSpacing(-0.045f);
+        }
     }
 
     private void enter() {
@@ -392,6 +728,10 @@ public final class MainActivity extends Activity {
         if (usageAllowed) action(usage, "Manage Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
         else primary(usage, "Allow Usage Access", () -> launchSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS));
 
+        if (Rules.INDIVIDUAL.equals(mode)) {
+            floatingSetting();
+            action(root, "Saved links", this::showSavedLinks);
+        }
         showPrivacy();
         if (Rules.CHILD.equals(mode)) {
             LinearLayout exchange = card("Parent file exchange");
@@ -667,19 +1007,47 @@ public final class MainActivity extends Activity {
         }
         FocusTimer.Session session = focus.current();
         LinearLayout panel = card(session == null ? "Start a session"
-            : session.completed() ? "Session complete" : session.paused() ? "Paused" : "In focus");
+            : session.completed() ? (session.breakPeriod() ? "Break complete" : "Session complete")
+            : session.paused() ? "Paused" : session.breakPeriod() ? "On a break" : "In focus");
         if (session == null) {
-            EditText task = field(panel, "What will you work on?", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            EditText task = field(panel, "Task (optional)", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
             task.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
-            for (int minutes : new int[]{15, 25, 45, 60}) {
-                String label = minutes + " minutes";
-                addButton(panel, label, () -> {
-                    focus.start(minutes, task.getText().toString().trim());
-                    hideKeyboard();
-                    render();
-                    enter();
-                }, minutes == focus.minutes());
+            FocusTimer.Plan last = focus.plan();
+            EditText minutes = numberField(panel, "Focus minutes", last.minutes());
+            LinearLayout chips = new LinearLayout(this);
+            for (int value : new int[]{15, 25, 45, 60}) {
+                Button chip = button(value + " min", () -> minutes.setText(Integer.toString(value)), false);
+                chip.setPadding(0, dp(5), 0, dp(5));
+                LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, -2, 1);
+                size.setMarginEnd(dp(4));
+                chips.addView(chip, size);
             }
+            panel.addView(chips);
+            primary(panel, "Start focus", () -> startFocus(minutes, task, null, null, ""));
+            action(panel, "Work and break cycles", () -> focusPlan(task, minutes));
+            if (!focus.unfinishedTask().isEmpty()) {
+                action(panel, "Use unfinished task", () -> task.setText(focus.unfinishedTask()));
+            }
+            JSONArray presets = focus.presets();
+            if (presets.length() > 0) {
+                LinearLayout saved = card("Presets");
+                for (int i = 0; i < presets.length(); i++) {
+                    JSONObject entry = presets.optJSONObject(i);
+                    if (entry == null) continue;
+                    int index = i;
+                    FocusTimer.Plan plan = FocusTimer.decode(entry);
+                    action(saved, plan.name() + " · " + plan.minutes() + " min", () ->
+                        new AlertDialog.Builder(this).setTitle(plan.name())
+                            .setMessage(plan.rounds() + " round(s) · " + plan.breakMinutes() + " min break")
+                            .setNegativeButton("Cancel", null)
+                            .setNeutralButton("Remove preset", (dialog, which) -> {
+                                focus.removePreset(index);
+                                render();
+                            })
+                            .setPositiveButton("Start", (dialog, which) -> beginFocus(plan, task.getText().toString())).show());
+                }
+            }
+            showFocusHistory();
             return;
         }
         if (!session.task().isEmpty()) text(panel, session.task(), 20, WHITE, true);
@@ -690,14 +1058,27 @@ public final class MainActivity extends Activity {
         focusProgress.setProgressTintList(ColorStateList.valueOf(MINT));
         focusProgress.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         panel.addView(focusProgress, new LinearLayout.LayoutParams(-1, dp(14)));
+        if (session.plan().rounds() > 1) {
+            text(panel, "Round " + session.round() + " of " + session.plan().rounds(), 14, MUTED, false);
+        }
         if (session.completed()) {
-            primary(panel, "Start another " + session.minutes() + " min session", () -> {
-                focus.start(session.minutes(), session.task());
-                render();
-                enter();
-            });
+            android.widget.CheckBox done = new android.widget.CheckBox(this);
+            done.setText("Mark task complete");
+            if (!session.task().isEmpty() && !session.breakPeriod()) panel.addView(done);
+            if (session.hasNext()) {
+                primary(panel, session.breakPeriod() || session.plan().breakMinutes() == 0 ? "Start next round" : "Start break", () -> {
+                    focus.next(session, done.isChecked());
+                    render();
+                    enter();
+                });
+            } else {
+                primary(panel, "Repeat session", () -> {
+                    focus.finish(done.isChecked());
+                    beginFocus(session.plan(), done.isChecked() ? "" : session.task());
+                });
+            }
             action(panel, "Done", () -> {
-                focus.finish();
+                focus.finish(done.isChecked());
                 render();
             });
         } else {
@@ -707,12 +1088,101 @@ public final class MainActivity extends Activity {
             });
             action(panel, "End session", () -> new AlertDialog.Builder(this).setTitle("End this focus session?")
                 .setNegativeButton("Keep session", null).setPositiveButton("End session", (dialog, which) -> {
-                    focus.finish();
+                    focus.finish(false);
                     render();
                 }).show());
         }
         focusCompleted = session.completed();
         updateFocus();
+    }
+
+    private EditText numberField(LinearLayout panel, String label, int value) {
+        text(panel, label, 14, MUTED, true);
+        EditText number = field(panel, label, InputType.TYPE_CLASS_NUMBER);
+        number.setContentDescription(label);
+        number.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(3)});
+        number.setText(Integer.toString(value));
+        return number;
+    }
+
+    private void focusPlan(EditText task, EditText duration) {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(18), dp(8), dp(18), dp(12));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(body);
+        EditText name = field(body, "Preset name (optional)", InputType.TYPE_CLASS_TEXT);
+        name.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(32)});
+        int initial = FocusTimer.parse(duration.getText().toString(), 1, FocusTimer.MAX_MINUTES);
+        EditText minutes = numberField(body, "Focus minutes", initial > 0 ? initial : 25);
+        EditText pause = numberField(body, "Break minutes", focus.plan().breakMinutes());
+        EditText rounds = numberField(body, "Rounds", Math.max(2, focus.plan().rounds()));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Work and break cycles").setView(scroll)
+            .setNegativeButton("Cancel", null).setPositiveButton("Start", null)
+            .setNeutralButton("Save preset", null).create();
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            if (startFocus(minutes, task, pause, rounds, name.getText().toString().trim())) dialog.dismiss();
+        });
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+            String title = name.getText().toString().trim();
+            if (title.isEmpty()) {
+                name.setError("Enter a preset name");
+                return;
+            }
+            FocusTimer.Plan plan = readPlan(minutes, pause, rounds, title);
+            if (plan == null) return;
+            focus.save(plan);
+            dialog.dismiss();
+            render();
+        });
+    }
+
+    private FocusTimer.Plan readPlan(EditText minutes, EditText pause, EditText rounds, String name) {
+        int duration = FocusTimer.parse(minutes.getText().toString(), 1, FocusTimer.MAX_MINUTES);
+        if (duration < 0) {
+            minutes.setError("Enter 1 to 720 minutes");
+            minutes.requestFocus();
+            return null;
+        }
+        int rest = pause == null ? 0 : FocusTimer.parse(pause.getText().toString(), 0, 120);
+        if (rest < 0) {
+            pause.setError("Enter 0 to 120 minutes");
+            return null;
+        }
+        int count = rounds == null ? 1 : FocusTimer.parse(rounds.getText().toString(), 1, 12);
+        if (count < 0) {
+            rounds.setError("Enter 1 to 12 rounds");
+            return null;
+        }
+        return new FocusTimer.Plan(name, duration, rest, count);
+    }
+
+    private boolean startFocus(EditText minutes, EditText task, EditText pause, EditText rounds, String name) {
+        FocusTimer.Plan plan = readPlan(minutes, pause, rounds, name);
+        if (plan == null) return false;
+        beginFocus(plan, task.getText().toString());
+        return true;
+    }
+
+    private void beginFocus(FocusTimer.Plan plan, String task) {
+        focus.start(plan, task.trim());
+        hideKeyboard();
+        render();
+        enter();
+    }
+
+    private void showFocusHistory() {
+        JSONArray sessions = focus.history();
+        if (sessions.length() == 0) return;
+        LinearLayout history = card("Recent focus sessions");
+        for (int i = 0; i < Math.min(sessions.length(), 10); i++) {
+            JSONObject session = sessions.optJSONObject(i);
+            if (session == null) continue;
+            String task = session.optString("task");
+            sessionLine(history, task.isEmpty() ? date(session.optLong("date")) : task
+                + (session.optBoolean("taskDone") ? " · Done" : ""), sessionDuration(session.optLong("duration")));
+        }
     }
 
     private void updateFocus() {
@@ -725,8 +1195,10 @@ public final class MainActivity extends Activity {
             return;
         }
         long remaining = (session.remaining() + 999) / 1000;
-        focusTime.setText(session.completed() ? session.minutes() + " min"
-            : String.format(Locale.getDefault(), "%02d:%02d", remaining / 60, remaining % 60));
+        String display = session.completed() ? session.minutes() + " min"
+            : remaining >= 3600 ? String.format(Locale.getDefault(), "%d:%02d:%02d", remaining / 3600, remaining / 60 % 60, remaining % 60)
+            : String.format(Locale.getDefault(), "%02d:%02d", remaining / 60, remaining % 60);
+        if (!display.contentEquals(focusTime.getText())) focusTime.setText(display);
         int progress = (int) ((session.duration() - session.remaining()) * 1000 / session.duration());
         focusProgress.setProgress(progress, ValueAnimator.areAnimatorsEnabled());
         if (!session.completed() && !session.paused()) ui.postDelayed(tickFocus, 500);
@@ -890,8 +1362,8 @@ public final class MainActivity extends Activity {
         rangeButton(ranges, "Last 7 Days", WEEK);
         rangeButton(ranges, "Last 24h", ROLLING);
         if (Rules.INDIVIDUAL.equals(rules.mode()) && range == TODAY) {
-            action(root, focus.current() == null ? "Start " + focus.minutes() + " min focus" : "Open focus session", () -> {
-                if (focus.current() == null) focus.start(focus.minutes(), "");
+            action(root, focus.current() == null ? "Start " + focus.plan().minutes() + " min focus" : "Open focus session", () -> {
+                if (focus.current() == null) focus.start(focus.plan(), "");
                 tab = FOCUS;
                 render();
                 enter();
@@ -908,6 +1380,7 @@ public final class MainActivity extends Activity {
         }
         if (!report.optBoolean("tracked")) {
             if (parent) primary(card("No activity report"), "Import child activity", () -> openFile("activity"));
+            if (Rules.INDIVIDUAL.equals(rules.mode())) shortFormCard(report);
             return;
         }
         long end = report.optLong("at");
@@ -922,11 +1395,13 @@ public final class MainActivity extends Activity {
             });
             showToday(report, zone, end);
         }
+        if (Rules.INDIVIDUAL.equals(rules.mode())) shortFormCard(report);
         if (!parent && !sample) {
             long refreshed = report.optLong("lastCollected");
             if (refreshed > 0) text(root, "Last collected " + date(refreshed), 13, MUTED, false);
             action(root, "Refresh activity", this::render);
             action(root, "How usage is measured", this::showCoverage);
+            if (Rules.INDIVIDUAL.equals(rules.mode())) action(root, "Export activity summary", this::exportSummary);
         }
     }
 
@@ -1374,6 +1849,23 @@ public final class MainActivity extends Activity {
         parent.addView(bar, layout);
     }
 
+    private void exportSummary() {
+        new AlertDialog.Builder(this).setTitle("Export activity summary")
+            .setMessage("Includes app names and recorded totals for Today and Last 24h, plus hourly totals for the last seven days. Private apps and individual session times are excluded.")
+            .setNegativeButton("Cancel", null).setPositiveButton("Choose file", (dialog, which) -> {
+                try {
+                    JSONObject report = ActivityReport.read(this, rules.prefs.getLong("enrolled", 0), false);
+                    pendingSummary = report.toString(2);
+                    startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
+                        .putExtra(Intent.EXTRA_TITLE, "digital-discipline-summary.json"), WRITE_SUMMARY);
+                } catch (Exception error) {
+                    pendingSummary = null;
+                    status("Could not export the summary.");
+                }
+            }).show();
+    }
+
     private void exportActivity() {
         if (busy) return;
         if (!unlocked || !Rules.showChildNotice(this)) {
@@ -1417,6 +1909,20 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == WRITE_SUMMARY) {
+            String summary = pendingSummary;
+            pendingSummary = null;
+            if (result == RESULT_OK && data != null && data.getData() != null && summary != null) {
+                try (OutputStream output = getContentResolver().openOutputStream(data.getData(), "wt")) {
+                    if (output == null) throw new java.io.IOException();
+                    output.write(summary.getBytes(StandardCharsets.UTF_8));
+                    status("Activity summary saved.");
+                } catch (java.io.IOException | SecurityException error) {
+                    status("Could not save the activity summary.");
+                }
+            }
+            return;
+        }
         String packet = pendingPacket;
         String readKind = pendingReadKind;
         if (request == WRITE_FILE) pendingPacket = null;

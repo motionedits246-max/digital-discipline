@@ -1,6 +1,6 @@
 # Digital Discipline for Android
 
-Version 0.6.0 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
+Version 0.7.0 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
 
 ## What to test
 
@@ -12,7 +12,15 @@ Version 0.6.0 is the next Individual test build for Android 10 and later. It use
 
 The release covers core measurement, privacy and timer work from R1. R2, R3 and Lab features are staged in the roadmap.
 
-The Focus and Settings notebook photographs are by Kelly Sikkema on Unsplash. See [Focus photo](https://unsplash.com/photos/blank-notebook-with-a-pen-on-a-dark-surface-XH0VCNKhEkM) and [Settings photo](https://unsplash.com/photos/an-open-notebook-and-pens-on-a-desk-hBdaqrr5Z3k).
+
+## New in 0.7.0
+
+- Enter 1–720 minutes in Focus. Work and break cycles support up to 12 rounds, named presets and an explicit start for each next round. Focus history is stored locally.
+- Tap the small mark near the top to open Workspace with Focus, To-do and Notes. In Individual Settings, enable the optional floating button after granting Android display-over-other-apps access and notifications. Hide it with the notification or Settings. Android may hide overlays on system or security-sensitive screens.
+- Share a YouTube Shorts or Instagram Reels permalink from its app and explicitly save it. Activity counts saved shares by period. Usage Access separately reports app foreground time and does not supply per-video watch events. Other URLs can be saved as study links.
+- Export a JSON activity summary through Android's file picker. Long-press the launcher icon for Today, Focus and Workspace. Add Focus from the system Quick Settings tile editor.
+
+Focus hourglass photograph by Aron Visuals on Unsplash.
 
 ## Build and sign
 

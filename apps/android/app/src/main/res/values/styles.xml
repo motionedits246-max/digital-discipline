@@ -1,4 +1,7 @@
 <resources>
+    <string name="shortcut_today">Today</string>
+    <string name="shortcut_focus">Focus</string>
+    <string name="shortcut_workspace">Workspace</string>
     <plurals name="app_opens">
         <item quantity="one">%d open</item>
         <item quantity="other">%d opens</item>
