@@ -45,6 +45,11 @@ public final class FloatingWorkspace extends Service {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable tick = this::refreshTimer;
     private TextView countdown;
+    private TextView shortCounts;
+    private SavedLinks links;
+    private ScrollView panelScroll;
+    private LinearLayout panelBody;
+    private int bodyLimit;
     private Button timerButton;
     private Button endButton;
     private Button silenceButton;
@@ -60,7 +65,7 @@ public final class FloatingWorkspace extends Service {
         }
         PendingIntent stop = PendingIntent.getService(this, 71, new Intent(this, FloatingWorkspace.class)
             .setAction(STOP), PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent open = PendingIntent.getActivity(this, 72, workspaceIntent(this), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent open = PendingIntent.getActivity(this, 72, appIntent(), PendingIntent.FLAG_IMMUTABLE);
         startForeground(71, new Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_discipline).setContentTitle("Digital Discipline workspace")
             .setContentText("Tap to open Focus, To-do and Notes")
@@ -78,8 +83,8 @@ public final class FloatingWorkspace extends Service {
         return START_NOT_STICKY;
     }
 
-    static Intent workspaceIntent(Context context) {
-        return new Intent(context, MainActivity.class).setAction(MainActivity.OPEN_WORKSPACE)
+    private Intent appIntent() {
+        return new Intent(this, MainActivity.class).setAction("com.digitaldiscipline.android.OPEN_TODAY")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
 
@@ -185,8 +190,7 @@ public final class FloatingWorkspace extends Service {
     private WindowManager.LayoutParams overlay(int width, int height) {
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(width, height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                | WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT);
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.LEFT;
         params.setTitle("Digital Discipline workspace overlay");
         return params;
@@ -195,20 +199,34 @@ public final class FloatingWorkspace extends Service {
     private void showPanel() {
         Rect safe = bounds();
         int width = Math.min(dp(350), safe.width() - dp(16));
-        int height = Math.min(dp(320), safe.height() - dp(62));
+        int height = Math.min(dp(393), safe.height() - dp(62));
         if (width < dp(180) || height < dp(120)) return;
-        panelPosition = overlay(width, height);
+        panelPosition = overlay(width, WindowManager.LayoutParams.WRAP_CONTENT);
+        bodyLimit = height;
         panelPosition.x = Math.max(dp(8), Math.min(pillPosition.x + (pillPosition.width - width) / 2,
             safe.width() - width - dp(8)));
         int below = pillPosition.y + pillPosition.height + dp(6);
-        panelPosition.y = below + height <= safe.height() ? below : Math.max(0, pillPosition.y - height - dp(6));
+        panelPosition.y = below;
         panel = new LinearLayout(displayContext);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12), dp(8), dp(12), dp(10));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xf52b213a, 0xf51a1525});
+        panel.setPadding(dp(12), dp(10), dp(12), dp(10));
+        panel.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (view != panel || !view.isAttachedToWindow()) return;
+            int room = bounds().height();
+            int measured = view.getHeight();
+            int y = below + measured <= room ? below : Math.max(0, pillPosition.y - measured - dp(6));
+            if (panelPosition.y != y) {
+                panelPosition.y = y;
+                view.post(() -> {
+                    if (view == panel && view.isAttachedToWindow()) windows.updateViewLayout(view, panelPosition);
+                });
+            }
+        });
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xff2b213a, 0xff191322});
         bg.setCornerRadius(dp(21));
-        bg.setStroke(dp(1), 0xff77638c);
+        bg.setStroke(dp(1), 0xff6b577f);
         panel.setBackground(bg);
+        links = new SavedLinks(this);
         populate();
         try { windows.addView(panel, panelPosition); }
         catch (WindowManager.BadTokenException | SecurityException error) { closePanel(); return; }
@@ -223,39 +241,96 @@ public final class FloatingWorkspace extends Service {
         ui.removeCallbacks(tick);
         countdown = null;
         panel.removeAllViews();
+        LinearLayout header = new LinearLayout(displayContext);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = label("Workspace", 18);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        Button close = control("×", this::closePanel);
+        close.setContentDescription("Close workspace");
+        header.addView(close, new LinearLayout.LayoutParams(dp(46), -2));
+        panel.addView(header);
         LinearLayout tabs = new LinearLayout(displayContext);
         panel.addView(tabs);
         String[] names = {"Focus", "To-do", "Notes"};
         for (int n = 0; n < names.length; n++) {
             int index = n;
             Button tab = control(names[n], () -> { page = index; finishEditing(); });
-            if (page == n) tab.setTextColor(0xffd7bdff);
-            tabs.addView(tab, new LinearLayout.LayoutParams(0, -2, 1));
+            if (page == n) accent(tab);
+            tab.setSelected(page == n);
+            LinearLayout.LayoutParams item = new LinearLayout.LayoutParams(0, -2, 1);
+            if (n < names.length - 1) item.setMarginEnd(dp(5));
+            tabs.addView(tab, item);
         }
-        Button close = control("×", this::closePanel);
-        close.setContentDescription("Close workspace");
-        tabs.addView(close, new LinearLayout.LayoutParams(dp(48), -2));
-        ScrollView scroll = new ScrollView(displayContext);
-        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout body = new LinearLayout(displayContext);
-        body.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(body);
+        panelScroll = new ScrollView(displayContext);
+        panelScroll.setFillViewport(false);
+        panel.addView(panelScroll, new LinearLayout.LayoutParams(-1, -2));
+        panelBody = new LinearLayout(displayContext);
+        panelBody.setOrientation(LinearLayout.VERTICAL);
+        panelScroll.addView(panelBody);
+        LinearLayout body = panelBody;
+        LinearLayout footer = new LinearLayout(displayContext);
+        Button open = control("Open full app", () -> {
+            closePanel();
+            startActivity(appIntent());
+        });
+        LinearLayout.LayoutParams openSize = new LinearLayout.LayoutParams(0, -2, 1);
+        openSize.setMarginEnd(dp(6));
+        footer.addView(open, openSize);
+        footer.addView(control("Hide pill", this::stopSelf), new LinearLayout.LayoutParams(0, -2, 1));
+        panel.addView(footer);
         if (page == 0) {
             timerPhase = -1;
-            countdown = label("", 27);
+            countdown = label("", 33);
+            countdown.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
             body.addView(countdown);
-            long today = ActivityReport.midnight(java.time.LocalDate.now(), java.time.ZoneId.systemDefault());
-            int[] counts = new SavedLinks(this).shortFormCounts(today, System.currentTimeMillis());
-            body.addView(label("Saved today  ·  " + counts[0] + " Shorts  ·  " + counts[1] + " Reels", 14));
+            shortCounts = label("", 13);
+            shortCounts.setTextColor(0xffd4c6e7);
+            refreshCounts();
+            body.addView(shortCounts);
+            LinearLayout quick = new LinearLayout(displayContext);
+            addQuickLog(quick, "+ Short", SavedLinks.SHORT);
+            addQuickLog(quick, "+ Reel", SavedLinks.REEL);
+            body.addView(quick);
             silenceButton = control("Stop sound", () -> { FocusAlarm.silence(this); refreshTimer(); });
             body.addView(silenceButton);
             timerButton = control("", this::toggleTimer);
+            accent(timerButton);
             body.addView(timerButton);
             endButton = control("End session", () -> { new FocusTimer(this).finish(false); refreshTimer(); });
             body.addView(endButton);
             refreshTimer();
         } else {
             showEntries(body, page == 1 ? WorkspaceStore.TASKS : WorkspaceStore.NOTES);
+        }
+        resizeBody();
+    }
+
+    private void addQuickLog(LinearLayout row, String title, String kind) {
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, -2, 1);
+        if (row.getChildCount() == 0) size.setMarginEnd(dp(6));
+        row.addView(control(title, () -> {
+            links.log(kind);
+            refreshCounts();
+        }), size);
+    }
+
+    private void refreshCounts() {
+        long today = ActivityReport.midnight(java.time.LocalDate.now(), java.time.ZoneId.systemDefault());
+        int[] counts = links.shortFormCounts(today, System.currentTimeMillis());
+        String value = "Today   ·   " + counts[0] + " Shorts   ·   " + counts[1] + " Reels";
+        if (!value.contentEquals(shortCounts.getText())) shortCounts.setText(value);
+    }
+
+    private void resizeBody() {
+        int width = panelPosition.width - dp(24);
+        int available = Math.max(dp(48), bodyLimit - dp(112));
+        panelBody.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = Math.min(available, panelBody.getMeasuredHeight());
+        if (panelScroll.getLayoutParams().height != height) {
+            panelScroll.getLayoutParams().height = height;
+            panelScroll.requestLayout();
         }
     }
 
@@ -290,7 +365,11 @@ public final class FloatingWorkspace extends Service {
             });
             endButton.setVisibility(phase == 1 || phase == 2 ? View.VISIBLE : View.GONE);
         }
-        silenceButton.setVisibility(FocusAlarm.ringing ? View.VISIBLE : View.GONE);
+        int soundVisibility = FocusAlarm.ringing ? View.VISIBLE : View.GONE;
+        if (silenceButton.getVisibility() != soundVisibility || previous != phase) {
+            silenceButton.setVisibility(soundVisibility);
+            resizeBody();
+        }
         if (phase == 3 && previous != phase) FocusAlarm.checkCompletion(this);
         ui.postDelayed(tick, 300);
     }
@@ -350,7 +429,9 @@ public final class FloatingWorkspace extends Service {
                 finishEditing();
             }));
             body.addView(control("Cancel", this::finishEditing));
+            resizeBody();
         }));
+        resizeBody();
     }
 
     private void finishEditing() {
@@ -381,8 +462,26 @@ public final class FloatingWorkspace extends Service {
         control.setMinWidth(0);
         control.setPadding(dp(4), 0, dp(4), 0);
         control.setTextColor(0xfff3ecff);
+        control.setTextSize(13);
+        control.setStateListAnimator(null);
+        control.setBackgroundTintList(null);
+        paintControl(control, 0xff352943, 0xff5e4a73, 0xfff3ecff);
         control.setOnClickListener(view -> action.run());
         return control;
+    }
+
+    private void accent(Button button) {
+        paintControl(button, 0xffd7bdff, 0xffd7bdff, 0xff231936);
+    }
+
+    private void paintControl(Button button, int fill, int border, int text) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(12));
+        drawable.setStroke(dp(1), border);
+        button.setTextColor(text);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x26ffffff), drawable, null));
     }
 
     private TextView label(String text, int size) {

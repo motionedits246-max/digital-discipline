@@ -10,6 +10,7 @@ import org.json.JSONObject;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,12 +90,20 @@ final class SavedLinks {
         }
     }
 
-    void save(Link link) {
+    void log(String kind) {
+        if (SHORT.equals(kind) || REEL.equals(kind)) append(kind, null);
+    }
+
+    void save(Link link) { append(link.kind(), link.url()); }
+
+    private void append(String kind, String url) {
         JSONArray previous = all();
         JSONArray next = new JSONArray();
         try {
-            next.put(new JSONObject().put("kind", link.kind()).put("url", link.url())
-                .put("at", System.currentTimeMillis()));
+            JSONObject entry = new JSONObject().put("kind", kind)
+                .put("at", System.currentTimeMillis()).put("id", UUID.randomUUID().toString());
+            if (url != null) entry.put("url", url);
+            next.put(entry);
             for (int i = 0; i < Math.min(999, previous.length()); i++) next.put(previous.get(i));
             prefs.edit().putString("links", next.toString()).apply();
         } catch (JSONException impossible) {

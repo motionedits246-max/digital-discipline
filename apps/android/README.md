@@ -1,6 +1,6 @@
 # Digital Discipline for Android
 
-Version 0.7.2 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
+Version 0.7.3 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
 
 ## What to test
 
@@ -12,6 +12,11 @@ Version 0.7.2 is the next Individual test build for Android 10 and later. It use
 
 The release covers core measurement, privacy and timer work from R1. R2, R3 and Lab features are staged in the roadmap.
 
+
+## New in 0.7.3
+
+- The floating workspace uses high-contrast tabs and actions, sizes to its contents and offers Open full app and Hide pill. Screenshots are available in the workspace and dashboard. The pairing-code dialog protects the secret separately.
+- Tap + Short or + Reel in the floating workspace to log a video without leaving the current app. Activity totals include manual logs and saved permalinks.
 
 ## New in 0.7.2
 

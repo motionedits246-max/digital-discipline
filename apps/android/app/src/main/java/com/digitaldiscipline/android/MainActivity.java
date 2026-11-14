@@ -104,7 +104,6 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         rules = new Rules(this);
         if (rules.prefs.contains("blocks") || rules.prefs.contains("sent_revision")
@@ -405,7 +404,6 @@ public final class MainActivity extends Activity {
         draw.run();
         WindowManager.LayoutParams params = workspaceDialog.getWindow().getAttributes();
         workspaceDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        workspaceDialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         params.y = dp(56);
         params.width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(26), dp(460));
@@ -538,7 +536,6 @@ public final class MainActivity extends Activity {
                 }).show());
         AlertDialog edit = editor.create();
         edit.show();
-        edit.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         edit.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             String value = title.getText().toString().trim();
             if (value.isEmpty()) {
@@ -700,9 +697,11 @@ public final class MainActivity extends Activity {
             java.time.ZoneId.systemDefault());
         int[] counts = links.shortFormCounts(from, end);
         LinearLayout panel = card("Shorts and Reels");
-        sessionLine(panel, "YouTube Shorts saved", Integer.toString(counts[0]));
-        sessionLine(panel, "Instagram Reels saved", Integer.toString(counts[1]));
-        text(panel, "Use Share in YouTube or Instagram and choose Digital Discipline to count a video here.", 14, MUTED, false);
+        sessionLine(panel, "YouTube Shorts logged", Integer.toString(counts[0]));
+        sessionLine(panel, "Instagram Reels logged", Integer.toString(counts[1]));
+        text(panel, "Manually logged videos and saved links. Open the floating workspace to log a video while watching.", 14, MUTED, false);
+        action(panel, "Log a Short", () -> { links.log(SavedLinks.SHORT); render(); });
+        action(panel, "Log a Reel", () -> { links.log(SavedLinks.REEL); render(); });
         action(panel, "Paste a link", this::pasteLink);
         action(panel, "Saved links", this::showSavedLinks);
     }
@@ -726,10 +725,12 @@ public final class MainActivity extends Activity {
         scroll.addView(list);
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Saved links").setView(scroll)
             .setPositiveButton("Done", null).create();
-        if (entries.length() == 0) text(list, "Share a link to Digital Discipline to save it here.", 15, MUTED, false);
-        for (int i = 0; i < Math.min(entries.length(), 100); i++) {
+
+        for (int i = 0, shown = 0; i < entries.length() && shown < 100; i++) {
             JSONObject entry = entries.optJSONObject(i);
             if (entry == null) continue;
+            if (!entry.has("url")) continue;
+            shown++;
             String url = entry.optString("url");
             action(list, entry.optString("kind") + " · " + date(entry.optLong("at")), () -> {
                 dialog.dismiss();
@@ -746,8 +747,8 @@ public final class MainActivity extends Activity {
                     }).show();
             });
         }
+        if (list.getChildCount() == 0) text(list, "Share a link to Digital Discipline to save it here.", 15, MUTED, false);
         dialog.show();
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
     }
 
     private void dashboardHeader(String description) {
