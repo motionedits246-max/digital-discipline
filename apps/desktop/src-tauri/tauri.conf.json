@@ -34,15 +34,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
-    ],
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
     ],
     "resources": {
-      "../../../target/release/digital-discipline-agent.exe": "bin/digital-discipline-agent.exe",
       "../../../extension/blocked.html": "browser-extension/blocked.html",
       "../../../extension/blocked.js": "browser-extension/blocked.js",
       "../../../extension/icons/icon128.png": "browser-extension/icons/icon128.png",

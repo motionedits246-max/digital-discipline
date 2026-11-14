@@ -1,7 +1,7 @@
 [package]
 name = "digital-discipline-desktop"
 version = "0.5.3"
-description = "Windows-first private productivity overlay"
+description = "Local-first activity tracking and distraction control"
 authors = ["Digital Discipline contributors"]
 edition = "2021"
 
@@ -17,6 +17,8 @@ serde_json = "1"
 [features]
 default = []
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus"] }

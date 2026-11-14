@@ -1,0 +1,26 @@
+{
+  "bundle": {
+    "targets": [
+      "deb"
+    ],
+    "resources": {
+      "../../../target/release/digital-discipline-agent": "bin/digital-discipline-agent",
+      "assets/notification.wav": "notification.wav"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "coreutils",
+          "libayatana-appindicator3-1",
+          "libsecret-tools",
+          "pulseaudio-utils",
+          "x11-utils",
+          "xdotool",
+          "xdg-utils",
+          "xdg-user-dirs",
+          "xprintidle"
+        ]
+      }
+    }
+  }
+}

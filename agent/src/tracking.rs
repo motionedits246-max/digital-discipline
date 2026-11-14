@@ -60,8 +60,17 @@ pub fn record_event(db:&Connection,ext:Option<&str>,profile:Option<&str>,browser
   WHERE extension_id=?1 AND profile_id=?2",params![ext,profile,now_ms(),qualified as u8,occurred,ack as u8,browser.is_some() as u8,domain,focused as u8])?;
  Ok(())
 }
+pub fn browser_for_app(app: &str) -> Option<&'static str> {
+    match app.to_ascii_lowercase().as_str() {
+        "brave.exe" | "brave" | "brave-browser" => Some("brave"),
+        "chrome.exe" | "chrome" | "chromium" | "chromium-browser" => Some("chrome"),
+        "msedge.exe" | "msedge" | "microsoft-edge" => Some("edge"),
+        _ => None,
+    }
+}
+
 pub fn foreground(db:&Connection,app:&str,at:i64)->rusqlite::Result<Option<(Option<String>,String)>>{
- let browser=match app.to_ascii_lowercase().as_str(){"brave.exe"=>"brave","chrome.exe"=>"chrome","msedge.exe"=>"edge",_=>return Ok(None)};
+ let browser=match browser_for_app(app){Some(browser)=>browser,None=>return Ok(None)};
  let mut q=db.prepare("SELECT domain,profile_id FROM browser_instances WHERE browser=?1 AND revoked=0 AND focused=1 AND (recording IS NULL OR recording=1) AND last_activity_ms>=?2 AND last_activity_ms<=?3 LIMIT 2")?;
  let rows=q.query_map(params![browser,at-30000,at+5000],|r|Ok((r.get::<_,Option<String>>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
  Ok(if rows.len()==1{rows.into_iter().next()}else{None})

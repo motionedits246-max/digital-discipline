@@ -1,7 +1,12 @@
 //! Per-session desktop ownership and a bounded supervisor for our authenticated agent.
-use std::{ffi::c_void,fs,path::PathBuf,sync::{Arc,Mutex,atomic::{AtomicBool,Ordering}},thread,time::{Duration,Instant},net::{TcpStream,SocketAddr},os::windows::process::CommandExt,process::Command};
+use std::{fs,path::PathBuf,sync::{Arc,Mutex,atomic::{AtomicBool,Ordering}},thread,time::{Duration,Instant},net::{TcpStream,SocketAddr},process::Command};
 use serde_json::{json,Value};
-use tauri::{Manager,Emitter};
+use tauri::Emitter;
+#[cfg(windows)]
+use tauri::Manager;
+#[cfg(windows)]
+use std::{ffi::c_void, os::windows::process::CommandExt};
+#[cfg(windows)]
 #[link(name="kernel32")] extern "system"{
  fn CreateMutexW(attributes:*const c_void,owner:i32,name:*const u16)->*mut c_void;
  fn CreateEventW(attributes:*const c_void,manual:i32,initial:i32,name:*const u16)->*mut c_void;
@@ -9,8 +14,11 @@ use tauri::{Manager,Emitter};
  fn WaitForSingleObject(handle:*mut c_void,milliseconds:u32)->u32;
  fn CloseHandle(handle:*mut c_void)->i32;
 }
+#[cfg(windows)]
 fn wide(s:&str)->Vec<u16>{s.encode_utf16().chain(Some(0)).collect()}
+#[cfg(windows)]
 pub struct SingleInstance{lock:isize,event:isize}
+#[cfg(windows)]
 impl SingleInstance{
  pub fn acquire()->Result<Option<Self>,String>{unsafe{
   let mutex=CreateMutexW(std::ptr::null(),0,wide("Local\\DigitalDiscipline.Desktop.v1").as_ptr());
@@ -23,6 +31,7 @@ impl SingleInstance{
  }}
  pub fn event(&self)->isize{self.event}
 }
+#[cfg(windows)]
 impl Drop for SingleInstance{fn drop(&mut self){unsafe{CloseHandle(self.event as *mut c_void);CloseHandle(self.lock as *mut c_void);}}}
 #[derive(Clone)]pub struct Supervisor{pub privacy_mask:Arc<AtomicBool>,wanted:Arc<AtomicBool>,state:Arc<Mutex<Value>>}
 impl Supervisor{
@@ -40,20 +49,35 @@ fn health(client:&reqwest::blocking::Client,token:&str)->Option<Value>{
  // The older agent had no application/version fields, but required the same local token.
  (value["ok"]==true&&value["schema_version"]=="1.0").then_some(value)
 }
-pub fn start(app:&tauri::AppHandle,supervisor:&Supervisor,event:isize){
+pub fn start(
+ app:&tauri::AppHandle,supervisor:&Supervisor,
+ #[cfg(windows)] event:isize,
+ #[cfg(target_os = "linux")] listener: std::os::unix::net::UnixListener,
+){
+ #[cfg(windows)]
+ let exe=app.path().resource_dir().ok().map(|d|d.join("bin/digital-discipline-agent.exe"));
+ #[cfg(target_os = "linux")]
+ let exe=crate::linux_desktop::agent_binary(app).ok();
  let activation=app.clone();let active=supervisor.clone();
  thread::spawn(move||while active.wanted.load(Ordering::SeqCst){
-  if unsafe{WaitForSingleObject(event as *mut c_void,500)}==0{
+  #[cfg(windows)]
+  let activate=unsafe{WaitForSingleObject(event as *mut c_void,500)}==0;
+  #[cfg(target_os = "linux")]
+  let activate=listener.accept().is_ok();
+  if activate {
    if crate::show_main_window(&activation).is_ok(){let _=activation.emit_to("main","dd:open-dashboard",());}
   }
+  #[cfg(target_os = "linux")]
+  thread::sleep(Duration::from_millis(200));
  });
- let exe=app.path().resource_dir().ok().map(|d|d.join("bin/digital-discipline-agent.exe"));
  let monitor=supervisor.clone();
  thread::spawn(move||{
   let Some(exe)=exe.filter(|p|p.is_file()) else{monitor.update("bundled_agent_missing",0);return;};
   let Ok(client)=reqwest::blocking::Client::builder().timeout(Duration::from_secs(2)).redirect(reqwest::redirect::Policy::none()).build() else{return;};
   let mut launches=std::collections::VecDeque::<Instant>::new();let mut count=0u32;let mut failures=0u32;let mut next=Instant::now();
+  let mut child: Option<std::process::Child> = None;
   while monitor.wanted.load(Ordering::SeqCst){
+   if child.as_mut().is_some_and(|process| process.try_wait().ok().flatten().is_some()) { child = None; }
    let token=crate::token_path().ok().and_then(|p|fs::read_to_string(p).ok()).unwrap_or_default();
    match health(&client,token.trim()){
     Some(info) if info["version"]==env!("CARGO_PKG_VERSION")=>{monitor.update("healthy",count);{let mut status=monitor.state.lock().unwrap();status["tracking_paused"]=info["tracking_paused"].clone();status["private_session"]=info["private_session"].clone();}failures=0;},
@@ -69,11 +93,16 @@ pub fn start(app:&tauri::AppHandle,supervisor:&Supervisor,event:isize){
    if monitor.wanted.load(Ordering::SeqCst)&&!occupied()&&now>=next{
     if launches.len()>=5{monitor.update("restart_limit_reached",count);}else{
      launches.push_back(now);failures=failures.saturating_add(1);next=now+Duration::from_secs((5u64<<failures.min(4)).min(60));
-     match launch(&exe){Ok(())=>{count+=1;monitor.update("starting",count);},Err(_)=>monitor.update("agent_launch_failed",count)}
+     match launch(&exe){Ok(process)=>{child=Some(process);count+=1;monitor.update("starting",count);},Err(_)=>monitor.update("agent_launch_failed",count)}
     }
    }
    for _ in 0..10{if !monitor.wanted.load(Ordering::SeqCst){break;}thread::sleep(Duration::from_millis(500));}
   }
  });
 }
-fn launch(exe:&PathBuf)->std::io::Result<()>{Command::new(exe).creation_flags(0x08000000).spawn().map(|_|())}
+fn launch(exe:&PathBuf)->std::io::Result<std::process::Child>{
+ let mut command=Command::new(exe);
+ #[cfg(windows)]
+ command.creation_flags(0x08000000);
+ command.spawn()
+}

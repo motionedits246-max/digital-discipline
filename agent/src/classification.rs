@@ -15,20 +15,20 @@ const MAX_BATCH:usize=10;
 
 
 fn vault_root()->Result<PathBuf,String>{
- let dir=std::env::var_os("LOCALAPPDATA").ok_or("local_app_data_unavailable")?;
- Ok(PathBuf::from(dir).join("DigitalDiscipline"))
+ crate::data_dir().map_err(|_|"local_app_data_unavailable".into())
 }
 fn key_path(root:&Path,revision:&str)->Result<PathBuf,&'static str>{
- if revision.is_empty(){return Ok(root.join("classification-key.dpapi"));}
+ if revision.is_empty(){return Ok(root.join(format!("classification-key.{}",crate::credentials::vault_extension())));}
  if uuid::Uuid::parse_str(revision).is_err(){return Err("invalid_vault_version");}
- Ok(root.join(format!("classification-key-{revision}.dpapi")))
+ Ok(root.join(format!("classification-key-{revision}.{}",crate::credentials::vault_extension())))
 }
 fn managed_key_paths(root:&Path)->std::io::Result<Vec<PathBuf>>{
  if !root.exists(){return Ok(Vec::new());}
  let mut paths=Vec::new();
  for entry in fs::read_dir(root)?{
   let entry=entry?;let name=entry.file_name();let name=name.to_string_lossy();
-  let managed=name=="classification-key.dpapi"||name.strip_prefix("classification-key-").and_then(|n|n.strip_suffix(".dpapi")).is_some_and(|v|uuid::Uuid::parse_str(v).is_ok());
+  let suffix=format!(".{}",crate::credentials::vault_extension());
+  let managed=name==format!("classification-key{suffix}")||name.strip_prefix("classification-key-").and_then(|n|n.strip_suffix(&suffix)).is_some_and(|v|uuid::Uuid::parse_str(v).is_ok());
   if managed{paths.push(entry.path());}
  }
  Ok(paths)
@@ -109,7 +109,7 @@ pub(super) async fn configure(State(s):State<Arc<AppState>>,Json(mut req):Json<C
   let db=s.db.lock().unwrap();
   let cleanup_pending=save_encrypted_config(&db,&root,&req.provider,&req.model,req.enabled,&cipher)
     .map_err(|code|err(StatusCode::INTERNAL_SERVER_ERROR,code))?;
-  Ok(Json(json!({"ok":true,"enabled":req.enabled,"saved":true,"old_key_cleanup_pending":cleanup_pending,"batch_size":MAX_BATCH,"storage":"Windows DPAPI current-user"})))
+  Ok(Json(json!({"ok":true,"enabled":req.enabled,"saved":true,"old_key_cleanup_pending":cleanup_pending,"batch_size":MAX_BATCH,"storage":crate::credentials::storage_name()})))
  })();
  req.api_key.zeroize();result
 }

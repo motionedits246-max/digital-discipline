@@ -6,7 +6,7 @@ async function refresh({preferences=true}={}) {
  const r=await chrome.runtime.sendMessage({op:'getStatus'});
  if(!r||r.ok===false){$('connection').textContent='Local queue status unavailable';$('status').textContent='Could not read extension storage. Reload the extension and check available disk space.';return;}
  const linked=r.connected===true;
- $('connection').textContent=linked?'Connected to local Windows agent':'Not connected to Windows agent';
+ $('connection').textContent=linked?'Connected to local agent':'Not connected to the local agent';
  $('led').className='led '+(linked?'ok':'fail');
  const error=String(r.lastConnectionError||'');
  $('errorDetail').hidden=linked||!error;

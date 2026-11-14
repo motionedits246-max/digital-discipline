@@ -68,7 +68,7 @@ export function AutomationsPanel({readonly,rules,onUpdate}:{readonly:boolean;rul
  {trigger==='plays'&&<label className="check-line"><input type="checkbox" checked={replays} onChange={e=>setReplays(e.target.checked)}/> Count replay instances (otherwise unique video IDs)</label>}
  <div className="form-grid"><label>Exclude domains from usage accounting<textarea rows={2} value={excludeDomains} onChange={e=>setExcludeDomains(e.target.value)} placeholder="bank.example.com"/></label><label>Exclude apps from usage accounting<textarea rows={2} value={excludeApps} onChange={e=>setExcludeApps(e.target.value)} placeholder="private.exe"/></label></div>
  <div className="form-grid"><label>Scheduled start (optional)<TimePicker value={start} onChange={e=>setStart(e.target.value)}/></label><label>Scheduled end (optional)<TimePicker value={end} onChange={e=>setEnd(e.target.value)}/></label></div><label>Days for schedule</label><div className="day-buttons">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d,i)=><button key={d} type="button" className={days.includes(i+1)?'day-on':''} aria-pressed={days.includes(i+1)} onClick={()=>setDays(xs=>xs.includes(i+1)?xs.filter(x=>x!==i+1):[...xs,i+1])}>{d}</button>)}</div>
- <p className="form-hint">Schedules use your Windows local clock (including overnight ranges). Thresholds reset at local midnight. Protection requires the companion extension. Blocks use short, renewed leases to prevent stale lockouts after a crash.</p><div className="device-actions"><button type="button" className="secondary-btn" disabled={readonly||busy||Boolean(start)!==Boolean(end)} onClick={()=>void previewRule()}>Preview without saving</button><button className="primary-btn" disabled={readonly||busy||Boolean(start)!==Boolean(end)}>Save automation</button></div></form></Card>
+ <p className="form-hint">Schedules use your local clock (including overnight ranges). Thresholds reset at local midnight. Protection requires the companion extension. Blocks use short, renewed leases to prevent stale lockouts after a crash.</p><div className="device-actions"><button type="button" className="secondary-btn" disabled={readonly||busy||Boolean(start)!==Boolean(end)} onClick={()=>void previewRule()}>Preview without saving</button><button className="primary-btn" disabled={readonly||busy||Boolean(start)!==Boolean(end)}>Save automation</button></div></form></Card>
  <Card title="Policy preview and current state"><h4>Target: {domain}{path}</h4>{preview&&<div className="preview-brief"><strong>{preview.would_activate_now?'Would activate now':'Would remain armed'}</strong><p>{preview.schedule_active?'Inside scheduled window':'Outside scheduled window'}</p><p>Observed eligible time today: {preview.observed_eligible_minutes_today.toFixed(1)}m · qualifying plays: {preview.qualified_plays_today} · rolling streak: {preview.rolling_streak}</p><small>{preview.signal}</small></div>}<Feedback text={previewError}/><p className="muted-paragraph">An automation evaluates local observed time and videos. Browser navigation isn't closed in advance, and manual emergency recovery remains possible.</p><div className="advanced-list">{rules.map(r=><div key={r.id} className="settings-row"><div><strong>{r.name}</strong><small>{r.domain}{r.path_prefix} · {r.config?.action||'block'}{r.config?.qualified_plays?` · ${r.config.qualified_plays} plays`:''}</small></div><span className={`tag ${r.enforced?'tag-on':''}`}>{!r.enabled?'Disabled':r.enforced?'Triggered':'Armed'}</span></div>)}</div><div className="small-divider"/><div className="panel-header"><h4>Trigger / clear audit history</h4><button className="secondary-btn" type="button" onClick={refreshAudit}>Refresh trace</button></div><div className="advanced-list">{(audit?.events||[]).slice(0,25).map((ev,i)=><div key={i} className="settings-row"><span>{ev.detail?.rule_name||'Rule'} · {ev.detail?.triggered?'Activated':'Cleared'}</span><small>{new Date(ev.occurred_ms).toLocaleString()}</small></div>)}</div></Card></div><Feedback text={message}/></div>;
 }
 
@@ -135,7 +135,7 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
   <form onSubmit={e=>void save(e)} className="rule-form">
    <div className="form-grid"><label>AI provider<CustomSelect value={provider} onChange={e=>{const p=e.target.value;setProvider(p);setModel(models[p]);}}>{Object.keys(models).map(p=><option key={p} value={p}>{p}</option>)}</CustomSelect></label>
    <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required maxLength={100}/></label></div>
-   <label>Classifier API key<input type="password" autoComplete="off" spellCheck={false} placeholder={data?.key_saved?'Enter a new key to replace the saved classifier key':'Enter key to encrypt on this Windows user'} value={key} minLength={8} maxLength={512} onChange={e=>setKey(e.target.value)} required/></label>
+   <label>Classifier API key<input type="password" autoComplete="off" spellCheck={false} placeholder={data?.key_saved?'Enter a new key to replace the saved classifier key':'Enter a key to encrypt for this account'} value={key} minLength={8} maxLength={512} onChange={e=>setKey(e.target.value)} required/></label>
    <label className="check-line"><input type="checkbox" checked={authorized} onChange={e=>setAuthorized(e.target.checked)}/> Enable automatic external AI classification of observed public site names and app basenames</label>
    <p className="form-hint">AI requests may incur charges from your chosen provider. Each unresolved service also requires your approval before its first request. Results are validated and cannot control blocking rules. Uncertain names receive one automatic second review; names that remain unknown stay clearly labeled. Saved decisions are reused locally before any AI request.</p>
    <div className="coach-vault-actions"><button className="primary-btn" disabled={readonly||busy||!authorized||key.length<8}>Save encrypted key &amp; enable</button>
@@ -200,7 +200,7 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
    try{
      await agent('POST','/coach/credentials',{provider,api_key:key});
      setSavedProviders(previous=>[...new Set([...previous,provider])]);setKey('');setCredentialMode('saved');
-     setStatus('Key encrypted for the current Windows account. Saved-key mode is now active.');
+     setStatus('Key encrypted for the current desktop account. Saved-key mode is now active.');
    }catch(e){setStatus('Could not save key: '+String(e));}
    finally{setSaving(false);}
  }
@@ -229,7 +229,7 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
    }catch(e){
      const error=String(e);
      setMessages(previous=>[...previous,{role:'assistant',content:'The request failed. '+error,error:true}]);
-     if(error.includes('saved_key_missing_or_unavailable'))setStatus('Saved key could not be read. Check that the encrypted key belongs to this Windows user or save it again.');
+     if(error.includes('saved_key_missing_or_unavailable'))setStatus('Saved key could not be read. Check that the encrypted key belongs to this desktop account or save it again.');
    }finally{setBusy(false);}
  }
  function submit(e:FormEvent){e.preventDefault();void sendMessage(question);}
@@ -286,7 +286,7 @@ export function CoachPanel({readonly}:{readonly:boolean}) {
        {!useSaved&&<button className="secondary-btn" type="button" disabled={readonly||saving||key.length<8} onClick={()=>void saveKey()}>Save encrypted</button>}
        {hasSaved&&<button className="danger-btn" type="button" disabled={readonly||saving} onClick={()=>void deleteKey()}>Delete key</button>}
       </div>
-      <p className="form-hint">Encrypted by Windows DPAPI for this user. Never shown again or saved to browser storage. An RDP machine with a temporary profile may lose the encrypted key.</p>
+      <p className="form-hint">Saved keys use your desktop credential vault and stay out of browser storage.</p>
      </div>}
      <div className="coach-data-status"><span className="health-dot on"/> {provider==='ollama'?'Local model selected':useSaved?'Encrypted saved key selected':provider==='ollama'||key.length>=8?'One-time key ready':'Enter your API key to chat'}</div>
      <details className="coach-privacy-details"><summary>What is shared with AI?</summary><p>Today's aggregate activity totals and the message history shown in this chat. No individual browsing URLs, video IDs or window titles are sent by the coach.</p>{shared&&<pre className="json-preview">{shared}</pre>}</details>
@@ -376,7 +376,7 @@ export function StartupPanel(){
  const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);
  useEffect(()=>{if(isTauri)void autostartStatus().then(setEnabled).catch(e=>setMessage(String(e)));},[]);
  async function change(){setBusy(true);try{const next=!enabled;setMessage(await setAutostart(next));setEnabled(next);}catch(e){setMessage(String(e));}finally{setBusy(false);}}
- return <Card title="Independent agent · Windows sign-in"><p className="muted-paragraph">The native collector runs independently of the overlay. By default it is started when you open Digital Discipline. You can explicitly enable background startup when signing into Windows; no administrator permission required.</p><button className="secondary-btn" disabled={!isTauri||enabled===null||busy} onClick={()=>void change()}>{enabled?'Disable agent startup':'Enable agent startup'}</button><Feedback text={message}/></Card>;
+ return <Card title="Independent agent · Desktop sign-in"><p className="muted-paragraph">The native collector runs independently of the overlay. By default it is started when you open Digital Discipline. You can explicitly enable background startup at desktop sign-in without administrator permission.</p><button className="secondary-btn" disabled={!isTauri||enabled===null||busy} onClick={()=>void change()}>{enabled?'Disable agent startup':'Enable agent startup'}</button><Feedback text={message}/></Card>;
 }
 
 export function DevicesPanel({readonly}:{readonly:boolean}){

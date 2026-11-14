@@ -49,7 +49,7 @@ export function NetworkPrivacyStatus({readonly}:{readonly:boolean}){
    <small>{verified?(status.coachConsent?'Aggregate sharing preference enabled. Each chat request is initiated by you.':'Aggregate sharing preference disabled.'):
     'Current Coach consent and key status cannot be verified.'}</small>
    <small>{verified?(status.savedCoachProviders.length?'Encrypted Coach keys: '+status.savedCoachProviders.join(', '):'No encrypted Coach key files saved.'):''}</small>
-   <small>Coach sharing is separate from automatic classification. One-time keys are used for one request; saved keys are protected for the current Windows user and are never displayed here.</small>
+   <small>Coach sharing is separate from automatic classification. One-time keys are used for one request; saved keys are protected for the current desktop user and are never displayed here.</small>
   </div><span className="tag">{!verified?'Unknown':status.coachConsent?'Sharing allowed':'Sharing off'}</span></div>
   {status&&<small className="muted">Last verified locally: {new Date(status.verifiedAt).toLocaleTimeString()}</small>}
  </div>;

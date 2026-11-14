@@ -1,5 +1,7 @@
 import type {Snapshot} from './types';
 export const isTauri = !!(window as Window & {__TAURI_INTERNALS__?:unknown}).__TAURI_INTERNALS__;
+export const isLinuxDesktop = isTauri && /Linux/i.test(navigator.userAgent);
+export async function openLinuxDownloads():Promise<void>{return invoke("open_linux_downloads",{});}
 async function invoke<T>(name:string,args:Record<string,unknown>):Promise<T> {
   const {invoke} = await import('@tauri-apps/api/core');
   return invoke<T>(name,args);
@@ -39,7 +41,7 @@ export async function autostartStatus():Promise<boolean>{
   return invoke<boolean>('autostart_status',{});
 }
 export async function setAutostart(enabled:boolean):Promise<string>{
-  if(!isTauri)throw new Error('Requires Windows desktop app');
+  if(!isTauri)throw new Error('Requires the desktop app');
   return invoke<string>('set_autostart',{enabled});
 }
 

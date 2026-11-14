@@ -44,9 +44,17 @@ pub async fn export(State(s):State<Arc<AppState>>)->ApiResult {
         .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     let truncated=records.len()>MAX_RECORDS;
     Ok(Json(json!({"ok":true,"schema":"dd-device-export-v1","source_device_id":dev,
-        "source_device_name":std::env::var("COMPUTERNAME").unwrap_or_else(|_|"Windows device".into()).chars().take(60).collect::<String>(),
+        "source_device_name":device_name(),
         "created_ms":now_ms(),"truncated":truncated,"records":records.into_iter().take(MAX_RECORDS).collect::<Vec<_>>(),
         "notice":"Only local sessions. At most 1000 recent records, never an archival backup."})))
+}
+
+fn device_name() -> String {
+    #[cfg(target_os = "linux")]
+    let name = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_else(|_| "Linux device".into());
+    #[cfg(not(target_os = "linux"))]
+    let name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows device".into());
+    name.trim().chars().filter(|c| !c.is_control()).take(60).collect()
 }
 
 fn valid_name(s:&str)->bool{!s.is_empty()&&s.len()<=80&&!s.chars().any(char::is_control)}

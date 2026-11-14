@@ -59,6 +59,7 @@ fn install(root:&Path,new:bool,fail_after:Option<usize>)->Result<(),String>{
 fn roots(db:&rusqlite::Connection)->Vec<PathBuf>{
  let mut result=vec![crate::data_dir().unwrap_or_default().join("browser-extension")];
  // Earlier installers loaded directly from the desktop resources. Preserve that exact location.
+ #[cfg(windows)]
  if let Ok(exe)=std::env::current_exe(){if exe.parent().and_then(Path::file_name).is_some_and(|n|n=="bin"){if let Some(parent)=exe.parent().and_then(Path::parent){let old=parent.join("browser-extension");if recognized(&old){result.push(old);}}}}
  let custom:Vec<String>=serde_json::from_str(&features::read_setting(db,"companion_update_folders")).unwrap_or_default();
  result.extend(custom.into_iter().map(PathBuf::from));result.sort();result.dedup();result

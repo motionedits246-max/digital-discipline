@@ -332,7 +332,7 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
         let cat=correction.clone().unwrap_or_else(||resolved_category(&map,app,domain.as_deref()));
         let delta=(b-a).max(0);
         *categories.entry(cat).or_default()+=delta;
-        if ["brave.exe","chrome.exe","msedge.exe"].contains(&app.as_str()) {
+        if crate::tracking::browser_for_app(&app).is_some() {
             let label=match profile_id {Some(id)=>format!("{} · profile {}",app,&id[..8.min(id.len())]),None=>format!("{} · unattributed",app)};
             *browser.entry(label).or_default()+=delta;
         }

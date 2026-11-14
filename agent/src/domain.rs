@@ -91,6 +91,7 @@ pub fn category(app: &str, domain: Option<&str>) -> &'static str {
     let a = app.to_ascii_lowercase();
     let d = domain.unwrap_or("");
     if ["code.exe", "cursor.exe", "antigravity.exe", "idea64.exe", "pycharm64.exe", "clion64.exe", "devenv.exe", "sublime_text.exe", "nvim.exe", "webstorm64.exe"].contains(&a.as_str()) { "Development" }
+    else if cfg!(target_os = "linux") && ["code", "code-insiders", "cursor", "antigravity", "idea", "pycharm", "clion", "sublime_text", "nvim", "webstorm"].contains(&a.as_str()) { "Development" }
     else if ["github.com", "gitlab.com", "stackoverflow.com", "docs.rs"].contains(&d) { "Development" }
     else if ["youtube.com", "www.youtube.com", "instagram.com", "www.instagram.com"].contains(&d) { "Entertainment" }
     else if ["explorer.exe", "taskmgr.exe", "digital-discipline.exe"].contains(&a.as_str()) { "Utility" }

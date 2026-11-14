@@ -47,7 +47,7 @@ export function SettingsWorkspace({
       {section === 'general' && <>
         <section className="surface padded settings-card">
           <h3>App preferences</h3>
-          <div className="settings-row"><div><strong>Windows foreground tracking</strong><small>Record time by application name.</small></div>
+          <div className="settings-row"><div><strong>Foreground app tracking</strong><small>Record time by application name.</small></div>
             <button type="button" disabled={readonly} className={'toggle' + (paused ? '' : ' active')}
               aria-label="Toggle tracking" aria-pressed={!paused} onClick={onPause}><span/></button></div>
           <div className="settings-row"><div><strong>Lite Mode</strong><small>Reduce animations and background refreshes.</small></div>

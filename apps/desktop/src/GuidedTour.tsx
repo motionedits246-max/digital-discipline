@@ -11,7 +11,7 @@ const steps:Step[]=[
  {title:'Blocking Center',body:'Apply reversible browser restrictions. Emergency unblock remains accessible in the companion.',page:'Blocking Center',selector:'[data-tour="blocking"]'},
  {title:'Automations',body:'Create optional limits and scheduled rules. Rules only activate when enabled.',page:'Automations',selector:'[data-tour="automations"]'},
  {title:'Insights',body:'Review measured patterns and the uncertainty in any prediction or hypothetical time recovery.',page:'Behavior Insights',selector:'[data-tour="insights"]'},
- {title:'AI Coach',body:'Ask questions in a chat. External requests require your consent; keys can be protected locally by Windows DPAPI.',page:'AI Coach',selector:'[data-tour="coach"]'},
+ {title:'AI Coach',body:'Ask questions in a chat. External requests require your consent; keys can be protected locally using your desktop credential vault.',page:'AI Coach',selector:'[data-tour="coach"]'},
  {title:'Settings and privacy',body:'Manage recorded data, browser connections, encrypted classifier settings, and exporting or deleting your history.',page:'Settings & Privacy',selector:'[data-tour="settings"]'},
  {title:'Navigate from anywhere',body:'Use Ctrl+K to find any page, and Ctrl+Shift+D to open the workspace. The tray menu can reopen or fully quit the app.',page:'Overview',selector:'[data-tour="command"]'}
 ];

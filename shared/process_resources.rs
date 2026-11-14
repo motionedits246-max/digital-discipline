@@ -54,7 +54,32 @@ fn process_times_and_memory() -> Option<(u64, u64)> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn process_times_and_memory() -> Option<(u64, u64)> {
+    use std::{fs, process::Command, sync::OnceLock};
+
+    static CLOCK_TICKS: OnceLock<Option<u64>> = OnceLock::new();
+    let hz = (*CLOCK_TICKS.get_or_init(|| {
+        let result = Command::new("getconf").arg("CLK_TCK").output().ok()?;
+        if !result.status.success() {
+            return None;
+        }
+        String::from_utf8(result.stdout).ok()?.trim().parse::<u64>().ok().filter(|hz| *hz > 0)
+    }))?;
+    let stat = fs::read_to_string("/proc/self/stat").ok()?;
+    // The executable name can contain spaces or parentheses. Count fields after its closing parenthesis.
+    let (_, fields) = stat.rsplit_once(')')?;
+    let mut fields = fields.split_whitespace();
+    let user = fields.nth(11)?.parse::<u64>().ok()?;
+    let system = fields.next()?.parse::<u64>().ok()?;
+    let ticks = user.saturating_add(system).saturating_mul(10_000_000) / hz;
+    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let resident_kib = status.lines().find_map(|line| line.strip_prefix("VmRSS:"))?
+        .split_whitespace().next()?.parse::<u64>().ok()?;
+    Some((ticks, resident_kib.saturating_mul(1024)))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn process_times_and_memory() -> Option<(u64, u64)> {
     None
 }

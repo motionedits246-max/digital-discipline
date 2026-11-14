@@ -9,6 +9,12 @@ mod health;
 #[path = "../../shared/process_resources.rs"]
 mod process_resources;
 mod windows;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+mod linux_vault;
+#[path = "../../shared/data_dir.rs"]
+mod local_data;
 mod policy;
 mod insights;
 mod analytics;
@@ -92,10 +98,7 @@ struct RuleOutput { id: String, name: String, domain: String, path_prefix: Optio
 fn err(code: StatusCode, msg: &str) -> (StatusCode, String) { (code, msg.to_owned()) }
 fn now_ms() -> i64 { Utc::now().timestamp_millis() }
 fn data_dir() -> std::io::Result<PathBuf> {
-    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| {
-        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
-    });
-    Ok(base.join("DigitalDiscipline"))
+    local_data::directory()
 }
 fn token_path() -> std::io::Result<PathBuf> { Ok(data_dir()?.join("agent.token")) }
 pub(crate) fn read_token() -> std::io::Result<String> { Ok(fs::read_to_string(token_path()?)?.trim().to_owned()) }
@@ -108,6 +111,28 @@ fn ensure_token() -> std::io::Result<String> {
     fs::write(token_path()?, &value)?;
     Ok(value)
 }
+fn prepare_data_directory() -> std::io::Result<()> {
+    let path = data_dir()?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&path)?;
+        if !fs::symlink_metadata(&path)?.is_dir() {
+            return Err(std::io::Error::other("Expected a private application data directory"));
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+    }
+    #[cfg(not(target_os = "linux"))]
+    fs::create_dir_all(path)
+}
+
+fn collector_supported() -> bool {
+    #[cfg(target_os = "linux")]
+    return local_data::x11_session();
+    #[cfg(not(target_os = "linux"))]
+    cfg!(windows)
+}
+
 fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
     let path = data_dir()?.join("discipline.sqlite3");
     let db = Connection::open(path)?;
@@ -514,7 +539,7 @@ async fn snapshot_inner(state:Arc<AppState>,compact:bool) -> ApiResult {
     let focus_hint=focus.as_ref().and_then(|f|features::focus_goal_hint(&db,f,current,now));
     Ok(Json(json!({
         "ok":true,"schema_version":domain::SCHEMA_VERSION,"observed_at_ms":now,"notifications_muted":attention::muted(&db),
-        "private_session":data_lifecycle::private_info(&db,now),"tracking_paused":state.paused.load(Ordering::SeqCst),"platform_supported":cfg!(windows),
+        "private_session":data_lifecycle::private_info(&db,now),"tracking_paused":state.paused.load(Ordering::SeqCst),"platform_supported":collector_supported(),
         "browser_connected":db.query_row("SELECT EXISTS(SELECT 1 FROM browser_instances WHERE revoked=0 AND last_seen_ms>?1)",params![now-90000],|r|r.get::<_,bool>(0)).unwrap_or(false),
         "browser_rules_acknowledged":state.browser.lock().unwrap().rule_sync_ms>now-180_000,
         "browser_rules_count":state.browser.lock().unwrap().rule_count,
@@ -523,7 +548,7 @@ async fn snapshot_inner(state:Arc<AppState>,compact:bool) -> ApiResult {
         "goals":if compact{Vec::<Value>::new()}else{features::read_goals(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?},
         "focus":focus,"focus_goal_hint":focus_hint,"short_feed_hint":!state.paused.load(Ordering::SeqCst)&&attention::pill_hint(&db,now),
         "profile_receipts":tracking::receipts(&db).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?,
-        "coverage":{"windows_collector":if !cfg!(windows){"unsupported"}else if state.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000{"degraded_storage"}else{"running"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true,"today_may_be_truncated":all.len()==50000,"last_native_observation_ms":recent.first().map(|s|s.end_ms)}
+        "coverage":{"windows_collector":if !collector_supported(){"unsupported"}else if state.storage_last_error_ms.load(Ordering::SeqCst)>now-120_000{"degraded_storage"}else{"running"},"browser":"best_effort","rule_enforcement":"not_acknowledged_per_profile","no_data_is_not_zero":true,"today_may_be_truncated":all.len()==50000,"last_native_observation_ms":recent.first().map(|s|s.end_ms)}
     })))
 }
 async fn snapshot(State(state):State<Arc<AppState>>)->ApiResult{snapshot_inner(state,false).await}
@@ -574,7 +599,7 @@ async fn run_agent() -> Result<(),Box<dyn std::error::Error>> {
     // Claim the collector port before opening/migrating storage or spawning workers.
     // A second agent exits without changing an active collector's database/token.
     let listener=tokio::net::TcpListener::bind("127.0.0.1:48761").await?;
-    fs::create_dir_all(data_dir()?)?;
+    prepare_data_directory()?;
     let token=ensure_token()?;
     let db=init_db()?;
     let paused=db.query_row("SELECT value FROM settings WHERE key='paused'",[],|r|r.get::<_,String>(0)).unwrap_or_default()=="true";

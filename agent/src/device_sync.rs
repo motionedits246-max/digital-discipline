@@ -45,7 +45,7 @@ fn pair_key(create:bool)->Result<Ed25519KeyPair,&'static str>{
         Err(error) if error.kind()==std::io::ErrorKind::NotFound && create=>{
             let secret=Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).map_err(|_|"device_key_generation_failed")?;
             let bytes=Zeroizing::new(secret.as_ref().to_vec());
-            let protected=credentials::protect_secret(&bytes).map_err(|_|"sync_requires_windows_key_protection")?;
+            let protected=credentials::protect_secret(&bytes).map_err(|_|"sync_requires_desktop_key_protection")?;
             let mut file=fs::OpenOptions::new().write(true).create_new(true).open(path)
                 .map_err(|_|"device_key_write_failed")?;
             file.write_all(&protected).and_then(|_|file.sync_all()).map_err(|_|"device_key_write_failed")?;
@@ -84,7 +84,7 @@ pub async fn configure(State(state):State<Arc<AppState>>,Json(input):Json<Setup>
         if !path.is_dir(){return Err("shared_folder_unavailable");}
         let secret=Zeroizing::new(input.passphrase.ok_or("sync_passphrase_required")?);
         if secret.chars().count()<12||secret.len()>1024{return Err("sync_passphrase_needs_12_characters");}
-        let protected=credentials::protect_secret(secret.as_bytes()).map_err(|_|"sync_requires_windows_key_protection")?;
+        let protected=credentials::protect_secret(secret.as_bytes()).map_err(|_|"sync_requires_desktop_key_protection")?;
         pair_key(true)?;
         let revision=Uuid::new_v4().to_string();
         let keyfile=data_path(&format!("sync-secret-{revision}.key"))?;

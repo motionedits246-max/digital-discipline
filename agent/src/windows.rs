@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "linux"))]
 use crate::domain::Observation;
 
 #[cfg(windows)]
@@ -31,10 +32,16 @@ pub fn observe(at_ms: i64, idle_limit_ms: u32) -> Option<Observation> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub use crate::linux::observe;
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn observe(_at_ms: i64, _idle_limit_ms: u32) -> Option<Observation> { None }
 
-#[cfg(not(windows))]pub fn application_description(_app:&str)->String{String::new()}
+#[cfg(target_os = "linux")]
+pub use crate::linux::application_description;
+
+#[cfg(not(any(windows, target_os = "linux")))]pub fn application_description(_app:&str)->String{String::new()}
 #[cfg(windows)]pub fn application_description(app:&str)->String{
  use windows_sys::Win32::{UI::WindowsAndMessaging::{GetForegroundWindow,GetWindowThreadProcessId},System::Threading::{OpenProcess,QueryFullProcessImageNameW,PROCESS_QUERY_LIMITED_INFORMATION},Foundation::CloseHandle};
  use std::ffi::c_void;
@@ -75,5 +82,8 @@ pub fn minimize_foreground(expected:&str)->bool {
         hwnd==GetForegroundWindow() && before==after && ShowWindowAsync(hwnd,SW_MINIMIZE)!=0
     }
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub use crate::linux::minimize_foreground;
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn minimize_foreground(_expected:&str)->bool {false}

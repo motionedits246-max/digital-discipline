@@ -4,11 +4,14 @@ mod notification_sound;
 #[path = "../../../../shared/process_resources.rs"]
 mod process_resources;
 mod window_policy;
-#[cfg(windows)] mod lifecycle;
+#[cfg(any(windows, target_os = "linux"))] mod lifecycle;
+#[cfg(target_os = "linux")] mod linux_desktop;
+#[path = "../../../../shared/data_dir.rs"]
+mod local_data;
 use serde_json::Value;
 use std::{fs, path::PathBuf, time::Duration};
-#[cfg(windows)] use std::io::{Read,Write};
-#[cfg(windows)] use std::{net::{TcpStream,SocketAddr},process::Command};
+#[cfg(any(windows, target_os = "linux"))] use std::io::{Read,Write};
+#[cfg(any(windows, target_os = "linux"))] use std::{net::{TcpStream,SocketAddr},process::Command};
 use tauri::{Manager,Emitter, LogicalSize, Size};
 
 #[derive(Default)]struct PresentationState{current:std::sync::Mutex<(String,Option<(i32,i32,u32,u32,u64)>)>}
@@ -22,8 +25,8 @@ struct ServiceHintState {
     payload: std::sync::Mutex<Option<PendingNotice>>,
 }
 fn hints_masked(app:&tauri::AppHandle)->bool{
- #[cfg(windows)]{return app.try_state::<lifecycle::Supervisor>().is_some_and(|s|{let status=s.status();s.privacy_mask.load(std::sync::atomic::Ordering::SeqCst)||status["private_session"]["active"]==true||status["tracking_paused"]==true});}
- #[cfg(not(windows))]{let _=app;false}
+ #[cfg(any(windows, target_os = "linux"))]{return app.try_state::<lifecycle::Supervisor>().is_some_and(|s|{let status=s.status();s.privacy_mask.load(std::sync::atomic::Ordering::SeqCst)||status["private_session"]["active"]==true||status["tracking_paused"]==true});}
+ #[cfg(not(any(windows, target_os = "linux")))]{let _=app;false}
 }
 async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
  if hints_masked(&app){return Ok(false);}
@@ -69,7 +72,12 @@ async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
   let mut payload=state.payload.lock().map_err(|_|"Notification unavailable")?;
   payload.as_mut().is_some_and(|notice|std::mem::take(&mut notice.sound_pending))
  };
- if sound_pending {notification_sound::play();}
+ if sound_pending {
+  #[cfg(target_os = "linux")]
+  notification_sound::play(&app);
+  #[cfg(not(target_os = "linux"))]
+  notification_sound::play();
+ }
  Ok(())
 }
 #[tauri::command]fn open_service_review(app:tauri::AppHandle)->Result<(),String>{
@@ -85,8 +93,7 @@ async fn show_notice(app:tauri::AppHandle,notice:Value)->Result<bool,String>{
 }
 
 fn token_path() -> Result<PathBuf,String> {
-    let dir=std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA unavailable")?;
-    Ok(PathBuf::from(dir).join("DigitalDiscipline").join("agent.token"))
+    Ok(local_data::directory().map_err(|e| e.to_string())?.join("agent.token"))
 }
 
 #[tauri::command]
@@ -156,6 +163,8 @@ fn set_presentation(app:tauri::AppHandle,mode:String)->Result<Value,String> {
 pub(crate) fn show_main_window(app:&tauri::AppHandle)->Result<(),String>{
     let window=app.get_webview_window("main").ok_or("Window unavailable")?;
     window.show().map_err(|e|e.to_string())?;
+    #[cfg(target_os = "linux")]
+    let _=window.unminimize();
     let _=window.set_focus();
     Ok(())
 }
@@ -168,6 +177,11 @@ fn drag_window(app:tauri::AppHandle)->Result<(),String>{
 #[tauri::command]
 fn hide_to_tray(app:tauri::AppHandle)->Result<(),String>{
     let w=app.get_webview_window("main").ok_or("Window unavailable")?;
+    #[cfg(target_os = "linux")]
+    w.set_skip_taskbar(false).map_err(|e|e.to_string())?;
+    #[cfg(target_os = "linux")]
+    return w.minimize().map_err(|e|e.to_string());
+    #[cfg(not(target_os = "linux"))]
     w.hide().map_err(|e|e.to_string())
 }
 
@@ -211,14 +225,12 @@ fn pair_browser(app:tauri::AppHandle,browser:String,extension_id:String)->Result
 /// Chromium prohibits silent/unconsented installation of unpacked extensions.
 #[tauri::command]
 async fn open_extension_folder(app: tauri::AppHandle) -> Result<String,String> {
-    #[cfg(not(windows))] { let _=app; return Err("Windows only".into()); }
-    #[cfg(windows)] {
-        let result=agent_request("POST".into(),"/companion".into(),Some(serde_json::json!({}))).await?;
-        let path=PathBuf::from(result["folder"].as_str().ok_or("Companion folder unavailable")?);
-        if !path.join("manifest.json").is_file(){return Err("Bundled browser extension not found. Install the updated desktop build.".into());}
-        Command::new("explorer.exe").arg(&path).spawn().map_err(|e|format!("Could not open File Explorer: {e}"))?;
-        Ok(path.to_string_lossy().into_owned())
-    }
+    let _ = app;
+    let result=agent_request("POST".into(),"/companion".into(),Some(serde_json::json!({}))).await?;
+    let path=PathBuf::from(result["folder"].as_str().ok_or("Companion folder unavailable")?);
+    if !path.join("manifest.json").is_file(){return Err("Bundled browser extension not found. Install the updated desktop build.".into());}
+    open_folder(&path)?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -251,7 +263,7 @@ fn browser_pair_diagnostics(app:tauri::AppHandle,browser:String,extension_id:Str
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn send_agent_command(path:&str,body:&str){
     if let Ok(token)=fs::read_to_string(token_path().unwrap_or_default()) {
         if let Ok(mut stream)=TcpStream::connect_timeout(&SocketAddr::from(([127,0,0,1],48761)),Duration::from_millis(500)){
@@ -266,7 +278,10 @@ fn send_agent_command(path:&str,body:&str){
 // Explicit per-user opt-in: no installer silently installs a startup entry.
 #[tauri::command]
 fn autostart_status()->Result<bool,String>{
-    #[cfg(not(windows))]{return Ok(false);}
+    #[cfg(target_os = "linux")]
+    return linux_desktop::autostart_status();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    return Ok(false);
     #[cfg(windows)]{
         let result=Command::new("reg.exe").args(["query","HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run","/v","DigitalDisciplineAgent"])
             .status().map_err(|e|e.to_string())?;
@@ -275,7 +290,10 @@ fn autostart_status()->Result<bool,String>{
 }
 #[tauri::command]
 fn set_autostart(app:tauri::AppHandle,enabled:bool)->Result<String,String>{
-    #[cfg(not(windows))]{let _=(app,enabled);return Err("Windows only".into());}
+    #[cfg(target_os = "linux")]
+    return linux_desktop::set_autostart(&app, enabled);
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {let _=(app,enabled);return Err("Startup registration unavailable".into());}
     #[cfg(windows)]{
         let path=app.path().resource_dir().map_err(|e|e.to_string())?.join("bin").join("digital-discipline-agent.exe");
         if !path.is_file(){return Err("Packaged agent missing".into());}
@@ -295,8 +313,7 @@ fn set_autostart(app:tauri::AppHandle,enabled:bool)->Result<String,String>{
 
 #[tauri::command]
 async fn export_activity()->Result<Value,String>{
- #[cfg(not(windows))] {return Err("Windows desktop export unavailable".into());}
- #[cfg(windows)] {
+
   let token=fs::read_to_string(token_path()?).map_err(|_|"Agent token unavailable")?;
   let client=reqwest::Client::builder().timeout(Duration::from_secs(180)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Local export client unavailable")?;
   let response=client.post("http://127.0.0.1:48761/export/snapshot").bearer_auth(token.trim()).json(&serde_json::json!({})).send().await.map_err(|_|"Export could not reach the agent")?;
@@ -304,15 +321,29 @@ async fn export_activity()->Result<Value,String>{
   let mut result=response.json::<Value>().await.map_err(|_|"Invalid export result")?;
   let id=result["snapshot_id"].as_str().filter(|id|id.len()==36&&id.bytes().all(|c|c.is_ascii_hexdigit()||c==b'-')).ok_or("Invalid snapshot identifier")?;
   let source=token_path()?.parent().ok_or("Agent directory unavailable")?.join("exports").join(format!("{id}.jsonl"));
+  #[cfg(target_os = "linux")]
+  let downloads=linux_desktop::downloads().map_err(|e|e.to_string())?;
+  #[cfg(windows)]
   let downloads=PathBuf::from(std::env::var_os("USERPROFILE").ok_or("Windows profile unavailable")?).join("Downloads");
-  if !downloads.is_dir(){return Err("Downloads folder unavailable; snapshot remains in DigitalDiscipline/exports".into());}
+  fs::create_dir_all(&downloads).map_err(|_|"Downloads folder unavailable; snapshot remains in the local exports folder")?;
   let target=downloads.join(format!("Digital-Discipline-Export-{id}.jsonl"));
-  fs::copy(&source,&target).map_err(|_|"Could not save export to Downloads")?;
+  let mut input = fs::File::open(&source).map_err(|_|"Snapshot unavailable")?;
+  let mut options = fs::OpenOptions::new();
+  options.write(true).create_new(true);
+  #[cfg(target_os = "linux")]
+  std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+  let mut output = options.open(&target).map_err(|_|"Could not create export in Downloads")?;
+  if std::io::copy(&mut input, &mut output).and_then(|_| output.sync_all()).is_err() {
+    let _=fs::remove_file(&target);
+    return Err("Could not save export to Downloads".into());
+  }
   result["saved_path"]=serde_json::json!(target.to_string_lossy());
   let _=fs::remove_file(source);
+  #[cfg(windows)]
   let _=Command::new("explorer.exe").arg("/select,").arg(&target).spawn();
+  #[cfg(target_os = "linux")]
+  let _=open_folder(&downloads);
   Ok(result)
- }
 }
 
 #[tauri::command]
@@ -320,53 +351,81 @@ fn open_data_folder(area:String)->Result<(),String>{
     if !matches!(area.as_str(),"backups"|"updates"){return Err("Unsupported data folder".into());}
     let path=token_path()?.parent().ok_or("Data directory unavailable")?.join(area);
     fs::create_dir_all(&path).map_err(|_|"Data folder unavailable")?;
-    #[cfg(windows)] {
-        Command::new("explorer.exe").arg(path).spawn().map_err(|_|"Could not open folder")?;
-        Ok(())
-    }
-    #[cfg(not(windows))] {let _=path;Err("Windows folder unavailable".into())}
+    open_folder(&path)
+}
+
+fn open_folder(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(windows)]
+    let program = "explorer.exe";
+    #[cfg(target_os = "linux")]
+    let program = "xdg-open";
+    Command::new(program).arg(path).spawn().map_err(|_|"Could not open folder")?;
+    Ok(())
 }
 
 #[tauri::command]
 fn set_privacy_mask(app:tauri::AppHandle,enabled:bool){
- #[cfg(windows)] {app.state::<lifecycle::Supervisor>().privacy_mask.store(enabled,std::sync::atomic::Ordering::SeqCst);}
- #[cfg(not(windows))] let _=(app,enabled);
- #[cfg(windows)] if enabled{let _=set_service_hint_window(app,false,false);}
+ #[cfg(any(windows, target_os = "linux"))] {app.state::<lifecycle::Supervisor>().privacy_mask.store(enabled,std::sync::atomic::Ordering::SeqCst);}
+ #[cfg(not(any(windows, target_os = "linux")))] let _=(app,enabled);
+ #[cfg(any(windows, target_os = "linux"))] if enabled{let _=set_service_hint_window(app,false,false);}
 }
 
 #[tauri::command]
 fn lifecycle_status(app:tauri::AppHandle)->Value{
- #[cfg(windows)]
+ #[cfg(any(windows, target_os = "linux"))]
  let mut status=app.state::<lifecycle::Supervisor>().status();
- #[cfg(not(windows))]
+ #[cfg(not(any(windows, target_os = "linux")))]
  let mut status={let _=app;serde_json::json!({"state":"unsupported"})};
  status["resources"]=process_resources::sample("desktop_host_process_only");
  status
 }
 
+#[tauri::command]
+fn open_linux_downloads() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        return Command::new("xdg-open")
+            .arg("https://github.com/motionedits246-max/digital-discipline/actions/workflows/linux-ci.yml?query=branch%3Afeature%2Flinux-desktop")
+            .spawn().map(|_| ()).map_err(|_| "Could not open Linux downloads".into());
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err("Linux downloads are available on GitHub".into())
+}
+
 fn main() {
     #[cfg(windows)] let _single=match lifecycle::SingleInstance::acquire(){Ok(Some(owner))=>owner,Ok(None)=>return,Err(e)=>{eprintln!("{e}");return;}};
     #[cfg(windows)] let activation_event=_single.event();
+    #[cfg(target_os = "linux")]
+    let listener=match linux_desktop::bind_desktop(){Ok(Some(listener))=>listener,Ok(None)=>return,Err(e)=>{eprintln!("{e}");return;}};
     tauri::Builder::default()
       .manage(ServiceHintState::default())
       .manage(PresentationState::default())
       .setup(move |app| {
-          #[cfg(windows)] {
+          #[cfg(any(windows, target_os = "linux"))] {
               use tauri::Emitter;
               use tauri_plugin_global_shortcut::{GlobalShortcutExt,ShortcutState};
               // A conflicting system hotkey must never prevent the app starting.
-              app.handle().plugin(tauri_plugin_global_shortcut::Builder::new()
+              let shortcut_supported = {
+                  #[cfg(windows)]
+                  { true }
+                  #[cfg(target_os = "linux")]
+                  { local_data::x11_session() }
+              };
+              if shortcut_supported && app.handle().plugin(tauri_plugin_global_shortcut::Builder::new()
                   .with_handler(|app,_shortcut,event|{
                       if event.state()==ShortcutState::Pressed && show_main_window(app).is_ok() {
                           let _=app.emit_to("main","dd:global-command",());
                       }
-                  }).build())?;
-              let _=app.global_shortcut().register("Ctrl+Shift+D");
+                  }).build()).is_ok() {
+                  let _=app.global_shortcut().register("Ctrl+Shift+D");
+              }
               let supervisor=lifecycle::Supervisor::new();
+              #[cfg(windows)]
               lifecycle::start(app.handle(),&supervisor,activation_event);
+              #[cfg(target_os = "linux")]
+              lifecycle::start(app.handle(),&supervisor,listener);
               app.manage(supervisor);
-              // Persistent Windows tray. Closing the overlay hides it; Quit exits the app
-              // and explicitly requests a graceful agent shutdown.
+              // The tray offers an explicit quit action that stops the agent gracefully.
               use tauri::{menu::{Menu,MenuItem},tray::{TrayIconBuilder,TrayIconEvent,MouseButton,MouseButtonState}};
               let open=MenuItem::with_id(app,"open","Open dashboard",true,None::<&str>)?;
               let pause=MenuItem::with_id(app,"pause","Pause tracking",true,None::<&str>)?;
@@ -383,7 +442,7 @@ fn main() {
                 std::thread::sleep(Duration::from_secs(2));
               });
               let menu=Menu::with_items(app,&[&modes,&open,&privacy,&pause,&resume,&quit])?;
-              TrayIconBuilder::new()
+              let tray=TrayIconBuilder::new()
                 .icon(app.default_window_icon().ok_or_else(||std::io::Error::other("Window icon missing"))?.clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -399,8 +458,13 @@ fn main() {
                     let app=tray.app_handle();
                     if show_main_window(app).is_ok(){let _=app.emit_to("main","dd:open-dashboard",());}
                 }})
-                .build(app)?;
-
+                .build(app);
+              #[cfg(windows)]
+              tray?;
+              #[cfg(target_os = "linux")]
+              if let Err(error) = tray {
+                  eprintln!("System tray unavailable: {error}");
+              }
           }
           let _ = set_presentation(app.handle().clone(), "pill".to_owned());
           Ok(())
@@ -413,10 +477,10 @@ fn main() {
               if let Some(mode)=requested{let _=set_presentation(app.clone(),mode);}
           }
           if window.label()=="service-hint"&&matches!(event,tauri::WindowEvent::Focused(false)){let _=window.app_handle().emit_to("service-hint","dd:notice-away",());}
-          #[cfg(windows)] if let tauri::WindowEvent::CloseRequested {api,..}=event {if window.label()=="main"{api.prevent_close();let _=window.app_handle().emit_to("main","dd:collapse-request",());}}
+          #[cfg(any(windows, target_os = "linux"))] if let tauri::WindowEvent::CloseRequested {api,..}=event {if window.label()=="main"{api.prevent_close();let _=window.app_handle().emit_to("main","dd:collapse-request",());}}
           #[cfg(not(windows))] let _=(window,event);
       })
-      .invoke_handler(tauri::generate_handler![agent_request,open_data_folder,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,deliver_desktop_notice,read_service_hint,set_service_hint_window,open_service_review,open_notice_page])
+      .invoke_handler(tauri::generate_handler![agent_request,open_data_folder,open_linux_downloads,set_presentation,drag_window,hide_to_tray,open_extension_folder,autostart_status,set_autostart,lifecycle_status,export_activity,set_privacy_mask,deliver_service_hint,deliver_desktop_notice,read_service_hint,set_service_hint_window,open_service_review,open_notice_page])
       .run(tauri::generate_context!())
       .expect("Digital Discipline failed to start");
 }

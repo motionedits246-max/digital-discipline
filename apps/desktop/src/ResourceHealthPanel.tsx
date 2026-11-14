@@ -143,7 +143,7 @@ export function ResourceHealthPanel({readonly, lite=false}: {readonly:boolean; l
   }
 
   const rows = report ? [
-    ['Windows collection', report.agent.storage_degraded ? 'Storage degraded' : report.agent.tracking_paused ? 'Paused' : 'Agent reachable', 'Agent ' + (report.agent.version ?? '—')],
+    ['Foreground collection', report.agent.storage_degraded ? 'Storage degraded' : report.agent.tracking_paused ? 'Paused' : 'Agent reachable', 'Agent ' + (report.agent.version ?? '—')],
     ['Browser transport', report.browser.recent_signal ? 'Recent signal' : 'Awaiting recent signal', time(report.browser.last_message_at_ms)],
     ['Restriction sync', report.browser.recent_rule_ack ? 'Recent acknowledgment' : 'Awaiting acknowledgment', time(report.browser.last_rule_ack_at_ms)],
     ['Event storage', report.storage.persisted_event_count.toLocaleString() + ' events', time(report.storage.last_accepted_event_at_ms)],
@@ -156,7 +156,7 @@ export function ResourceHealthPanel({readonly, lite=false}: {readonly:boolean; l
   return <article className="surface padded diagnostics-card" aria-label="Resource and connection health">
     <div className="panel-header">
       <div><h3>Resource &amp; connection health</h3>
-        <p>{readonly ? 'Connect to the local Windows agent for live measurements.' : 'Live samples while Diagnostics is open.'}</p></div>
+        <p>{readonly ? 'Connect to the local agent for live measurements.' : 'Live samples while Diagnostics is open.'}</p></div>
       <div className="release-actions">
         <button type="button" className="secondary-btn" onClick={() => void refresh()} disabled={readonly || busy}>Refresh</button>
         <button type="button" className="secondary-btn" onClick={exportDiagnostics} disabled={readonly || !report}>Export diagnostics</button>

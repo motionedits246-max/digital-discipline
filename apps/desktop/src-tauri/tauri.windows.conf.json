@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "../../../target/release/digital-discipline-agent.exe": "bin/digital-discipline-agent.exe"
+    }
+  }
+}

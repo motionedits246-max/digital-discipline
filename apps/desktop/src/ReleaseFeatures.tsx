@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import type {FormEvent} from 'react';
-import {agent, openDataFolder} from './api';
+import {agent, isLinuxDesktop, openDataFolder, openLinuxDownloads} from './api';
 import {CustomSelect} from './CustomSelect';
 import {TimePicker} from './TimePicker';
 import {NumberField} from './FormFields';
@@ -92,6 +92,13 @@ export function UpdatePanel({disabled}: {disabled:boolean}) {
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
   if(disabled)return null;
+  if(isLinuxDesktop)return <section className="surface padded">
+    <div className="panel-header">
+      <div><h3>Application updates</h3><p>Get the latest Linux package from GitHub and install it with your package manager.</p></div>
+      <button className="secondary-btn" onClick={()=>void openLinuxDownloads().catch(e=>setMessage(String(e)))}>Open Linux downloads</button>
+    </div>
+    {message&&<p role="status">{message}</p>}
+  </section>;
 
   async function check() {
     setBusy(true);setMessage('');
@@ -149,7 +156,7 @@ export function SyncPanel({disabled}: {disabled:boolean}) {
     if(await panel.change(()=>agent('POST','/sync',{enabled:true,folder:folder??state?.folder,passphrase:secret})))setSecret('');
   }
   return <section className="surface padded">
-    <div className="panel-header"><div><h3>Encrypted folder sync</h3><p>Sync up to 30 days of activity between enrolled Windows devices through a shared folder.</p></div></div>
+    <div className="panel-header"><div><h3>Encrypted folder sync</h3><p>Sync up to 30 days of activity between enrolled desktop devices through a shared folder.</p></div></div>
     {panel.error&&<p role="alert">{panel.error}</p>}
     {message&&<p role="status">{message}</p>}
     <form className="release-form" onSubmit={save}>
@@ -315,7 +322,7 @@ export function FocusPresets({disabled,onStart}:{disabled:boolean;onStart:()=>vo
         <option>Gentle</option><option>Balanced</option><option>Strict</option>
       </CustomSelect></label>
       <label>Browser targets<input value={domains} onChange={e=>setDomains(e.target.value)} placeholder="youtube.com, instagram.com"/></label>
-      <label>Selected native apps<input value={apps} onChange={e=>setApps(e.target.value)} placeholder="my-game.exe"/></label>
+      <label>Selected native apps<input value={apps} onChange={e=>setApps(e.target.value)} placeholder={isLinuxDesktop?"my-game":"my-game.exe"}/></label>
       {preset.difficulty==='Strict'&&<label className="release-check"><input type="checkbox" checked={preset.minimize_selected_apps}
         onChange={e=>setPreset({...preset,minimize_selected_apps:e.target.checked})}/> Minimize each selected app once</label>}
       <div className="release-actions"><button className="primary-btn" disabled={panel.busy}>{preset.id?'Save changes':'Save preset'}</button></div>

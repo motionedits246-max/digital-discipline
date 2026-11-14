@@ -107,7 +107,7 @@ export function CategorySettings({sessions, readonly, onUpdate}: {
           {recent.map(([key]) => <option key={key} value={key}>{key.slice(key.indexOf(':') + 1)}</option>)}
         </CustomSelect></label>}
         <label>Source<CustomSelect aria-label="Source" value={kind} onChange={event => {setKind(event.target.value as 'app' | 'domain');setTarget('');}}>
-          <option value="app">Windows app</option><option value="domain">Website</option>
+          <option value="app">Desktop app</option><option value="domain">Website</option>
         </CustomSelect></label>
         <label>{kind === 'app' ? 'Executable name' : 'Domain'}
           <input value={target} onChange={event => setTarget(event.target.value)} required maxLength={253}

@@ -18,5 +18,16 @@ pub fn play() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn play(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Ok(folder) = app.path().resource_dir() {
+        std::thread::spawn(move || {
+            let _ = std::process::Command::new("timeout").args(["10s", "paplay"])
+                .arg(folder.join("notification.wav")).status();
+        });
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn play() {}

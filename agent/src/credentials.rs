@@ -15,8 +15,8 @@ pub fn supported_provider(p:&str)->bool {
 }
 fn location(provider:&str)->Result<PathBuf,String>{
     if !supported_provider(provider){return Err("unsupported_provider".to_string());}
-    let root=std::env::var_os("LOCALAPPDATA").ok_or("local_app_data_unavailable")?;
-    Ok(PathBuf::from(root).join("DigitalDiscipline").join("coach-credentials").join(format!("{provider}.dpapi")))
+    let root=crate::data_dir().map_err(|_|"local_app_data_unavailable")?;
+    Ok(root.join("coach-credentials").join(format!("{provider}.{}", vault_extension())))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,7 +25,7 @@ pub struct SaveCredential {provider:String,api_key:String}
 pub async fn list(State(_state):State<Arc<AppState>>)->ApiResult {
     let providers=["openai","anthropic","gemini","groq","openrouter"]
         .into_iter().filter(|p|location(p).is_ok_and(|path|path.is_file())).collect::<Vec<_>>();
-    Ok(Json(json!({"ok":true,"providers":providers,"storage":"Windows DPAPI current-user"})))
+    Ok(Json(json!({"ok":true,"providers":providers,"storage":storage_name()})))
 }
 pub async fn save(State(_state):State<Arc<AppState>>,Json(mut p):Json<SaveCredential>)->ApiResult{
     let result=(||{
@@ -94,10 +94,21 @@ pub(super) fn unprotect_secret(bytes:&[u8])->Result<Vec<u8>,String>{
     }
     Ok(secret)
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub(super) fn protect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".into())}
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub(super) fn unprotect_secret(_bytes:&[u8])->Result<Vec<u8>,String>{Err("windows_only".into())}
+
+#[cfg(target_os = "linux")]
+pub(super) use crate::linux_vault::{protect as protect_secret, unprotect as unprotect_secret};
+
+pub fn storage_name() -> &'static str {
+    if cfg!(target_os = "linux") { "Linux Secret Service" } else { "Windows DPAPI current-user" }
+}
+
+pub fn vault_extension() -> &'static str {
+    if cfg!(target_os = "linux") { "sealed" } else { "dpapi" }
+}
 
 #[cfg(test)] mod tests{
     use super::*;

@@ -68,6 +68,7 @@ async fn metadata(client:&reqwest::Client)->Result<Release,&'static str>{
 }
 fn failure(code:&str)->(StatusCode,String){err(StatusCode::BAD_REQUEST,code)}
 pub async fn check()->ApiResult{
+    if !cfg!(windows){return Err(failure("use_linux_package_downloads"));}
     let release=metadata(&client().map_err(failure)?).await.map_err(failure)?;
     let installed=env!("CARGO_PKG_VERSION");
     let available=version(&release.version)>version(installed);

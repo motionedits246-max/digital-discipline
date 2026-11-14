@@ -113,7 +113,7 @@ export function TrackingDoctor({readonly, lite=false}: {readonly:boolean;lite?:b
       Agent {report.agent_version ?? '—'} · companion {report.expected_companion_version} · checked {at(report.checked_at_ms)}
     </p>}
     {error && <p className="advanced-feedback" role="status">{error}{report ? ' Showing the last profile report.' : ''}</p>}
-    {!error && !profiles.length && <p className="form-hint">{readonly ? 'Live checks require the local Windows agent.' : report ? 'No browser profiles have connected yet.' : 'Checking browser profiles…'}</p>}
+    {!error && !profiles.length && <p className="form-hint">{readonly ? 'Live checks require the local agent.' : report ? 'No browser profiles have connected yet.' : 'Checking browser profiles…'}</p>}
     {profiles.length > 0 && <>
       <div className="diagnostic-charts">
         <figure className="diagnostic-chart">

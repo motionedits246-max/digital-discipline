@@ -1,3 +1,9 @@
+# Digital Discipline for Linux
+
+[Linux downloads and installation](docs/LINUX.md) for the desktop port based on Windows 0.5.3.
+
+---
+
 # Digital Discipline
 
 Windows-first, local-first activity tracking and reversible browser restrictions, with a Rust agent, Tauri/React desktop and Brave-first MV3 companion.
