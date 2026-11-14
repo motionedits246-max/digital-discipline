@@ -34,7 +34,7 @@ def has_label(label):
         return False
 
 
-def tap(label, prefix=False):
+def tap(label, prefix=False, widget=None):
     last_labels = []
 
     def click_matching():
@@ -47,6 +47,8 @@ def tap(label, prefix=False):
         for node in tree.iter("node"):
             values = [node.get("text", ""), node.get("content-desc", "")]
             last_labels.extend(value for value in values if value)
+            if widget and not node.get("class", "").endswith(widget):
+                continue
             if label in values or prefix and any(value.startswith(label) for value in values):
                 bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
                 if len(bounds) != 4 or bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
@@ -88,8 +90,8 @@ tap("Today")
 tap("Exit sample preview")
 tap("Get started")
 tap("Individual", prefix=True)
-tap("Focus")
-tap("Focus minutes")
+tap("Focus", widget="LinearLayout")
+tap("Focus minutes", widget="EditText")
 adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
 adb("shell", "input", "keyevent", "KEYCODE_DEL", "KEYCODE_DEL")
 adb("shell", "input", "text", "37")
@@ -117,7 +119,7 @@ wait_for(lambda: has_label("Done"), "Usage Access Done", attempts=5)
 tap("Open Digital Discipline workspace")
 tap("To-do")
 tap("Add task")
-tap("Task")
+tap("Task", widget="EditText")
 adb("shell", "input", "text", "Test%sworkspace")
 adb("shell", "input", "keyevent", "KEYCODE_BACK")
 tap("Save")
@@ -125,7 +127,7 @@ tap("Test workspace")
 adb("shell", "input", "keyevent", "KEYCODE_BACK")
 tap("Notes")
 tap("New note")
-tap("Title")
+tap("Title", widget="EditText")
 adb("shell", "input", "text", "Test%snote")
 adb("shell", "input", "keyevent", "KEYCODE_BACK")
 tap("Save")
