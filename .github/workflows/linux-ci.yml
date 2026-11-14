@@ -35,7 +35,7 @@ jobs:
       - name: Test installed desktop in X11
         run: |
           sudo apt-get install -y ./release-output/*.deb
-          dbus-run-session -- xvfb-run -a bash scripts/smoke-linux.sh
+          xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- bash scripts/smoke-linux.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Digital-Discipline-Linux-amd64
