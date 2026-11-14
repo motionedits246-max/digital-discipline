@@ -86,6 +86,8 @@ fixture_package, component = fixture
 
 adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
+# Keep the launch animation from covering the first tap on slow emulators.
+adb("shell", "settings", "put", "global", "animator_duration_scale", "0")
 launch(PACKAGE + "/.MainActivity")
 tap("Preview with sample data")
 tap("Last 7 Days")
