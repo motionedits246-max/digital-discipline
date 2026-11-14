@@ -282,7 +282,7 @@ public final class FloatingWorkspace extends Service {
         if (page == 0) {
             timerPhase = -1;
             countdown = label("", 33);
-            countdown.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+            countdown.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
             body.addView(countdown);
             shortCounts = label("", 13);
             shortCounts.setTextColor(0xffd4c6e7);
