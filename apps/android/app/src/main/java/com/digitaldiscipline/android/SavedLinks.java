@@ -19,7 +19,7 @@ final class SavedLinks {
     static final String STUDY = "Study link";
     private static final Pattern URL = Pattern.compile("https?://[^\\s<>\\[\\]\\\"]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern SHORT_PATH = Pattern.compile("/shorts/([A-Za-z0-9_-]{11})/?");
-    private static final Pattern REEL_PATH = Pattern.compile("/reels?/([A-Za-z0-9_-]{3,40})/?");
+    private static final Pattern REEL_PATH = Pattern.compile("/(?:[A-Za-z0-9_.]+/)?reels?/([A-Za-z0-9_-]{3,40})/?");
 
     record Link(String kind, String url) {}
     private final SharedPreferences prefs;
@@ -37,7 +37,7 @@ final class SavedLinks {
                 URI uri = new URI(urls.group().replaceFirst("[).,;!]+$", ""));
                 if (uri.getHost() == null || uri.getUserInfo() != null) continue;
                 String host = uri.getHost().toLowerCase(Locale.ROOT);
-                String path = uri.getPath();
+                String path = uri.getPath() == null ? "" : uri.getPath();
                 Matcher shortId = SHORT_PATH.matcher(path);
                 Matcher reelId = REEL_PATH.matcher(path);
                 if (isHost(host, "youtube.com") && shortId.matches()) {
@@ -63,6 +63,18 @@ final class SavedLinks {
     JSONArray all() {
         try { return new JSONArray(prefs.getString("links", "[]")); }
         catch (JSONException malformed) { return new JSONArray(); }
+    }
+
+    int[] shortFormCounts(long from, long to) {
+        int[] counts = new int[2];
+        JSONArray items = all();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null || item.optLong("at") < from || item.optLong("at") > to) continue;
+            if (SHORT.equals(item.optString("kind"))) counts[0]++;
+            if (REEL.equals(item.optString("kind"))) counts[1]++;
+        }
+        return counts;
     }
 
     void remove(long id, String url) {

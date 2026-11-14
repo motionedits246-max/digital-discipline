@@ -20,8 +20,10 @@ final class FocusTimer {
 
     private final SharedPreferences preferences;
     private final int boot;
+    private final Context context;
 
     FocusTimer(Context context) {
+        this.context = context.getApplicationContext();
         preferences = context.getSharedPreferences("focus", Context.MODE_PRIVATE);
         boot = Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
     }
@@ -77,6 +79,7 @@ final class FocusTimer {
         Session session = current();
         if (session != null && !session.completed() && !session.paused()) {
             preferences.edit().putLong("paused", session.remaining()).apply();
+            FocusAlarm.cancel(context);
         }
     }
 
@@ -86,6 +89,7 @@ final class FocusTimer {
     }
 
     void finish(boolean taskDone) {
+        FocusAlarm.cancel(context);
         Session session = current();
         SharedPreferences.Editor edit = preferences.edit().remove("active").remove("task").remove("paused");
         if (session != null && !session.breakPeriod()) record(edit, session, taskDone);
@@ -150,8 +154,10 @@ final class FocusTimer {
     }
 
     private void schedule(SharedPreferences.Editor edit, long duration) {
+        FocusAlarm.cancel(context);
         edit.remove("paused").putInt("boot", boot)
             .putLong("elapsedEnd", SystemClock.elapsedRealtime() + duration)
             .putLong("wallEnd", System.currentTimeMillis() + duration).apply();
+        FocusAlarm.schedule(context, duration);
     }
 }

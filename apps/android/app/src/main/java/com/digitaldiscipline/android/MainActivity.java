@@ -147,6 +147,7 @@ public final class MainActivity extends Activity {
             launchPending = false;
             animateLaunch();
         }
+        FocusAlarm.checkCompletion(this);
         receiveShortcut();
     }
 
@@ -590,6 +591,53 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void timerSoundSettings() {
+        LinearLayout panel = card("Timer sound");
+        action(panel, FocusAlarm.LABELS[FocusAlarm.choice(this)], this::chooseTimerSound);
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            action(panel, "Allow timer notifications", () ->
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 52));
+        }
+        if (Build.VERSION.SDK_INT >= 31 && !FocusAlarm.precise(this)) {
+            text(panel, "Android can delay timer sounds in the background without Alarms & reminders access.", 14, MUTED, false);
+            action(panel, "Allow on-time timer alarms", () -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        android.net.Uri.parse("package:" + getPackageName())));
+                } catch (android.content.ActivityNotFoundException error) {
+                    status("Alarm settings are unavailable.");
+                }
+            });
+        }
+    }
+
+    private void chooseTimerSound() {
+        final int[] selected = {FocusAlarm.choice(this)};
+        final android.media.MediaPlayer[] preview = {null};
+        Runnable stop = () -> {
+            if (preview[0] != null) {
+                preview[0].release();
+                preview[0] = null;
+            }
+        };
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Timer sound")
+            .setSingleChoiceItems(FocusAlarm.LABELS, selected[0], (choice, which) -> selected[0] = which)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Preview", null)
+            .setPositiveButton("Save", (choice, which) -> {
+                FocusAlarm.select(this, selected[0]);
+                render();
+            }).create();
+        dialog.setOnDismissListener(ignored -> stop.run());
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+            stop.run();
+            preview[0] = FocusAlarm.sound(this, selected[0]);
+            if (preview[0] != null) preview[0].start();
+        });
+    }
+
     private void receiveShortcut() {
         Intent intent = getIntent();
         if (intent == null) return;
@@ -616,9 +664,17 @@ public final class MainActivity extends Activity {
             status("Set up Individual mode to save links.");
             return;
         }
-        if (!"text/plain".equals(intent.getType())) return;
         CharSequence shared = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
-        SavedLinks.Link link = SavedLinks.parse(shared == null ? null : shared.toString());
+        if (shared == null && intent.getClipData() != null && intent.getClipData().getItemCount() > 0) {
+            android.content.ClipData.Item item = intent.getClipData().getItemAt(0);
+            shared = item.getText();
+            if (shared == null && item.getUri() != null) shared = item.getUri().toString();
+        }
+        confirmSaveLink(shared == null ? null : shared.toString());
+    }
+
+    private void confirmSaveLink(String shared) {
+        SavedLinks.Link link = SavedLinks.parse(shared);
         if (link == null) {
             status("Share a web link from the other app.");
             return;
@@ -627,6 +683,11 @@ public final class MainActivity extends Activity {
             .setMessage(link.url() + "\n\nSave this link to Digital Discipline on this phone?")
             .setNegativeButton("Cancel", null).setPositiveButton("Save link", (dialog, which) -> {
                 links.save(link);
+                tab = ACTIVITY;
+                range = TODAY;
+                selectedDay = 0;
+                detailApp = null;
+                render();
                 showSavedLinks();
             }).show();
     }
@@ -637,20 +698,23 @@ public final class MainActivity extends Activity {
         long end = range == WEEK && selectedDay == 0 ? now : rangeEnd(report, reportZone(report), report.optLong("at", now));
         if (range == WEEK && selectedDay == 0) from = ActivityReport.midnight(java.time.LocalDate.now().minusDays(6),
             java.time.ZoneId.systemDefault());
-        int shorts = 0;
-        int reels = 0;
-        JSONArray items = links.all();
-        for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i);
-            if (item == null || item.optLong("at") < from || item.optLong("at") > end) continue;
-            if (SavedLinks.SHORT.equals(item.optString("kind"))) shorts++;
-            if (SavedLinks.REEL.equals(item.optString("kind"))) reels++;
-        }
+        int[] counts = links.shortFormCounts(from, end);
         LinearLayout panel = card("Shorts and Reels");
-        sessionLine(panel, "YouTube Shorts saved", Integer.toString(shorts));
-        sessionLine(panel, "Instagram Reels saved", Integer.toString(reels));
+        sessionLine(panel, "YouTube Shorts saved", Integer.toString(counts[0]));
+        sessionLine(panel, "Instagram Reels saved", Integer.toString(counts[1]));
         text(panel, "Use Share in YouTube or Instagram and choose Digital Discipline to count a video here.", 14, MUTED, false);
+        action(panel, "Paste a link", this::pasteLink);
         action(panel, "Saved links", this::showSavedLinks);
+    }
+
+    private void pasteLink() {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(18), dp(8), dp(18), dp(8));
+        EditText value = field(body, "Short, Reel or study link", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        new AlertDialog.Builder(this).setTitle("Paste a link").setView(body)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue", (dialog, which) -> confirmSaveLink(value.getText().toString())).show();
     }
 
     private void showSavedLinks() {
@@ -735,6 +799,7 @@ public final class MainActivity extends Activity {
 
         if (Rules.INDIVIDUAL.equals(mode)) {
             floatingSetting();
+            timerSoundSettings();
             action(root, "Saved links", this::showSavedLinks);
         }
         showPrivacy();
@@ -1067,6 +1132,7 @@ public final class MainActivity extends Activity {
             text(panel, "Round " + session.round() + " of " + session.plan().rounds(), 14, MUTED, false);
         }
         if (session.completed()) {
+            action(panel, "Stop sound", () -> FocusAlarm.silence(this));
             android.widget.CheckBox done = new android.widget.CheckBox(this);
             done.setText("Mark task complete");
             if (!session.task().isEmpty() && !session.breakPeriod()) panel.addView(done);
@@ -1195,6 +1261,7 @@ public final class MainActivity extends Activity {
         FocusTimer.Session session = focus.current();
         if (session == null) return;
         if (session.completed() != focusCompleted) {
+            FocusAlarm.checkCompletion(this);
             render();
             enter();
             return;

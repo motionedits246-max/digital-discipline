@@ -1,6 +1,6 @@
 # Digital Discipline for Android
 
-Version 0.7.0 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
+Version 0.7.2 is the next Individual test build for Android 10 and later. It uses optional Android Usage Access to reconstruct foreground app sessions. App blocking, its Accessibility service and family rule exchange have been removed. Existing installs can update in place when the APK is signed with the same key.
 
 ## What to test
 
@@ -12,6 +12,12 @@ Version 0.7.0 is the next Individual test build for Android 10 and later. It use
 
 The release covers core measurement, privacy and timer work from R1. R2, R3 and Lab features are staged in the roadmap.
 
+
+## New in 0.7.2
+
+- Drag the floating workspace pill to a comfortable position. Tapping it opens the compact Focus, To-do and Notes panel over the current app.
+- Choose and preview a completion sound in Settings. The timer sound loops until stopped from the workspace, Focus, or the notification. Enable Alarms & reminders for on-time background alarms and notifications to use the notification Stop action.
+- Share or paste a Shorts or Reels permalink and confirm Save link. Activity refreshes immediately. The counts represent saved links.
 
 ## New in 0.7.0
 
