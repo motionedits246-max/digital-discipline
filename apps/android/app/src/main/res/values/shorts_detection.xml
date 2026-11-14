@@ -1,0 +1,4 @@
+<resources>
+    <string name="shorts_detection_label">Digital Discipline Shorts detection</string>
+    <string name="shorts_detection_description">Optional experimental YouTube Shorts detection. Only active after consent in Digital Discipline. Keeps counts and timestamps on this device.</string>
+</resources>

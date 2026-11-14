@@ -315,7 +315,9 @@ public final class FloatingWorkspace extends Service {
     private void refreshCounts() {
         long today = ActivityReport.midnight(java.time.LocalDate.now(), java.time.ZoneId.systemDefault());
         int[] counts = links.shortFormCounts(today, System.currentTimeMillis());
-        String value = "Today   ·   " + counts[0] + " Shorts   ·   " + counts[1] + " Reels";
+        int detected = new ShortsStats(this).count(today, System.currentTimeMillis());
+        String value = "Today  ·  " + detected + " Shorts detected\n"
+            + counts[0] + " Shorts logged  ·  " + counts[1] + " Reels logged";
         if (!value.contentEquals(shortCounts.getText())) shortCounts.setText(value);
     }
 

@@ -689,6 +689,32 @@ public final class MainActivity extends Activity {
             }).show();
     }
 
+    private void shortsDetectionSettings() {
+        LinearLayout panel = card("Automatic Shorts detection");
+        ShortsStats stats = new ShortsStats(this);
+        boolean active = ShortsDetectionService.active(this);
+        text(panel, stats.enabled() && active ? "On · Experimental"
+                : stats.enabled() ? "Waiting for Android Accessibility permission" : "Off",
+            14, MUTED, true);
+        text(panel, "Counts recognizable YouTube Shorts after one second on screen.", 14, MUTED, false);
+        if (!stats.enabled()) {
+            action(panel, "Set up Shorts detection", () -> new AlertDialog.Builder(this)
+                .setTitle("Allow Shorts detection?")
+                .setMessage("Digital Discipline uses Android Accessibility to read YouTube's player layout and Short titles to detect a change. Titles are fingerprinted in memory only. The app saves detection timestamps on this phone. This works while you use YouTube, even when Digital Discipline is closed.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Agree and open settings", (dialog, which) -> {
+                    stats.setEnabled(true);
+                    launchSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                }).show());
+        } else {
+            if (!active) action(panel, "Open Accessibility settings", () -> launchSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            action(panel, "Turn off Shorts detection", () -> {
+                stats.setEnabled(false);
+                render();
+            });
+        }
+    }
+
     private void shortFormCard(JSONObject report) {
         long now = System.currentTimeMillis();
         long from = rangeStart(report);
@@ -697,6 +723,7 @@ public final class MainActivity extends Activity {
             java.time.ZoneId.systemDefault());
         int[] counts = links.shortFormCounts(from, end);
         LinearLayout panel = card("Shorts and Reels");
+        sessionLine(panel, "YouTube Shorts detected", Integer.toString(new ShortsStats(this).count(from, end)));
         sessionLine(panel, "YouTube Shorts logged", Integer.toString(counts[0]));
         sessionLine(panel, "Instagram Reels logged", Integer.toString(counts[1]));
         text(panel, "Manually logged videos and saved links. Open the floating workspace to log a video while watching.", 14, MUTED, false);
@@ -800,6 +827,7 @@ public final class MainActivity extends Activity {
 
         if (Rules.INDIVIDUAL.equals(mode)) {
             floatingSetting();
+            shortsDetectionSettings();
             timerSoundSettings();
             action(root, "Saved links", this::showSavedLinks);
         }
