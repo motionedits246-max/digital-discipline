@@ -49,7 +49,9 @@ public final class FloatingWorkspace extends Service {
     private SavedLinks links;
     private ScrollView panelScroll;
     private LinearLayout panelBody;
-    private int bodyLimit;
+    private LinearLayout panelHeader;
+    private LinearLayout panelTabs;
+    private boolean editing;
     private Button timerButton;
     private Button endButton;
     private Button silenceButton;
@@ -199,28 +201,19 @@ public final class FloatingWorkspace extends Service {
     private void showPanel() {
         Rect safe = bounds();
         int width = Math.min(dp(350), safe.width() - dp(16));
-        int height = Math.min(dp(393), safe.height() - dp(62));
-        if (width < dp(180) || height < dp(120)) return;
+        if (width < dp(180) || safe.height() < dp(120)) return;
         panelPosition = overlay(width, WindowManager.LayoutParams.WRAP_CONTENT);
-        bodyLimit = height;
         panelPosition.x = Math.max(dp(8), Math.min(pillPosition.x + (pillPosition.width - width) / 2,
             safe.width() - width - dp(8)));
-        int below = pillPosition.y + pillPosition.height + dp(6);
-        panelPosition.y = below;
+        panelPosition.y = pillPosition.y + pillPosition.height + dp(6);
         panel = new LinearLayout(displayContext);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12), dp(10), dp(12), dp(10));
-        panel.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (view != panel || !view.isAttachedToWindow()) return;
-            int room = bounds().height();
-            int measured = view.getHeight();
-            int y = below + measured <= room ? below : Math.max(0, pillPosition.y - measured - dp(6));
-            if (panelPosition.y != y) {
-                panelPosition.y = y;
-                view.post(() -> {
-                    if (view == panel && view.isAttachedToWindow()) windows.updateViewLayout(view, panelPosition);
-                });
-            }
+        panel.setPadding(dp(12), dp(8), dp(12), dp(12));
+        panel.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.post(() -> {
+                if (view == panel && view.isAttachedToWindow()) resizeBody();
+            });
+            return insets;
         });
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xff2b213a, 0xff191322});
         bg.setCornerRadius(dp(21));
@@ -241,17 +234,26 @@ public final class FloatingWorkspace extends Service {
         ui.removeCallbacks(tick);
         countdown = null;
         panel.removeAllViews();
-        LinearLayout header = new LinearLayout(displayContext);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        panelHeader = new LinearLayout(displayContext);
+        panelHeader.setGravity(Gravity.CENTER_VERTICAL);
         TextView heading = label("Workspace", 18);
         heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
-        Button close = control("×", this::closePanel);
-        close.setContentDescription("Close workspace");
-        header.addView(close, new LinearLayout.LayoutParams(dp(46), -2));
-        panel.addView(header);
-        LinearLayout tabs = new LinearLayout(displayContext);
-        panel.addView(tabs);
+        heading.setSingleLine(true);
+        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.setAccessibilityHeading(true);
+        panelHeader.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        headerAction("Open full app", R.drawable.workspace_open, () -> {
+            closePanel();
+            startActivity(appIntent());
+        });
+        headerAction("Hide pill", R.drawable.workspace_hide, this::stopSelf);
+        headerAction("Close workspace", R.drawable.workspace_close, this::closePanel);
+        panel.addView(panelHeader);
+        panelTabs = new LinearLayout(displayContext);
+        LinearLayout.LayoutParams tabsSize = new LinearLayout.LayoutParams(-1, -2);
+        tabsSize.topMargin = dp(7);
+        tabsSize.bottomMargin = dp(10);
+        panel.addView(panelTabs, tabsSize);
         String[] names = {"Focus", "To-do", "Notes"};
         for (int n = 0; n < names.length; n++) {
             int index = n;
@@ -260,7 +262,7 @@ public final class FloatingWorkspace extends Service {
             tab.setSelected(page == n);
             LinearLayout.LayoutParams item = new LinearLayout.LayoutParams(0, -2, 1);
             if (n < names.length - 1) item.setMarginEnd(dp(5));
-            tabs.addView(tab, item);
+            panelTabs.addView(tab, item);
         }
         panelScroll = new ScrollView(displayContext);
         panelScroll.setFillViewport(false);
@@ -269,16 +271,6 @@ public final class FloatingWorkspace extends Service {
         panelBody.setOrientation(LinearLayout.VERTICAL);
         panelScroll.addView(panelBody);
         LinearLayout body = panelBody;
-        LinearLayout footer = new LinearLayout(displayContext);
-        Button open = control("Open full app", () -> {
-            closePanel();
-            startActivity(appIntent());
-        });
-        LinearLayout.LayoutParams openSize = new LinearLayout.LayoutParams(0, -2, 1);
-        openSize.setMarginEnd(dp(6));
-        footer.addView(open, openSize);
-        footer.addView(control("Hide pill", this::stopSelf), new LinearLayout.LayoutParams(0, -2, 1));
-        panel.addView(footer);
         if (page == 0) {
             timerPhase = -1;
             countdown = label("", 33);
@@ -288,10 +280,6 @@ public final class FloatingWorkspace extends Service {
             shortCounts.setTextColor(0xffd4c6e7);
             refreshCounts();
             body.addView(shortCounts);
-            LinearLayout quick = new LinearLayout(displayContext);
-            addQuickLog(quick, "+ Short", SavedLinks.SHORT);
-            addQuickLog(quick, "+ Reel", SavedLinks.REEL);
-            body.addView(quick);
             silenceButton = control("Stop sound", () -> { FocusAlarm.silence(this); refreshTimer(); });
             body.addView(silenceButton);
             timerButton = control("", this::toggleTimer);
@@ -306,13 +294,22 @@ public final class FloatingWorkspace extends Service {
         resizeBody();
     }
 
-    private void addQuickLog(LinearLayout row, String title, String kind) {
-        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, -2, 1);
-        if (row.getChildCount() == 0) size.setMarginEnd(dp(6));
-        row.addView(control(title, () -> {
-            links.log(kind);
-            refreshCounts();
-        }), size);
+    private void headerAction(String name, int icon, Runnable action) {
+        android.widget.ImageButton button = new android.widget.ImageButton(displayContext);
+        button.setImageResource(icon);
+        button.setScaleType(android.widget.ImageView.ScaleType.CENTER);
+        button.setContentDescription(name);
+        button.setTooltipText(name);
+        button.setBackgroundTintList(null);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(0xff352943);
+        background.setCornerRadius(dp(12));
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x26ffffff), background, null));
+        button.setOnClickListener(view -> action.run());
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(48), dp(48));
+        size.setMarginStart(dp(4));
+        panelHeader.addView(button, size);
     }
 
     private void refreshCounts() {
@@ -323,14 +320,47 @@ public final class FloatingWorkspace extends Service {
     }
 
     private void resizeBody() {
-        int width = panelPosition.width - dp(24);
-        int available = Math.max(dp(48), bodyLimit - dp(112));
-        panelBody.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int height = Math.min(available, panelBody.getMeasuredHeight());
+        Rect safe = bounds();
+        int room = safe.height();
+        if (editing && panel.isAttachedToWindow()) {
+            Rect visible = new Rect();
+            panel.getWindowVisibleDisplayFrame(visible);
+            if (!visible.isEmpty()) room = Math.min(room, visible.bottom - safe.top);
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsets insets = panel.getRootWindowInsets();
+                if (insets != null && insets.isVisible(WindowInsets.Type.ime())) {
+                    int keyboardTop = windows.getCurrentWindowMetrics().getBounds().bottom
+                        - insets.getInsets(WindowInsets.Type.ime()).bottom;
+                    room = Math.min(room, keyboardTop - safe.top);
+                }
+            }
+        }
+        int width = panelPosition.width - panel.getPaddingLeft() - panel.getPaddingRight();
+        int exactWidth = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY);
+        int naturalHeight = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        panelHeader.measure(exactWidth, naturalHeight);
+        panelTabs.measure(exactWidth, naturalHeight);
+        panelBody.measure(exactWidth, naturalHeight);
+        LinearLayout.LayoutParams tabsSize = (LinearLayout.LayoutParams) panelTabs.getLayoutParams();
+        int chrome = panelHeader.getMeasuredHeight() + panelTabs.getMeasuredHeight()
+            + tabsSize.topMargin + tabsSize.bottomMargin + panel.getPaddingTop() + panel.getPaddingBottom();
+        int below = pillPosition.y + pillPosition.height + dp(6);
+        int above = Math.max(0, Math.min(room, pillPosition.y - dp(6)));
+        int desired = Math.min(dp(390), chrome + panelBody.getMeasuredHeight());
+        boolean fitsBelow = room - below >= desired;
+        boolean useBelow = fitsBelow || (above < desired && room - below >= above);
+        int available = Math.max(0, useBelow ? room - below : above);
+        boolean overlapAnchor = available < chrome + dp(48);
+        int limit = overlapAnchor ? room : available;
+        int height = Math.max(0, Math.min(desired, limit) - chrome);
+        int y = overlapAnchor ? 0 : useBelow ? below : above - chrome - height;
         if (panelScroll.getLayoutParams().height != height) {
             panelScroll.getLayoutParams().height = height;
             panelScroll.requestLayout();
+        }
+        if (panelPosition.y != y) {
+            panelPosition.y = y;
+            if (panel.isAttachedToWindow()) windows.updateViewLayout(panel, panelPosition);
         }
     }
 
@@ -402,6 +432,7 @@ public final class FloatingWorkspace extends Service {
     private void editEntry(LinearLayout body, String list, JSONObject entry) {
         boolean tasks = WorkspaceStore.TASKS.equals(list);
         body.removeAllViews();
+        editing = true;
         panelPosition.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         panelPosition.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         windows.updateViewLayout(panel, panelPosition);
@@ -439,6 +470,7 @@ public final class FloatingWorkspace extends Service {
             displayContext.getSystemService(android.view.inputmethod.InputMethodManager.class)
                 .hideSoftInputFromWindow(panel.getWindowToken(), 0);
         }
+        editing = false;
         panelPosition.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         windows.updateViewLayout(panel, panelPosition);
         populate();
@@ -449,6 +481,8 @@ public final class FloatingWorkspace extends Service {
         input.setTextColor(0xfff3ecff);
         input.setHintTextColor(0xffb6a9c9);
         input.setHint(hint);
+        input.setMinHeight(dp(48));
+        input.setPadding(dp(10), dp(6), dp(10), dp(6));
         input.setText(value);
         input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(limit)});
         return input;
@@ -467,6 +501,7 @@ public final class FloatingWorkspace extends Service {
         control.setBackgroundTintList(null);
         paintControl(control, 0xff352943, 0xff5e4a73, 0xfff3ecff);
         control.setOnClickListener(view -> action.run());
+        control.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
         return control;
     }
 
@@ -496,6 +531,7 @@ public final class FloatingWorkspace extends Service {
     private void closePanel() {
         ui.removeCallbacks(tick);
         countdown = null;
+        editing = false;
         if (panel != null && panel.isAttachedToWindow()) windows.removeViewImmediate(panel);
         panel = null;
     }
