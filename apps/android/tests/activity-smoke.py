@@ -27,6 +27,7 @@ def wait_for(predicate, description, attempts=25):
 
 def has_label(label):
     try:
+        adb("shell", "rm", "-f", "/data/local/tmp/dd-window.xml")
         adb("shell", "uiautomator", "dump", "/data/local/tmp/dd-window.xml")
         tree = ET.fromstring(adb("exec-out", "cat", "/data/local/tmp/dd-window.xml"))
         return any(node.get("text") == label for node in tree.iter("node"))
@@ -39,6 +40,7 @@ def tap(label, prefix=False, widget=None):
 
     def click_matching():
         try:
+            adb("shell", "rm", "-f", "/data/local/tmp/dd-window.xml")
             adb("shell", "uiautomator", "dump", "/data/local/tmp/dd-window.xml")
             tree = ET.fromstring(adb("exec-out", "cat", "/data/local/tmp/dd-window.xml"))
         except (ET.ParseError, subprocess.SubprocessError):
@@ -122,7 +124,6 @@ tap("To-do")
 tap("Add task")
 tap("Task", widget="EditText")
 adb("shell", "input", "text", "Test%sworkspace")
-adb("shell", "input", "keyevent", "KEYCODE_BACK")
 tap("Save")
 tap("Test workspace")
 tap("Cancel")
@@ -130,7 +131,6 @@ tap("Notes")
 tap("New note")
 tap("Title", widget="EditText")
 adb("shell", "input", "text", "Test%snote")
-adb("shell", "input", "keyevent", "KEYCODE_BACK")
 tap("Save")
 tap("Test note")
 tap("Cancel")
