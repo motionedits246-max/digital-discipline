@@ -1,33 +1,103 @@
-# Digital Discipline — Windows
+# Digital Discipline
 
-**Digital Discipline** is a Windows-first, local-first productivity app for understanding how time is spent, managing distractions and building better focus habits. It combines a lightweight Rust background agent, a Tauri/React desktop interface and an optional Brave-first browser companion.
+**Understand your screen time. Take back your attention.**
 
-**Current Windows source:** desktop **v0.5.3**, agent **v0.5.3**, browser companion **v0.4.0**. This is the source version on `main`, **not a claim that the latest installer has passed CI or been publicly signed**.
+Digital Discipline is an open-source, local-first productivity and digital wellbeing project. It helps you see where your time goes, recognize distracting habits, build better routines, and stay focused without turning productivity into another distraction.
 
-[Windows build workflow](.github/workflows/windows-ci.yml) · [GitHub Actions builds](https://github.com/motionedits246-max/digital-discipline/actions/workflows/windows-ci.yml) · [Releases](https://github.com/motionedits246-max/digital-discipline/releases) · [Build and acceptance evidence](docs/BUILD-STATUS.md)
+The primary application on this branch is built for **Windows**, with an optional browser companion for supported Chromium-based browsers.
 
-> **Platform scope:** `main` tracks the Windows desktop product. Android and Linux prototypes are developed on separate feature branches. Do not use Windows installation instructions to install those versions.
+[Explore the code](#project-structure) · [Get started](#getting-started) · [Privacy](#privacy-first-by-design) · [Contribute](#contributing)
 
-## Features
+---
 
-- **Activity tracking:** Windows foreground application and idle-time monitoring, local SQLite history, customizable activity categories, and analytics with timelines and activity heatmaps.
-- **Distraction controls:** Goals, schedules, browser website/path restrictions, focus sessions, configurable usage budgets, reversible pauses and emergency browser unblock.
-- **Floating interface:** A small draggable desktop pill, expandable quick panel, dashboard/workspace, optional separate window and tray controls.
-- **To-dos and notes:** Quick-panel to-do list with completion progress and scrollable tasks; notes with headings and text, saved locally.
-- **Browser insights:** Optional YouTube Shorts, regular YouTube and Instagram Reels tracking through the Brave MV3 companion. Counts are best-effort observations based on visible playback progression, not proof that every platform video was viewed.
-- **Planning and productivity:** Profiles, task-linked focus, persistent work/break cycles, learning controls, local inbox and activity review.
-- **Settings and diagnostics:** Customized controls, privacy exclusions, app/site labels, tracking diagnostics, companion delivery visibility, process resource information and manual data export/import.
-- **Optional intelligence:** User-controlled app classification and BYOK AI Coach. Core tracking does not require cloud login or an API key.
+## Why Digital Discipline?
 
-Some advanced features have partial acceptance coverage; see the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) and [build status](docs/BUILD-STATUS.md). Source code present does not establish full real-device acceptance.
+A quick video turns into half an hour. A short break becomes a browsing session. At the end of the day, it's hard to remember what actually took your time.
 
-## Install on Windows
+Most screen-time tools show a total. Digital Discipline aims to give that number context — **what you were doing, when you got distracted, and what you can change**.
 
-**Recommended for testers:** Check the [latest completed Windows Actions run](https://github.com/motionedits246-max/digital-discipline/actions/workflows/windows-ci.yml) or a [published release](https://github.com/motionedits246-max/digital-discipline/releases). Select the Windows installer artifact from a **successful** run, download/extract it and launch the `*-setup.exe`. GitHub Actions artifacts may require GitHub sign-in and can expire. Verify the included `SHA256SUMS.txt` where available.
+The goal isn't to eliminate entertainment or track every second obsessively. It's to make screen time intentional, with insights and controls you choose.
 
-The CI workflow creates an **ephemeral self-signed development certificate**. It is *not* a publicly trusted publisher signature and does not guarantee Windows SmartScreen acceptance. A new source commit is not itself a downloadable installer; check the corresponding workflow run.
+## What you can do
 
-**Build from source (Windows 10/11):** Install stable Rust with MSVC target, Visual Studio C++ Build Tools and Windows SDK, Node.js 22+, Python 3 and Microsoft Edge WebView2. From the repository root, run PowerShell:
+| Area | What it helps with |
+| --- | --- |
+| **Understand your day** | See foreground app usage, idle periods, activity timelines, categories, and longer-term patterns. |
+| **Recognize scrolling habits** | Observe supported YouTube and Instagram activity with the optional, opt-in browser companion. |
+| **Reduce distractions** | Set browser site/path restrictions, usage limits, schedules, focus sessions, and reversible exceptions. |
+| **Keep work in view** | Use the floating pill and quick panel to check progress without switching to a full dashboard. |
+| **Plan the next step** | Keep simple to-dos and notes close at hand; connect tasks with focus routines. |
+| **Reflect and improve** | Review goals, activity history, trends, and optional AI-assisted insights. |
+| **Stay in control** | Pause tracking, configure exclusions, manage consent, inspect diagnostics, and export or delete local data. |
+
+### A workspace that stays out of the way
+
+Digital Discipline is designed around a small floating **pill** that can expand into a quick panel or a full workspace. Open the detailed dashboard when you need it; keep the lightweight view nearby when you don't.
+
+- **Pill:** glanceable status and progress.
+- **Quick panel:** activity overview, to-do checklist, and saved notes.
+- **Workspace:** timelines, analytics, focus settings, browser controls, and privacy preferences.
+- **Background agent:** continues collecting permitted activity while the main window is closed, until you explicitly stop it.
+
+### Focus without permanent lockouts
+
+Focus tools help you shape your browsing environment, rather than locking you out of your own computer. You can define restrictions and schedules for selected sites or content paths, and use temporary exceptions or emergency recovery when needed.
+
+Browser rules are **not** an OS-wide, tamper-proof app lock. The project is a self-directed productivity tool, not surveillance software.
+
+## Everyday use cases
+
+**Studying:** Start a focus session, keep your study tasks visible, and reduce access to selected distracting pages while you work.
+
+**Coding or creative work:** See time spent across desktop applications, classify activities in a way that makes sense for your workflow, and review interruptions afterward.
+
+**Reducing short-form scrolling:** Opt into browser activity recording to learn when Shorts or Reels become a habit. Observations are based on supported page and visible-playback signals; they are estimates, not an official or exhaustive platform watch history.
+
+**Building consistency:** Review your activity heatmap and trends, set realistic goals, and adjust your routines over time.
+
+## How it works
+
+```text
+Windows applications ──> Rust background agent ──> Local activity storage
+                                  │
+Optional browser companion ───────┤
+                                  │
+                                  ▼
+                         Tauri desktop app
+                    Pill • Quick panel • Dashboard
+                           Goals • Focus • Insights
+```
+
+1. **Observe:** With tracking enabled, the background agent records supported foreground-app and idle-time activity. The browser companion collects only the browser signals you've opted into.
+2. **Understand:** Local data powers the timeline, categories, visualizations, usage summaries, and personal progress.
+3. **Act:** Choose focus rules, adjust goals, manage tasks, or review insights. Core functionality doesn't require a cloud account.
+
+AI-assisted features are optional and require their own setup and consent. They are not necessary for everyday tracking or focus controls.
+
+## Privacy-first by design
+
+Digital Discipline is built around **local ownership and explicit choices**.
+
+- **Local-first history:** Activity is stored on your Windows device, rather than requiring continuous cloud synchronization.
+- **Optional browser recording:** Browser observations have a separate opt-in control.
+- **No default content capture:** The core collector does not record keystrokes, clipboard contents, private chats, or continuous screen recordings.
+- **User-controlled history:** Manage exclusions, retention, exports, and deletion from the app.
+- **Separate AI controls:** External-provider requests are optional. Review what is shared and your provider's policies before enabling them.
+- **Clear limits:** Local API authentication is not a defense against malicious software already running as the same Windows user. Local activity storage should not be assumed to be fully encrypted.
+
+For implementation details and known limitations, consult the [project documentation](docs/) and [implementation ledger](docs/IMPLEMENTATION-LEDGER.md).
+
+## Getting started
+
+### Install on Windows
+
+Visit [GitHub Releases](https://github.com/motionedits246-max/digital-discipline/releases) for published downloads, or check the [Windows build workflow](https://github.com/motionedits246-max/digital-discipline/actions/workflows/windows-ci.yml) for available test artifacts.
+
+Download an installer from a trusted successful build and follow its instructions. Development builds may be self-signed rather than signed by a publicly trusted Windows publisher.
+
+### Build from source
+
+You'll need Windows, Rust with the MSVC toolchain, Visual Studio C++ Build Tools/Windows SDK, Node.js, Python, and WebView2.
 
 ```powershell
 git clone https://github.com/motionedits246-max/digital-discipline.git
@@ -35,49 +105,48 @@ cd digital-discipline
 .\scripts\build-windows.ps1
 ```
 
-A successful build places the Windows installer, standalone agent and companion ZIP in `release-output/`. For local development, run `.\scripts\dev-windows.ps1`.
+For development, use `.\scripts\dev-windows.ps1`. The Windows build script handles tests and packaging; successful artifacts are placed in `release-output/`.
 
-### Browser companion setup
+### Connect the browser companion (optional)
 
-1. Install or launch Digital Discipline, then open **Settings & Privacy → Browser setup**.
-2. In `brave://extensions`, turn on Developer mode and choose **Load unpacked**; select the bundled extension folder (not the ZIP itself).
-3. Authorize the companion extension ID in the desktop application and test its local connection.
-4. Enable **Record browser activity** only if you want browser observations; it is disabled by default. For a test, refresh the video tab and play a Short/Reel visibly for several seconds.
-5. Keep the same unpacked extension folder when updating to preserve its extension ID and local pending-event queue. Removing an extension may delete its browser-local data.
+Open **Settings & Privacy → Browser setup** in the desktop app. Follow the guided instructions to load the unpacked companion in Brave and authorize its connection. Enable browser activity recording only if you want those insights; browser restriction settings are separate.
 
-Browser pairing uses a restricted localhost bridge; normal operation does not require native-messaging registry installation.
+Keep your existing extension installation when upgrading if you need to preserve its local data and extension identity.
 
-## Verification
+## Technology
 
-The Windows build script runs the JavaScript policy tests, database/migration tests, Rust tests, agent runtime tests, frontend build, renderer UI tests and Tauri NSIS packaging. On the `main` branch, the Windows GitHub Actions workflow runs on code pushes (documentation-only changes are ignored), or can be run manually.
+- **Rust:** background activity collection, policies, and local services.
+- **Tauri + React + TypeScript:** lightweight Windows interface.
+- **SQLite:** on-device activity history.
+- **Manifest V3 browser extension:** optional browser observations and restrictions.
+- **GitHub Actions:** automated Windows tests and packaging.
 
-```powershell
-node --test tests/*.test.mjs
-python tests/migration-contract.py
-python tests/browser-pair-migration.py
-python tests/workflow-migration.py
-cargo test --locked -p digital-discipline-agent
-cd apps/desktop
-npm ci
-npm run build
-```
+## Project structure
 
-**Important:** Earlier verification results in `docs/BUILD-STATUS.md` refer to the exact historical builds identified there. They should not be presented as validation of today's v0.5.3 promotion until a matching Windows Actions run succeeds.
+| Directory | Purpose |
+| --- | --- |
+| [`agent/`](agent/) | Rust background agent and local services |
+| [`apps/desktop/`](apps/desktop/) | Windows desktop interface |
+| [`extension/`](extension/) | Browser companion |
+| [`scripts/`](scripts/) | Development, testing, and build tools |
+| [`tests/`](tests/) | Automated checks |
+| [`docs/`](docs/) | Architecture, blueprint, design decisions, and technical documentation |
+| [`.github/workflows/`](.github/workflows/) | Continuous integration and Windows packaging |
 
-## Privacy and data
+The **`main` branch represents the Windows desktop project**. Android and Linux experiments live on separate branches; their features and installation steps should not be assumed to apply to this branch.
 
-Activity history stays on the local Windows device by default. The agent records foreground executable basenames, timing/idle observations and opted-in browser activity rather than continuously capturing screenshots, typed text, chats or clipboard contents. Browser recording and AI sharing have separate controls. Saved provider credentials use Windows current-user DPAPI protection; the SQLite history itself is not represented as fully encrypted.
+## Contributing
 
-Pause tracking independently from browser restrictions. Local bridge authentication protects against ordinary unauthorized connections but does not protect against malware already running as your Windows account. Export or delete local history using the application's privacy controls.
+Contributions are welcome, especially thoughtful bug reports, usability improvements, accessibility fixes, performance work, and browser compatibility testing.
 
-## Project and contribution
+Before opening a pull request, describe the problem, explain the change, and include reproduction or testing notes where possible. Please avoid committing API keys, personal activity records, or other sensitive data.
 
-- [Windows desktop](apps/desktop/) — Tauri/React UI
-- [Background agent](agent/) — Rust tracking and local services
-- [Brave companion](extension/) — opt-in browser playback and restrictions
-- [Windows build scripts](scripts/) and [CI workflow](.github/workflows/windows-ci.yml)
-- [Original blueprint](docs/blueprint/README.md), [implementation ledger](docs/IMPLEMENTATION-LEDGER.md), and [historical release notes](docs/)
+- [Report an issue or suggest an improvement](https://github.com/motionedits246-max/digital-discipline/issues)
+- [Browse the source](https://github.com/motionedits246-max/digital-discipline)
+- [Read the original project blueprint](docs/blueprint/README.md)
 
-Suggestions, reproducible bug reports and contributions are welcome. If this project is useful, consider **starring the repository** to support development.
+---
 
-[Open the Digital Discipline repository](https://github.com/motionedits246-max/digital-discipline)
+**Your time is yours. Digital Discipline helps you see it, understand it, and use it on purpose.**
+
+If the project is useful to you, consider giving it a **star** on GitHub.
