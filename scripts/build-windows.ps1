@@ -15,12 +15,29 @@ try {
  if($LASTEXITCODE -ne 0){throw 'SQL schema tests failed'}
  python 'tests/browser-pair-migration.py'
  if($LASTEXITCODE -ne 0){throw 'Browser pairing migration test failed'}
+ python 'tests/workflow-migration.py'
+ if($LASTEXITCODE -ne 0){throw 'Workflow migration test failed'}
+ Write-Host '[1c/6] Privileged desktop route validation'
+ rustc --test apps/desktop/src-tauri/src/ipc_routes.rs -o (Join-Path $root 'ipc-route-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'IPC route tests did not compile'}
+ & (Join-Path $root 'ipc-route-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'IPC route tests failed'}
+ Remove-Item (Join-Path $root 'ipc-route-tests.exe')
+ Write-Host '[1d/6] Native workspace sizing policy'
+ rustc --test apps/desktop/src-tauri/src/window_policy.rs -o (Join-Path $root 'window-policy-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'Window sizing tests did not compile'}
+ & (Join-Path $root 'window-policy-tests.exe')
+ if($LASTEXITCODE -ne 0){throw 'Window sizing tests failed'}
+ Remove-Item (Join-Path $root 'window-policy-tests.exe')
  Write-Host '[2/6] Rust unit tests'
- cargo test -p digital-discipline-agent
+ cargo test --locked -p digital-discipline-agent
  if($LASTEXITCODE -ne 0){throw 'Agent tests failed'}
  Write-Host '[3/6] Build independent Rust agent'
- cargo build -p digital-discipline-agent --release
+ cargo build --locked -p digital-discipline-agent --release
  if($LASTEXITCODE -ne 0){throw 'Agent build failed'}
+ Write-Host '[3a/6] Isolated agent runtime lifecycle'
+ & (Join-Path $root 'scripts/test-agent-runtime.ps1')
+ if($LASTEXITCODE -ne 0){throw 'Agent runtime lifecycle tests failed'}
  if($env:DD_DEV_CERT_THUMBPRINT){
    Write-Host '[3b/6] Sign agent with development certificate (NOT publicly trusted)'
    $cert=Get-Item ("Cert:\CurrentUser\My\" + $env:DD_DEV_CERT_THUMBPRINT)
@@ -32,11 +49,15 @@ try {
  Push-Location 'apps/desktop'
  try {
   Write-Host '[4/6] Install locked app dependencies'
-  if(Test-Path package-lock.json){npm ci}else{npm install --no-audit --no-fund}
+  npm ci --no-audit --no-fund
   if($LASTEXITCODE -ne 0){throw 'npm dependency install failed'}
   Write-Host '[5/6] Build application frontend'
   npm run build
   if($LASTEXITCODE -ne 0){throw 'Frontend compilation failed'}
+  Write-Host '[5b/6] Renderer interaction tests in Microsoft Edge'
+  $env:PW_CHANNEL='msedge'
+  npm run test:ui
+  if($LASTEXITCODE -ne 0){throw 'Renderer interaction tests failed'}
   Write-Host '[6/6] Build Tauri NSIS installer'
   npm run tauri:build
   if($LASTEXITCODE -ne 0){throw 'Tauri installer failed'}

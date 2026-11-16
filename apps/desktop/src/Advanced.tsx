@@ -1,15 +1,17 @@
+import {useConfirm} from './ConfirmDialog';
+import {TimePicker} from './TimePicker';
+import {TokenField} from './FormFields';
+import {DEFAULT_CATEGORIES as cats,useCategoryLabels} from './categoryLabels';
 import {FileDropzone} from './FileDropzone';
 import {CustomSelect} from './CustomSelect';
 import {sealBundle,openBundle} from "./secureBundle.mjs";
 import {useEffect,useMemo,useRef,useState} from 'react';
 import type {FormEvent,KeyboardEvent,ReactNode} from 'react';
 import {agent,autostartStatus,setAutostart,isTauri} from './api';
-import {BrowserSetupWizard} from './BrowserSetupWizard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {Focus,Goal,Insights,PrivacySettings,Rule,Session,Video} from './types';
 
-const cats=['Development','Design','Productivity','Communication','Education','Entertainment','Gaming','Social','News','Utility','System','Browser','Unclassified'];
 const pretty=(n:number)=>`${Math.floor(Math.max(0,n)/3600000)}h ${String(Math.floor(Math.max(0,n)%3600000/60000)).padStart(2,'0')}m`;
 const split=(str:string)=>[...new Set(str.split(/[\s,;]+/g).map(s=>s.trim().toLowerCase()).filter(Boolean))];
 
@@ -65,7 +67,7 @@ export function AutomationsPanel({readonly,rules,onUpdate}:{readonly:boolean;rul
  {trigger==='streak'&&<label>Maximum gap between qualified plays (seconds)<input type="number" min={10} max={600} value={gapSeconds} onChange={e=>setGapSeconds(+e.target.value)}/></label>}
  {trigger==='plays'&&<label className="check-line"><input type="checkbox" checked={replays} onChange={e=>setReplays(e.target.checked)}/> Count replay instances (otherwise unique video IDs)</label>}
  <div className="form-grid"><label>Exclude domains from usage accounting<textarea rows={2} value={excludeDomains} onChange={e=>setExcludeDomains(e.target.value)} placeholder="bank.example.com"/></label><label>Exclude apps from usage accounting<textarea rows={2} value={excludeApps} onChange={e=>setExcludeApps(e.target.value)} placeholder="private.exe"/></label></div>
- <div className="form-grid"><label>Scheduled start (optional)<input type="time" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Scheduled end (optional)<input type="time" value={end} onChange={e=>setEnd(e.target.value)}/></label></div><label>Days for schedule</label><div className="day-buttons">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d,i)=><button key={d} type="button" className={days.includes(i+1)?'day-on':''} aria-pressed={days.includes(i+1)} onClick={()=>setDays(xs=>xs.includes(i+1)?xs.filter(x=>x!==i+1):[...xs,i+1])}>{d}</button>)}</div>
+ <div className="form-grid"><label>Scheduled start (optional)<TimePicker value={start} onChange={e=>setStart(e.target.value)}/></label><label>Scheduled end (optional)<TimePicker value={end} onChange={e=>setEnd(e.target.value)}/></label></div><label>Days for schedule</label><div className="day-buttons">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d,i)=><button key={d} type="button" className={days.includes(i+1)?'day-on':''} aria-pressed={days.includes(i+1)} onClick={()=>setDays(xs=>xs.includes(i+1)?xs.filter(x=>x!==i+1):[...xs,i+1])}>{d}</button>)}</div>
  <p className="form-hint">Schedules use your Windows local clock (including overnight ranges). Thresholds reset at local midnight. Protection requires the companion extension. Blocks use short, renewed leases to prevent stale lockouts after a crash.</p><div className="device-actions"><button type="button" className="secondary-btn" disabled={readonly||busy||Boolean(start)!==Boolean(end)} onClick={()=>void previewRule()}>Preview without saving</button><button className="primary-btn" disabled={readonly||busy||Boolean(start)!==Boolean(end)}>Save automation</button></div></form></Card>
  <Card title="Policy preview and current state"><h4>Target: {domain}{path}</h4>{preview&&<div className="preview-brief"><strong>{preview.would_activate_now?'Would activate now':'Would remain armed'}</strong><p>{preview.schedule_active?'Inside scheduled window':'Outside scheduled window'}</p><p>Observed eligible time today: {preview.observed_eligible_minutes_today.toFixed(1)}m · qualifying plays: {preview.qualified_plays_today} · rolling streak: {preview.rolling_streak}</p><small>{preview.signal}</small></div>}<Feedback text={previewError}/><p className="muted-paragraph">An automation evaluates local observed time and videos. Browser navigation isn't closed in advance, and manual emergency recovery remains possible.</p><div className="advanced-list">{rules.map(r=><div key={r.id} className="settings-row"><div><strong>{r.name}</strong><small>{r.domain}{r.path_prefix} · {r.config?.action||'block'}{r.config?.qualified_plays?` · ${r.config.qualified_plays} plays`:''}</small></div><span className={`tag ${r.enforced?'tag-on':''}`}>{!r.enabled?'Disabled':r.enforced?'Triggered':'Armed'}</span></div>)}</div><div className="small-divider"/><div className="panel-header"><h4>Trigger / clear audit history</h4><button className="secondary-btn" type="button" onClick={refreshAudit}>Refresh trace</button></div><div className="advanced-list">{(audit?.events||[]).slice(0,25).map((ev,i)=><div key={i} className="settings-row"><span>{ev.detail?.rule_name||'Rule'} · {ev.detail?.triggered?'Activated':'Cleared'}</span><small>{new Date(ev.occurred_ms).toLocaleString()}</small></div>)}</div></Card></div><Feedback text={message}/></div>;
 }
@@ -73,7 +75,7 @@ export function AutomationsPanel({readonly,rules,onUpdate}:{readonly:boolean;rul
 export function VideoHistoryPanel({active,readonly,refreshKey}:{active:boolean;readonly:boolean;refreshKey:number}) {
  const {data,error}=useRemote<{videos:Video[];visibility_disabled?:boolean}>('/videos',active&&!readonly,refreshKey);
  const [search,setSearch]=useState('');const filtered=(data?.videos||[]).filter(v=>(v.video_id+' '+v.platform).toLowerCase().includes(search.toLowerCase()));
- return <Card title="Observed video history · optional metadata"><label>Filter by platform or video ID<input value={search} maxLength={128} onChange={e=>setSearch(e.target.value)} placeholder="Search locally; nothing is sent online"/></label>{error&&<p>{error}</p>}{data?.visibility_disabled?<p>Video gallery is hidden by your privacy setting; existing local counts remain available.</p>:data?.videos.length?<div className="video-grid">{filtered.slice(0,100).map(v=><div className="video-mini" key={v.platform+':'+v.video_id}><small>{v.platform==='youtube_shorts'?'YOUTUBE SHORTS':v.platform==='youtube_watch'?'YOUTUBE VIDEOS':'INSTAGRAM REELS'}</small><strong>{v.video_id}</strong><span>{v.qualified_plays} qualifying plays · {pretty(v.watched_ms)}</span><small>{new Date(v.last_seen_ms).toLocaleString()}</small></div>)}</div>:<p>No observed video history yet. Enable browser collection in the extension to record qualifying playback. Titles and transcripts are not stored.</p>}</Card>;
+ return <Card title="Observed video history · optional metadata"><label>Filter by platform or video ID<input value={search} maxLength={128} onChange={e=>setSearch(e.target.value)} placeholder="Search locally; nothing is sent online"/></label>{error&&<p>{error}</p>}{data?.visibility_disabled?<p>Video gallery is hidden by your privacy setting; existing local counts remain available.</p>:data?.videos.length?<div className="video-grid">{filtered.slice(0,100).map(v=><div className="video-mini" key={v.platform+':'+v.video_id}><small>{v.platform==='youtube_shorts'?'YOUTUBE SHORTS':v.platform==='youtube_watch'?'YOUTUBE VIDEOS':'INSTAGRAM REELS'}</small><strong>{v.video_id}</strong><span>{v.qualified_plays} qualifying plays · {pretty(v.watched_ms)}</span><small>{v.route_visits??0} route visits · {new Date(v.last_seen_ms).toLocaleString()}</small></div>)}</div>:<p>No observed video history yet. Enable browser collection in the extension to record qualifying playback. Titles and transcripts are not stored.</p>}</Card>;
 }
 
 export function InsightsPanel({active,readonly,refreshKey}:{active:boolean;readonly:boolean;refreshKey:number}) {
@@ -85,27 +87,30 @@ export function InsightsPanel({active,readonly,refreshKey}:{active:boolean;reado
 
 export function CategoryPanel({sessions,readonly,onUpdate}:{sessions:Session[];readonly:boolean;onUpdate:()=>void}) {
  const {message,busy,perform}=useAction(onUpdate);const [choices,setChoices]=useState<Record<string,string>>({});
+ const {categories}=useCategoryLabels(!readonly);
  const known=[...new Map(sessions.map(s=>[(s.domain?'domain:'+s.domain:'app:'+s.app),s])).entries()].slice(0,30);
- return <Card title="App/domain categorization · manual overrides"><p className="muted-paragraph">Unknown applications remain counted and unclassified until you assign one. User decisions always override curated app guesses and are applied to historical totals.</p><div className="advanced-list">{known.map(([key,s])=><div className="settings-row" key={key}><div><strong>{key.slice(key.indexOf(':')+1)}</strong><small>{s.category} · {key.startsWith('domain:')?'Website':'Application'}</small></div><CustomSelect aria-label={'Category for '+key} value={choices[key]||s.category} onChange={e=>setChoices(v=>({...v,[key]:e.target.value}))}>{cats.map(c=><option key={c}>{c}</option>)}</CustomSelect><button className="secondary-btn" disabled={readonly||busy} onClick={()=>void perform(()=>agent('POST','/categories/override',{subject:key,category:choices[key]||s.category}),'Override saved; previous sessions will recalculate.')}>Save</button></div>)}</div><Feedback text={message}/></Card>;
+ return <Card title="App/domain categorization · manual overrides"><p className="muted-paragraph">Unknown services remain counted while their type is reviewed. Your saved choices override local suggestions and approved AI results, including historical totals.</p><div className="advanced-list">{known.map(([key,s])=><div className="settings-row" key={key}><div><strong>{key.slice(key.indexOf(':')+1)}</strong><small>{s.category} · {key.startsWith('domain:')?'Website':'Application'}</small></div><CustomSelect aria-label={'Category for '+key} value={choices[key]||s.category} onChange={e=>setChoices(v=>({...v,[key]:e.target.value}))}>{categories.map(c=><option key={c}>{c}</option>)}</CustomSelect><button className="secondary-btn" disabled={readonly||busy} onClick={()=>void perform(()=>agent('POST','/categories/override',{subject:key,category:choices[key]||s.category}),'Override saved; previous sessions will recalculate.')}>Save</button></div>)}</div><Feedback text={message}/></Card>;
 }
 
 export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpdate:()=>void}) {
  type Job={subject:string;state:string;category:string;reason:string;updated_ms:number};
- type Response={jobs:Job[];enabled:boolean;provider:string;model:string;key_saved:boolean;batch_size:number;external_requests_automatic:boolean};
+ type Response={jobs:Job[];enabled:boolean;provider:string;model:string;key_saved:boolean;batch_size:number;external_requests_automatic:boolean;memory:{remembered_services:number;requests_today:number;daily_request_limit:number;automatic_review:boolean}};
  const {data,refresh,error}=useRemote<Response>('/classifications',!readonly,0);
  const [provider,setProvider]=useState('gemini'),[model,setModel]=useState('gemini-2.5-flash'),[key,setKey]=useState('');
  const [authorized,setAuthorized]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const [autoReview,setAutoReview]=useState(true),[dailyLimit,setDailyLimit]=useState(20),[reviewDirty,setReviewDirty]=useState(false);
+ useEffect(()=>{if(data?.memory&&!reviewDirty){setAutoReview(data.memory.automatic_review);setDailyLimit(data.memory.daily_request_limit);}},[data?.memory?.automatic_review,data?.memory?.daily_request_limit,reviewDirty]);
  useEffect(()=>{if(readonly)return;const t=setInterval(refresh,12000);return()=>clearInterval(t);},[readonly]);
  useEffect(()=>{if(!data)return;if(data.provider){setProvider(data.provider);setModel(data.model);}setAuthorized(data.enabled);},[data?.provider,data?.model,data?.enabled]);
- const models:Record<string,string>={openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini'};
+ const models:Record<string,string>={openai:'gpt-4.1-mini',anthropic:'claude-sonnet-4-5',gemini:'gemini-2.5-flash',groq:'llama-3.3-70b-versatile',openrouter:'openai/gpt-4.1-mini',pollinations:'openai/gpt-4o-mini'};
  async function save(e:FormEvent){
   e.preventDefault();
   if(busy||readonly||key.length<8||!authorized)return;
   setBusy(true);setMessage('');
   try{
-   await agent('POST','/classifications/config',{provider,model,api_key:key,enabled:true});
+   const saved=await agent<{old_key_cleanup_pending?:boolean}>('POST','/classifications/config',{provider,model,api_key:key,enabled:true});
    setKey('');refresh();onUpdate();
-   setMessage('Encrypted classifier key saved. Up to ten unknown app names or public hostnames per background JSON request. Tracking remains independent.');
+   setMessage('Encrypted classifier key saved. Up to ten names per background JSON request. Tracking remains independent. Previously learned services are assigned from local memory.'+(saved.old_key_cleanup_pending?' An older encrypted key file could not be removed; use Disable and delete key to retry cleanup.':''));
   }catch(e){setMessage('Could not enable automatic classification: '+String(e));}
   finally{setBusy(false);}
  }
@@ -126,16 +131,20 @@ export function ClassificationsPanel({readonly,onUpdate}:{readonly:boolean;onUpd
    <div><span className="classification-counter">{completed}</span><small>Auto-classified</small></div>
    <div><span className={autoEnabled?'classification-state on':'classification-state'}>{autoEnabled?'Background worker on':'Background worker off'}</span><small>Up to 10 per request</small></div>
   </div>
-  <p className="muted-paragraph">Unknown applications and public website hostnames are collected locally. When you explicitly enable this optional feature, a background worker groups up to 10 names into one JSON request. It never sends full URLs, browser history, window titles, file contents, local IP addresses or private hostnames.</p>
+  <p className="muted-paragraph">Unknown applications and public website hostnames are collected locally. After you configure this optional feature and approve a service in its suggestion or Service discovery, a background worker groups up to 10 approved names into one JSON request. It never sends full URLs, browser history, window titles, file contents, local IP addresses or private hostnames.</p>
   <form onSubmit={e=>void save(e)} className="rule-form">
    <div className="form-grid"><label>AI provider<CustomSelect value={provider} onChange={e=>{const p=e.target.value;setProvider(p);setModel(models[p]);}}>{Object.keys(models).map(p=><option key={p} value={p}>{p}</option>)}</CustomSelect></label>
    <label>Model ID<input value={model} onChange={e=>setModel(e.target.value)} required maxLength={100}/></label></div>
    <label>Classifier API key<input type="password" autoComplete="off" spellCheck={false} placeholder={data?.key_saved?'Enter a new key to replace the saved classifier key':'Enter key to encrypt on this Windows user'} value={key} minLength={8} maxLength={512} onChange={e=>setKey(e.target.value)} required/></label>
    <label className="check-line"><input type="checkbox" checked={authorized} onChange={e=>setAuthorized(e.target.checked)}/> Enable automatic external AI classification of observed public site names and app basenames</label>
-   <p className="form-hint">AI requests may incur charges from your chosen provider. Your approval continues until you disable it. Results are validated and cannot control blocking rules. App identity is only a weak clue, so uncertain results require review.</p>
+   <p className="form-hint">AI requests may incur charges from your chosen provider. Each unresolved service also requires your approval before its first request. Results are validated and cannot control blocking rules. Uncertain names receive one automatic second review; names that remain unknown stay clearly labeled. Saved decisions are reused locally before any AI request.</p>
    <div className="coach-vault-actions"><button className="primary-btn" disabled={readonly||busy||!authorized||key.length<8}>Save encrypted key &amp; enable</button>
     {data?.key_saved&&<button type="button" className="danger-btn" onClick={()=>void disable()} disabled={readonly||busy}>Disable and delete key</button>}</div>
   </form>
+  <div className="classification-memory-settings"><h4>Classification memory &amp; automatic review</h4><p className="form-hint">{data?.memory?.remembered_services||0} remembered services · {data?.memory?.requests_today||0} attempts today. Repeated services reuse the same saved category. Your manual overrides always win.</p>
+   <label className="check-line"><input type="checkbox" checked={autoReview} onChange={e=>{setAutoReview(e.target.checked);setReviewDirty(true);}}/> Automatically review uncertain names once</label>
+   <label>Maximum background batch attempts per UTC day<input type="number" min={1} max={500} value={dailyLimit} onChange={e=>{setDailyLimit(+e.target.value);setReviewDirty(true);}}/></label>
+   <button type="button" className="secondary-btn" disabled={readonly||busy||!reviewDirty} onClick={async()=>{setBusy(true);try{await agent('POST','/classifications/preferences',{automatic_review:autoReview,daily_request_limit:dailyLimit});setReviewDirty(false);refresh();setMessage('Review preferences saved. Tracking continues independently.');}catch(e){setMessage(String(e));}finally{setBusy(false);}}}>Save review preferences</button></div>
   <Feedback text={message||error}/>
   <div className="classification-jobs-header"><strong>Observed items</strong><button type="button" className="secondary-btn" onClick={refresh}>Refresh status</button></div>
   <div className="advanced-list classification-results">{jobs.length?jobs.map(j=><div key={j.subject} className="settings-row"><div><strong>{j.subject.replace(/^(app:|domain:)/,'')}</strong><small>{j.subject.startsWith('app:')?'Application':'Website hostname'} · {j.category} · {j.reason}</small></div><span className="tag">{j.state.replaceAll('_',' ')}</span></div>):<p className="muted-paragraph">No unknown app or public site has been observed yet.</p>}</div>
@@ -300,17 +309,15 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
  const [predictionEnabled,setPredictionEnabled]=useState(false);
  const [retention,setRetention]=useState(90);
  const [idle,setIdle]=useState(300000);
- const [excludedApps,setApps]=useState('');
- const [excludedDomains,setDomains]=useState('');
+ const [excludedApps,setApps]=useState<string[]>([]);
+ const [excludedDomains,setDomains]=useState<string[]>([]);
  const [video,setVideo]=useState(true);
- const [distractors,setDistractors]=useState<string[]>([]);
  function applySettings(saved:PrivacySettings){
    setRetention(saved.retention_days);
    setIdle(saved.idle_threshold_ms);
-   setApps(saved.excluded_apps.join(', '));
-   setDomains(saved.excluded_domains.join(', '));
+   setApps(saved.excluded_apps ?? []);
+   setDomains(saved.excluded_domains ?? []);
    setVideo(saved.video_history_visible);
-   setDistractors(saved.distraction_categories||[]);
    setPredictionEnabled(saved.prediction_opt_in===true);
  }
  useEffect(()=>{
@@ -330,10 +337,9 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
    const payload={
      retention_days:retention,
      idle_threshold_ms:idle,
-     excluded_apps:split(excludedApps),
-     excluded_domains:split(excludedDomains),
+     excluded_apps:excludedApps,
+     excluded_domains:excludedDomains,
      video_history_visible:video,
-     distraction_categories:[...distractors],
      prediction_opt_in:predictionEnabled,
    };
    void perform(async()=>{
@@ -348,20 +354,10 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
     <label>History retention<CustomSelect value={retention} onChange={e=>{setRetention(+e.target.value);markEdited();}}><option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option><option value={3650}>10 years</option></CustomSelect></label>
     <label>Idle threshold<CustomSelect value={idle} onChange={e=>{setIdle(+e.target.value);markEdited();}}><option value={60000}>1 minute</option><option value={180000}>3 minutes</option><option value={300000}>5 minutes</option><option value={600000}>10 minutes</option><option value={900000}>15 minutes</option></CustomSelect></label>
    </div>
-   <label>Excluded application executable names<input value={excludedApps} placeholder="privateapp.exe, banking.exe" onChange={e=>{setApps(e.target.value);markEdited();}}/></label>
-   <label>Excluded domains<input value={excludedDomains} placeholder="bank.example.com" onChange={e=>{setDomains(e.target.value);markEdited();}}/></label>
-   <fieldset className="category-choices"><legend>Categories YOU choose to label as distraction</legend>
-    <p className="form-hint">Optional. Never automatically equate entertainment or social time with wasted time.</p>
-    {cats.filter(c=>!['Unclassified','System'].includes(c)).map(c=><label className="check-line" key={c}>
-     <input type="checkbox" checked={distractors.includes(c)} onChange={e=>{
-       const checked=e.currentTarget.checked;
-       markEdited();
-       setDistractors(previous=>checked
-         ?previous.includes(c)?previous:[...previous,c]
-         :previous.filter(x=>x!==c));
-     }}/>{c}
-    </label>)}
-   </fieldset>
+   <TokenField label="Excluded application executable names" values={excludedApps} placeholder="privateapp.exe"
+      onChange={values=>{setApps(values);markEdited();}}/>
+   <TokenField label="Excluded domains" values={excludedDomains} placeholder="bank.example.com"
+      onChange={values=>{setDomains(values);markEdited();}}/>
    <label className="check-line"><input type="checkbox" checked={video} onChange={e=>{setVideo(e.currentTarget.checked);markEdited();}}/> Show saved video IDs in history gallery</label>
    <label className="check-line"><input type="checkbox" checked={predictionEnabled} onChange={e=>{setPredictionEnabled(e.currentTarget.checked);markEdited();}}/> Opt in to local-only, historical risk forecasting</label>
    <p className="form-hint">Prediction requires ≥21 observed days, enough coverage for the same hour, at least one category you choose, and a held-out calibration check. Unreliable forecasts stay hidden. No cloud or AI provider is used.</p>
@@ -369,13 +365,11 @@ export function PrivacyPanel({readonly,onUpdate}:{readonly:boolean;refreshKey:nu
    <div className="privacy-save-actions"><button className="primary-btn" disabled={readonly||busy||!ready} type="submit">{busy?'Saving preferences…':'Save privacy settings'}</button>
     {dirty&&<button className="secondary-btn" type="button" disabled={readonly||busy} onClick={discard}>Discard changes</button>}
    </div>
-   <p className={dirty?'privacy-edit-status is-dirty':'privacy-edit-status'} role="status">{!ready?'Loading saved preferences…':dirty?`Unsaved changes — ${distractors.length} distraction categories selected. Selections stay until you save or discard.`:'All changes saved.'}</p>
+   <p className={dirty?'privacy-edit-status is-dirty':'privacy-edit-status'} role="status">{!ready?'Loading saved preferences…':dirty?'Unsaved privacy preferences.':'All changes saved.'}</p>
   </form>
   {error&&<Feedback text={error}/>}<Feedback text={message}/>
  </Card>;
 }
-
-export function BrowserPairPanel(){return <BrowserSetupWizard/>;}
 
 export function StartupPanel(){
  const [enabled,setEnabled]=useState<boolean|null>(null);
@@ -386,6 +380,7 @@ export function StartupPanel(){
 }
 
 export function DevicesPanel({readonly}:{readonly:boolean}){
+ const confirm=useConfirm();
  const {data,refresh,error}=useRemote<{own_device_id:string;devices:{device_id:string;display_name:string;last_import_ms:number}[];observed_union_ms_7d:number;per_device_observed_ms_7d:Record<string,number>}>('/devices',!readonly,0);
  const [secret,setSecret]=useState('');const [bundle,setBundle]=useState('');
  const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);
@@ -402,6 +397,6 @@ export function DevicesPanel({readonly}:{readonly:boolean}){
    setSecret('');setBundle('');setMessage(`Imported ${reply.imported} sessions. ${reply.duplicates_or_excluded} duplicate or excluded records skipped. Remote records never affect local blocking.`);refresh();
   }catch(e){setMessage(String(e));}finally{setBusy(false);}}
  async function readFile(file:File|undefined){if(!file)return;try{const text=await file.text();if(text.length>650000)throw Error('Encrypted file too large');setBundle(text);setMessage('Encrypted file loaded in memory. Enter its passphrase to import.');}catch(e){setMessage(String(e));}}
- async function forget(id:string){if(!window.confirm('Forget this device and delete all its imported sessions?'))return;setBusy(true);try{await agent('DELETE','/devices/'+id);refresh();setMessage('Linked device data deleted locally.');}catch(e){setMessage(String(e));}finally{setBusy(false);}}
+ async function forget(id:string){if(!await confirm({title:'Forget this device?',description:'Delete its imported sessions from this computer. This cannot be undone.',confirmLabel:'Forget device',danger:true}))return;setBusy(true);try{await agent('DELETE','/devices/'+id);refresh();setMessage('Linked device data deleted locally.');}catch(e){setMessage(String(e));}finally{setBusy(false);}}
  return <div className="advanced-stack"><div className="double-grid"><Card title="Encrypted device exchange · manual"><p className="muted-paragraph">Exchange activity between two Digital Discipline installations using an AES-256-GCM encrypted file. No cloud account or local-network server. Choose a unique 12+ character passphrase and deliver it securely, separately from the file.</p><label>Temporary passphrase<input type="password" autoComplete="new-password" minLength={12} maxLength={300} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="Never saved"/></label><div className="device-actions"><button className="primary-btn" disabled={readonly||busy||secret.length<12} onClick={()=>void makeExport()}>Encrypt and export this device</button><button className="secondary-btn" disabled={!bundle||busy||!secret} onClick={()=>void importBundle()}>Decrypt and import bundle</button></div><FileDropzone disabled={busy||readonly} onFile={readFile}/><details><summary>Show or paste encrypted bundle text</summary><textarea className="device-bundle" value={bundle} onChange={e=>setBundle(e.target.value)} maxLength={650000} rows={3}/></details><Feedback text={message}/><p className="form-hint">Explicit offline exchange, not continuous automatic sync. Every imported session has a device-scoped ID. Duplicate imports are safe; activity overlap is unioned. If a session wasn't observed on another device, it cannot be reconstructed.</p></Card><Card title="Your devices · last 7 days"><p className="muted-paragraph">Own device ID: <code>{data?.own_device_id||'—'}</code></p><h2>{pretty(data?.observed_union_ms_7d||0)} observed union</h2><p className="form-hint">Across available local and imported device sessions. Concurrent sessions are not double-counted.</p><div className="advanced-list">{Object.entries(data?.per_device_observed_ms_7d||{}).map(([id,ms])=><div className="settings-row" key={id}><span>{id==='local'?'This computer':data?.devices.find(d=>d.device_id===id)?.display_name||'Imported device'}</span><strong>{pretty(ms)}</strong></div>)}</div><div className="small-divider"/><h4>Imported devices</h4>{data?.devices.length?data.devices.map(d=><div className="settings-row" key={d.device_id}><div><strong>{d.display_name}</strong><small>Last import {new Date(d.last_import_ms).toLocaleString()}</small></div><button className="secondary-btn" disabled={readonly||busy} onClick={()=>void forget(d.device_id)}>Forget</button></div>):<p className="muted-paragraph">No linked-device records yet.</p>}{error&&<Feedback text={error}/>}</Card></div></div>;
 }

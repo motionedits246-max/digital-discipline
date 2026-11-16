@@ -1,7 +1,7 @@
 //! Restricted, opt-in loopback transport for Chromium MV3 extensions.
 //! Desktop-only master-token endpoints enroll/revoke IDs. Ordinary websites
 //! cannot access bridge endpoints: extension Origin + explicit ID allowlist.
-use axum::{extract::{Path,State,Request},http::{header::{ORIGIN,HOST,ACCESS_CONTROL_ALLOW_ORIGIN,ACCESS_CONTROL_ALLOW_METHODS,ACCESS_CONTROL_ALLOW_HEADERS,HeaderValue},Method,StatusCode},middleware::Next,response::{IntoResponse,Response},routing::{get,post,delete},Json,Router};
+use axum::{extract::{Path,State,Request},http::{header::{ORIGIN,HOST,ACCESS_CONTROL_ALLOW_ORIGIN,ACCESS_CONTROL_ALLOW_METHODS,ACCESS_CONTROL_ALLOW_HEADERS,HeaderValue},Method,StatusCode},middleware::Next,response::{IntoResponse,Response},routing::{get,post},Json,Router};
 use serde::Deserialize;
 use serde_json::{json,Value};
 use rusqlite::params;
@@ -81,23 +81,43 @@ async fn hello(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)-
  if paired{touch(&state,id).await;}else{request_approval(&state,id);}
  Ok(Json(json!({"ok":true,"paired":paired,"transport":"loopback","schema_version":"1.0"})))
 }
-async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)->ApiResult {
+async fn sync(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(mut info):Json<crate::tracking::SyncInfo>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;
  if !is_paired(&state,id){request_approval(&state,id);return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized_open_desktop_setup"));}
+ if crate::data_lifecycle::is_private(&state.db.lock().unwrap(),now_ms()){info.recording_enabled=Some(false);info.adapter=Some("private_session".into());}
+ let profile=info.profile_id.clone();
+ let status={let db=state.db.lock().unwrap();let browser=db.query_row("SELECT browser FROM browser_pairs WHERE extension_id=?1",params![id],|r|r.get::<_,String>(0)).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+ crate::tracking::sync(&db,id,&browser,info,now_ms())};
+ status.map_err(|code|err(if code=="profile_revoked_authorize_in_desktop"{StatusCode::FORBIDDEN}else if code=="storage_failed"{StatusCode::INTERNAL_SERVER_ERROR}else{StatusCode::BAD_REQUEST},code))?;
  touch(&state,id).await;
- crate::extension_rules(State(state)).await
+ crate::extension_rules_for_profile(state,profile).await
 }
-async fn event(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(payload):Json<crate::Event>)->ApiResult {
+async fn event(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap,Json(mut payload):Json<crate::Event>)->ApiResult {
  let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;
  if !is_paired(&state,id){return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized_open_desktop_setup"));}
+ if let Some(profile)=&payload.profile_id{
+  let revoked=state.db.lock().unwrap().query_row("SELECT revoked FROM browser_instances WHERE extension_id=?1 AND profile_id=?2",params![id,profile],|r|r.get::<_,i64>(0)).unwrap_or(0)!=0;
+  if revoked{return Err(err(StatusCode::FORBIDDEN,"profile_revoked_authorize_in_desktop"));}
+ }
+ payload.extension_id=Some(id.to_owned());
  touch(&state,id).await;
  crate::event_ingest(State(state),Json(payload)).await
+}
+async fn companion_status(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)->ApiResult{
+ let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;if !is_paired(&state,id){return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized"));}
+ Ok(Json(json!({"ok":true,"version":crate::companion::version(),"preserves_profile":true})))
+}
+async fn companion_update(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)->ApiResult{
+ let id=request_id(&headers).ok_or_else(||err(StatusCode::FORBIDDEN,"invalid_origin"))?;if !is_paired(&state,id){return Err(err(StatusCode::FORBIDDEN,"extension_not_authorized"));}
+ {let db=state.db.lock().unwrap();let last=crate::features::read_setting(&db,"companion_last_update_ms").parse::<i64>().unwrap_or(0);if now_ms()-last<5000{return Err(err(StatusCode::TOO_MANY_REQUESTS,"update_already_requested"));}db.execute("INSERT OR REPLACE INTO settings VALUES('companion_last_update_ms',?1)",params![now_ms().to_string()]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;}
+ Ok(Json(crate::companion::apply(state).await.map_err(|_|err(StatusCode::CONFLICT,"update_failed_previous_files_preserved"))?))
 }
 pub fn routes()->Router<Arc<AppState>> {
  Router::new()
   .route("/bridge/hello",get(hello))
   .route("/bridge/sync",post(sync))
   .route("/bridge/event",post(event))
+  .route("/bridge/companion/status",get(companion_status)).route("/bridge/companion/update",post(companion_update))
   .layer(axum::middleware::from_fn(cors_guard))
 }
 #[cfg(test)] mod tests{
@@ -113,4 +133,10 @@ pub fn routes()->Router<Arc<AppState>> {
   db.execute("INSERT INTO browser_pairs(extension_id,browser,created_ms) VALUES(?1,'Brave',42)",params!["diakokddlmicacfakghilkajnojloick"]).unwrap();
   assert_eq!(db.query_row("SELECT browser FROM browser_pairs",[],|r|r.get::<_,String>(0)).unwrap(),"Brave");
  }
+ #[tokio::test]async fn updater_rejects_web_origins_and_unpaired_extensions_before_filesystem_work(){
+  let state=crate::ingestion_tests::state();let mut headers=axum::http::HeaderMap::new();
+  headers.insert(ORIGIN,HeaderValue::from_static("https://www.youtube.com"));assert_eq!(companion_update(State(Arc::clone(&state)),headers).await.unwrap_err().0,StatusCode::FORBIDDEN);
+  let mut headers=axum::http::HeaderMap::new();headers.insert(ORIGIN,HeaderValue::from_static("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));assert_eq!(companion_update(State(state),headers).await.unwrap_err().0,StatusCode::FORBIDDEN);
+ }
+
 }

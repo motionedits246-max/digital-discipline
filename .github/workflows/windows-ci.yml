@@ -2,7 +2,11 @@ name: Build Windows installer
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/master-spec-complete-2026-11, feature/remaining-app-features-0.5.0, feature/desktop-polish-0.5.1, feature/window-resize-0.5.2, feature/quick-panel-todos-notes]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'GITHUB-BUILD-INSTRUCTIONS.md'
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +42,14 @@ jobs:
           python-version: '3.12'
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+      - name: Record build tool versions
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          node --version
+          npm --version
+          python --version
       - name: Create ephemeral development signing certificate
         shell: pwsh
         run: |
@@ -58,6 +70,13 @@ jobs:
         run: |
           .\scripts\build-windows.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed' }
+      - name: Upload renderer failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Renderer-failure-evidence
+          path: apps/desktop/ui-test-output/**
+          if-no-files-found: ignore
       - name: Verify and hash installer
         shell: pwsh
         run: |
@@ -71,10 +90,14 @@ jobs:
             }
             Write-Host "$($exe.Name): development-signed; status $($signature.Status) (self-signed, not publicly trusted)"
           }
+          Get-ChildItem release-output -File | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          } | Set-Content release-output/SHA256SUMS.txt -Encoding utf8
       - name: Upload Windows installer, agent, extension
         uses: actions/upload-artifact@v4
         with:
-          name: DigitalDiscipline-Windows-x64-v0.3.8-DEV-SIGNED
+          name: DigitalDiscipline-Windows-x64-DEV-SIGNED
           path: release-output/*
           if-no-files-found: error
           retention-days: 30

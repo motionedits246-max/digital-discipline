@@ -1,61 +1,85 @@
-# Engineering validation record — v0.3 review candidate
+# Current build and acceptance status
 
-**Created:** 2026-11-03. **Deliverable:** complete current source tree with bundled original Markdown blueprint and Windows installer-building workflow. **Not a prebuilt Windows `.exe`.** This environment cannot invoke `rustc`/`cargo` and does not have the frontend's npm packages, so a compiled native artifact and functional Windows/browser certification are unavailable.
+Repository: `motionedits246-max/digital-discipline-windows`. Branch: `feature/master-spec-complete-2026-11`. Main and the separate website branch are unchanged by this app update.
 
-## Checks actually executed here
+Current desktop/agent: **0.4.4**. Companion: **0.3.9**. Protocol: **1.0**. Schema: **14**. [Windows run 42574830666](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666) passed for exact source `f1248d2e14837c664da29eda5ecfc94e7d6e45ef` on 9 November 2026. Documentation-only follow-ups preserve these tested binaries. The remaining roadmap is recorded in the [implementation ledger](IMPLEMENTATION-LEDGER.md).
 
-| Gate | Result | Proves / does not prove |
-|---|---|---|
-| `node --test tests/*.test.mjs` | **14 passed** | 8 browser URL/DNR tests, 3 notification-policy tests, 3 AES-256-GCM bundle tests. Does not prove real Chromium. |
-| `python tests/migration-contract.py` | **3 passed** | Executes extracted SQL from `main.rs` / `features.rs` through schema v7 including legacy upgrade, plus device table uniqueness. Does not prove Rust compiles. |
-| `node --check` on extension scripts | **Passed** | JS parse only. |
-| Global TypeScript `transpileModule` diagnostics | **0 syntax diagnostics** | Syntax only; no `tsc --noEmit`, React typechecking or Vite bundling. |
-| JSON manifest/config parsing | **Passed** | Valid JSON, not complete runtime validation. |
-| Windows Rust/Tauri build and execution | **Not run** | Required for any production-release claim. |
-| Chromium real extension and OS integration | **Not run** | Required for accurate enforcement and counting claims. |
+## 0.4.4 changes
 
-## v0.3 implementation delta over v0.2
+- Full GUI and popout modes enforce a 960×640 logical-pixel minimum, capped by the usable work area on small/high-DPI displays. Compact modes restore their own limits. Taskbar-aware positioning and monitor/DPI changes keep the workspace reachable.
+- Service suggestions, new local companion connection requests/approvals and new grouped inbox items use one compact notification surface.
+- Unattended overlays close within three seconds including exit animation. Interaction holds them open. Native deactivation or an outside click closes open dropdowns and starts a new three-second dismissal period, including when DOM focus remains stale.
+- An engaged notice is not replaced by another; repeated pending requests and grouped updates do not create repeated overlays. Timeout leaves the underlying service/inbox record available.
+- Extension authorization, browser recording consent and individual AI approval remain separate explicit actions. Browser events refer to the local companion, not website account logins. Presentation Mode, private sessions and tracking pause suppress these desktop overlays.
 
-- D4: optional local historical prediction with sample-size and hold-out calibration gates (`agent/src/prediction.rs`). Never assert forecasting skill without evidence.
-- D6: manual AES-256-GCM encrypted bundle import/export (`apps/desktop/src/secureBundle.mjs`, `agent/src/devices.rs`); bounded, repeatable device-scoped ingestion, deduplication and overlap-unioned reporting. This is not automatic sync.
-- B4/B7: user-editable app/category shared budgets, rule exceptions, dry-run preview, and local audit of policy transitions (`agent/src/analytics.rs`, `agent/src/main.rs`, Automations UI).
-- C7: opt-in notification DND, quiet hours including overnight windows, cooldown (`extension/src/notifications.js`, popup).
-- D1: configurable consecutive-play gap. D2: user snooze/dismiss for goal hints with audit.
-- C5: requested system-wide Ctrl+Shift+D invocation registered using Tauri global shortcut on Windows; conflicts fail open, Windows behavior not tested.
-- A5: searchable recorded video source IDs; A6: gap-aware switch counting; A7: best-effort per-profile telemetry labeling and up to 16 paired extension origins/browser; D8: exact local-hour interval splitting, with coverage caveats.
-- SQLite schema upgraded to v7. Current migrations use `PRAGMA user_version` and preserve older sessions via `ALTER TABLE`.
+## Verified checks
 
-## Explicit limitations and precautions
+| Check | Evidence for exact 0.4.4 source |
+|---|---|
+| JavaScript policy/queue/update/notice tests | 60 passed |
+| Windows Rust agent, including DPAPI | 69 passed |
+| Native window sizing policy | 3 passed, including 100–200% scaling calculations |
+| SQLite migration checks | 8 passed |
+| Privileged desktop route test | 1 passed |
+| Renderer interactions in Microsoft Edge | All 15 passed |
+| TypeScript/Vite production frontend | Passed |
+| Real agent lifecycle/workflows, private restart, snapshot, companion update/enrollment | Passed |
+| Tauri/NSIS installer and development signature checks | Passed |
+| Downloaded artifact and every internal checksum | Independently verified |
 
-1. **No unsigned or signed installer is delivered**; `scripts/build-windows.ps1` and `.github/workflows/windows-ci.yml` are provided to produce an **unsigned** NSIS installer on Windows. Compiler and integration defects may be found by that build.
-2. **Not a completed full 32-feature product**: some features are intentionally limited or partial; see `docs/REVIEW-ACCEPTANCE.md` for a requirement-by-requirement audit.
-3. Per-profile Windows foreground attribution is best effort and cannot prove identity if concurrent browser windows/profiles confuse the extension/native process association. Missing observations remain unattributed.
-4. Cross-device history uses a manual user-operated encrypted file; no automatic background sync. Do not reuse weak passphrases or send an unencrypted raw agent API export to others.
-5. The optional forecaster is empirically gated and may be unavailable indefinitely. Its calibration check does not establish scientific validity or generalization.
-6. The agent API is restricted to authenticated loopback; same-user malicious code is outside its threat boundary. Extension policy leases expire if the bridge/agent fails. Strict Focus is browser-only and reversible.
-7. Browser video watch-time is estimated from qualified visible media progression only. YouTube/Instagram markup and playback APIs are changing external dependencies and must be exercised on target browsers.
-8. App classification is basename-based unless the user explicitly authorizes per-subject AI processing; signature and publisher verification are not implemented. No window titles, keystrokes, clipboard, screen capture or document paths are collected.
-9. Export is capped to 50k local sessions, and manual device exchange to 1k recent sessions. Neither is a comprehensive unlimited database backup.
-10. 24-hour CPU/RAM/power benchmarks, sleep/wake, high-DPI accessibility, installer uninstall, startup, and real-model/provider tests have not been performed.
+Renderer tests use native-IPC fixtures. Actual installed Windows resize/focus behavior on physical monitors, owner-installed Brave playback/reload and provider calls still require runtime acceptance. CI executables use self-signed development certificates and do not have publicly trusted Windows publisher signing. This update does not complete the entire master specification.
 
-## Windows commands
+## Verified 0.4.4 download
 
-Open PowerShell in the extracted repository root. Install Rust MSVC, Visual Studio C++ Build Tools + Windows SDK, Node.js 22+, npm and WebView2 first.
+[Complete Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666/artifacts/13655195843): DigitalDiscipline-MasterSpec-Branch-v0.4.4-DEV-SIGNED, 14,260,126 bytes.
 
-```powershell
-.\scripts\build-windows.ps1
-```
+- Installer: `Digital Discipline_0.4.4_x64-setup.exe`, 5,981,800 bytes. SHA-256: `cee81d66fe23008bc8042de4e762210fc696898ef08575dee5f020298497f9d3`.
+- Artifact ZIP SHA-256: `84a14a8a16f7ebea8b7389a848cc1d506fa41dd536d29da9ce9964de713ed3b2`.
+- Downloaded bytes match the Actions digest and every entry in SHA256SUMS.txt. The installer was also saved under the equivalent download filename `Digital-Discipline-0.4.4-x64-setup.exe`; its bytes are unchanged.
 
-Only **if the script exits successfully** look under `release-output/` for the unsigned Windows installer, agent executable and `extension.zip`. For developer mode use `./scripts/dev-windows.ps1`. To verify the local tests separately:
+Quit the old application through its tray menu before installing the update. Existing pairing, profile and recording preferences are retained. The companion code remains at 0.3.9; the 0.4.3 upgrade instructions below apply when an older companion is still installed.
 
-```powershell
-$testFiles = @(Get-ChildItem -Path tests -Filter '*.test.mjs' | ForEach-Object { $_.FullName })
-node --test $testFiles
-python tests/migration-contract.py
-cargo test -p digital-discipline-agent
-cd apps\desktop
-npm install
-npm run build
-```
+## Previous verified builds
 
-Do not interpret passing unit tests as evidence of a successful Windows release. Sign only after the owner runs the acceptance checklist and security review.
+The previous 0.4.3 build used exact source `55bb568299fe6d76305c352808bc1b5c469cec19` on 8 November 2026. The following records describe those earlier binaries.
+
+## 0.4.3 changes and local verification
+
+Custom confirmation dialogs replace native browser prompts. Closing the workspace animates into the pill. A compact service overlay offers a category without taking focus and disappears after about six seconds when unattended; timeout never approves an LLM call.
+
+Saved/manual categories and small local rules run before Windows File Description/Product Name inference. Optional public-root metadata and DuckDuckGo summaries have a shared 20-request daily cap. Public lookups are off until opted in and never send full URLs or window/executable paths. Pollinations and the other LLM providers need a saved key, classifier consent and individual service approval. A configuration change invalidates pending service approval; uncertain approved results retain the existing bounded review/retry limits.
+
+The companion can update from the installed desktop bundle and reload the same extension. Browser setup supports registering an existing custom folder; user data, profile ID, consent and pending events stay in browser storage. Owned-file rollback and dependency packaging checks cover the update. A one-time Reload of 0.3.8 is necessary to get its new button; removing the extension is unnecessary.
+
+| Check | Evidence for 0.4.3 |
+|---|---|
+| JavaScript policy/queue/update tests | 53 passed locally |
+| Rust agent | 69 passed on Windows including DPAPI; 68 passed locally on Linux |
+| SQLite legacy migrations | 8 passed |
+| TypeScript/production frontend | Passed |
+| Renderer interactions | All 12 passed in Microsoft Edge on Windows |
+| Windows agent/runtime, Tauri and NSIS | Passed; managed companion update retained enrollment |
+| Privileged routes and migration checks | 1 route test and 8 SQLite checks passed |
+| Installer signature and upload | Development signature and checksums verified; artifact uploaded |
+
+No live provider key, owner browsing history or owner-installed Brave update was used in these local checks. Actual Windows app-description extraction, native popup placement/DPI/focus, installed browser reload and long resource soak still require runtime acceptance. Executables from CI use self-signed development certificates, without Windows publisher trust.
+
+## Verified 0.4.3 download
+
+[Complete Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42485544736/artifacts/13619277149): DigitalDiscipline-MasterSpec-Branch-v0.4.3-DEV-SIGNED, 14,235,816 bytes.
+
+- Installer: Digital Discipline_0.4.3_x64-setup.exe, 5,969,400 bytes. SHA-256: 6eef543aaafa4c842dd5d46f6791d408bebab8262252d85e35165af12fa9a20c.
+- Artifact ZIP SHA-256: 8aa0b36c001ec6cace46c718f8196cff7850a986236afff2258dc33eb9c22b3f.
+- Downloaded bytes match the Actions digest and every entry in SHA256SUMS.txt. The companion ZIP reports 0.3.9 and contains the updater, playback model and queue policy.
+
+Windows checks cover the real agent lifecycle and file update/enrollment. Renderer checks use a native-IPC fixture; they do not establish installed Brave reload, actual Hive description extraction or physical monitor/focus acceptance.
+
+For an existing 0.3.8 companion, prepare its existing folder through desktop browser setup when needed, then click Reload on that same extension once to load the new update button. Future refreshes use Update & reload in its popup. Refresh already-open video tabs after reloading so the current content script starts there.
+
+## Earlier verified installer — 0.4.2
+
+[Run 42370611230](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230) succeeded for `ea1c89a65acc00f65497bd22240461ae7ff21951`: 51 JavaScript, 56 Windows Rust, 8 migration, 1 privileged-route and 7 Edge renderer checks, expanded real agent lifecycle/workflows and Tauri/NSIS packaging.
+
+[Complete 0.4.2 bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42370611230/artifacts/13573294448). Installer SHA-256: `a6281a93e357956372ce791780d29ac961b50d86b55cb75d981a893015ff0dc2`. Artifact ZIP SHA-256: `5d0f7f6f5276c744252fd64551f7791def69357c6e903061b49a9cfe25bc343d`. Downloaded bytes and all internal checksums were independently verified on 8 November.
+
+Full encrypted restore, trusted application updating, automatic device sync, earned entertainment, planner/correction/passive-learning and other expanded roadmap items remain open. Native application intervention is warning-only. Schema 14 is additive; older agents reject newer schemas instead of modifying them.

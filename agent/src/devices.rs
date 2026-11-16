@@ -5,7 +5,7 @@
 use super::{AppState,ApiResult,err,now_ms};
 use axum::{extract::State,http::StatusCode,Json};
 use rusqlite::{params,Connection};
-use serde::Deserialize;
+use serde::{Deserialize,Serialize};
 use serde_json::{json,Value};
 use std::{collections::BTreeMap,sync::Arc};
 use uuid::Uuid;
@@ -26,7 +26,7 @@ pub fn migrate(db:&Connection)->rusqlite::Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize,Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Record{pub session_id:String,pub start_ms:i64,pub end_ms:i64,pub app:String,pub idle:bool,pub domain:Option<String>}
 #[derive(Deserialize)]
@@ -50,7 +50,7 @@ pub async fn export(State(s):State<Arc<AppState>>)->ApiResult {
 }
 
 fn valid_name(s:&str)->bool{!s.is_empty()&&s.len()<=80&&!s.chars().any(char::is_control)}
-fn record_valid(r:&Record,now:i64)->bool{
+pub(crate) fn record_valid(r:&Record,now:i64)->bool{
     Uuid::parse_str(&r.session_id).is_ok() && r.end_ms>r.start_ms && r.start_ms>now-WINDOW_MS-3_600_000 &&
     r.start_ms<=now+300_000 && r.end_ms<=now+300_000 && r.end_ms-r.start_ms<=WINDOW_MS &&
     !r.app.is_empty() && r.app.len()<=120 && r.app.chars().all(|c|!c.is_control() && c!='/' && c!='\\') &&
@@ -71,7 +71,7 @@ pub async fn import(State(s):State<Arc<AppState>>,Json(p):Json<Import>)->ApiResu
     let tx=db.transaction().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     let mut inserted=0;
     for r in &p.records {
-        if super::features::excluded(&tx,&r.app,r.domain.as_deref()){continue;}
+        if super::features::excluded(&tx,&r.app,r.domain.as_deref())||crate::data_lifecycle::rejection(&tx,r.start_ms,Some(&format!("app:{}",r.app.to_ascii_lowercase()))).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?.is_some()||r.domain.as_ref().is_some_and(|host|crate::data_lifecycle::rejection(&tx,r.start_ms,Some(&format!("domain:{host}"))).map_or(true,|r|r.is_some())){continue;}
         inserted+=tx.execute("INSERT OR IGNORE INTO device_sessions(device_id,session_id,start_ms,end_ms,app,idle,domain) VALUES(?1,?2,?3,?4,?5,?6,?7)",
             params![p.source_device_id,r.session_id,r.start_ms,r.end_ms,r.app,r.idle as u8,r.domain])
             .map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
@@ -108,7 +108,7 @@ pub async fn list(State(s):State<Arc<AppState>>)->ApiResult{
     let total=crate::policy::union_ms(all,cutoff,now_ms());
     Ok(Json(json!({"ok":true,"own_device_id":super::features::read_setting(&db,"device_id"),"devices":devices,
         "observed_union_ms_7d":total,"per_device_observed_ms_7d":breakdown,
-        "note":"Time is unioned across devices to avoid overlapping minutes. Manual encrypted exchange only; missing devices or hours are unknown."})))
+        "note":"Time is unioned across devices to avoid overlapping minutes. Device reports use encrypted imports or configured folder sync. Missing devices and hours are unknown."})))
 }
 
 pub async fn forget(State(s):State<Arc<AppState>>,axum::extract::Path(id):axum::extract::Path<String>)->ApiResult {
@@ -117,6 +117,7 @@ pub async fn forget(State(s):State<Arc<AppState>>,axum::extract::Path(id):axum::
     let tx=db.transaction().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     tx.execute("DELETE FROM device_sessions WHERE device_id=?1",params![id]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     tx.execute("DELETE FROM linked_devices WHERE device_id=?1",params![id]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
+    tx.execute("UPDATE sync_peers SET revoked=1 WHERE id=?1",params![id]).map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     tx.commit().map_err(|_|err(StatusCode::INTERNAL_SERVER_ERROR,"storage_failed"))?;
     Ok(Json(json!({"ok":true,"forgotten":true})))
 }

@@ -1,6 +1,6 @@
 [package]
 name = "digital-discipline-agent"
-version = "0.3.8"
+version = "0.5.3"
 edition = "2021"
 
 [dependencies]
@@ -8,6 +8,7 @@ axum = { version = "0.8", features = ["json"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
 hex = "0.4"
 rand = "0.8"
+ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -19,4 +20,4 @@ uuid = { version = "1", features = ["v4"] }
 zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_Security_Cryptography", "Win32_Security"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_ProcessStatus", "Win32_Security_Cryptography", "Win32_Security"] }

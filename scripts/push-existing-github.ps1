@@ -5,7 +5,7 @@ Requires Git for Windows and GitHub CLI (gh), and interactive user authenticatio
 No PAT, token, or password should be pasted into this script.
 #>
 param(
-  [string]$Repo = 'Priyanshu945628/digital-discipline-windows',
+  [string]$Repo = 'motionedits246-max/digital-discipline-windows',
   [switch]$SkipDownload
 )
 $ErrorActionPreference = 'Stop'

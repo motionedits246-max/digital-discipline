@@ -31,3 +31,6 @@ __pycache__/
 *.pyc
 
 /github-build-output/
+
+/apps/desktop/ui-test-output/
+/apps/desktop/playwright-report/

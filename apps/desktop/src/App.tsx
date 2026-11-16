@@ -1,17 +1,39 @@
+import {AttentionPanel,FocusPresets,SyncPanel} from './ReleaseFeatures';
+import {EarnedTimePanel, HistoryCorrections, PlannerPanel} from './ProgressFeatures';
+import {ServiceReviewPanel} from './ServiceReviewPanel';
+import {useServiceHints} from './ServiceHint';
+import {useConfirm} from './ConfirmDialog';
+import {InboxPanel} from './InboxPanel';
+import {ScopedExceptionsPanel} from './ScopedExceptionsPanel';
+import {ResumeCard} from './ResumeCard';
+import {QuickPanel} from './QuickPanel';
+import {useQuickPanelData} from './useQuickPanelData';
+import {FocusWorkflowPanel} from './FocusWorkflowPanel';
+import {SettingsWorkspace,type SettingsSection} from './SettingsWorkspace';
+import {TrackingDoctor} from './TrackingDoctor';
+import {createRefreshCoordinator} from './refreshCoordinator.mjs';
+import {DatePicker} from './DatePicker';
+import {PresentationShield} from './PresentationShield';
 import {CustomSelect} from './CustomSelect';
-import {useCallback,useEffect,useMemo,useState} from 'react';
-import type {FormEvent,ReactNode,PointerEvent} from 'react';
-import {agent,isTauri,presentation,snapshot,dragWindow,getBrowserPairState} from './api';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import type {FormEvent,ReactNode,PointerEvent,KeyboardEvent as ReactKeyboardEvent} from 'react';
+import {agent,exportActivity,setPrivacyMask,isTauri,presentation,snapshot,dragWindow,getBrowserPairState,setServiceHintWindow} from './api';
+import type {WindowLayout,WindowMode as Mode} from './api';
+import {fitsLayout,viewportSize,waitForLayout} from './windowViewport';
 import {BrowserSetupWizard} from './BrowserSetupWizard';
 import {GuidedTour} from './GuidedTour';
+import {NetworkPrivacyStatus} from './NetworkPrivacyStatus';
+import {TaskWorkspacePanel} from './TaskWorkspacePanel';
+import {ResourceHealthPanel} from './ResourceHealthPanel';
+import desktopPackage from '../package.json';
 import {makeDemo} from './demo';
 import {Icon} from './icons';
-import {GoalsPanel,AutomationsPanel,InsightsPanel,VideoHistoryPanel,CategoryPanel,CoachPanel,PrivacyPanel,ClassificationsPanel,BrowserPairPanel,StartupPanel,DevicesPanel} from './Advanced';
+import {GoalsPanel,AutomationsPanel,InsightsPanel,VideoHistoryPanel,CategoryPanel,CoachPanel,ClassificationsPanel,DevicesPanel} from './Advanced';
 import type {Day,Page,Rule,Session,Snapshot} from './types';
 import {pages} from './types';
 
-type Mode='pill'|'quick'|'full'|'popout';
-const navIcons=['overview','activity','history','video','target','shield','branch','insights','sparkle','branch','settings'];
+type Command = {id:string; label:string; icon:string; run:()=>void};
+const navIcons=['overview','activity','history','video','target','shield','branch','insights','sparkle','branch','settings','inbox','target','activity'];
 const stage:Partial<Record<Page,string>>={'AI Coach':'Opt-in'};
 const ms=(n:number)=>Number.isFinite(n)?n:0;
 function localISO(d:Date){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
@@ -54,93 +76,256 @@ function FormRule({onSubmit,readonly}:{onSubmit:(p:{name:string;domain:string;pa
 }
 
 export default function App(){
+ const confirm=useConfirm();
+ const quickPanelData=useQuickPanelData();
  const [mode,setMode]=useState<Mode>(isTauri?'pill':'full');const [page,setPage]=useState<Page>('Overview');
+ const [settingsSection,setSettingsSection]=useState<SettingsSection>('general');
  const [setupActive,setSetupActive]=useState(false);
+ const [liteMode,setLiteMode]=useState(()=>{try{return window.localStorage.getItem('dd:lite-mode')==='true';}catch{return false;}});
+ const [presentationPrivacy,setPresentationPrivacy]=useState(()=>{try{return window.localStorage.getItem('dd:presentation-privacy')==='true';}catch{return false;}});
+ useEffect(()=>{try{window.localStorage.setItem('dd:lite-mode',String(liteMode));}catch{}document.body.classList.toggle('dd-lite-mode',liteMode);return()=>document.body.classList.remove('dd-lite-mode');},[liteMode]);
+ useLayoutEffect(()=>{try{window.localStorage.setItem('dd:presentation-privacy',String(presentationPrivacy));}catch{}document.body.classList.toggle('dd-presentation-mode',presentationPrivacy);void setPrivacyMask(presentationPrivacy).catch(()=>{});return()=>document.body.classList.remove('dd-presentation-mode');},[presentationPrivacy]);
+
  const [tourActive,setTourActive]=useState(false);
  const [data,setData]=useState<Snapshot|null>(null);const [demo,setDemo]=useState(!isTauri);const [error,setError]=useState('');
  const [message,setMessage]=useState('');const [selected,setSelected]=useState<Session|null>(null);
- const [commandOpen,setCommandOpen]=useState(false);const [commandQuery,setCommandQuery]=useState('');
+ const [commandOpen,setCommandOpen]=useState(false);const [commandQuery,setCommandQuery]=useState('');const [commandIndex,setCommandIndex]=useState(0);const commandReturnFocus=useRef<HTMLElement|null>(null);
+ useLayoutEffect(()=>{if(presentationPrivacy){setCommandOpen(false);window.dispatchEvent(new Event('dd:privacy-mask'));}},[presentationPrivacy]);
  const [historySessions,setHistorySessions]=useState<Session[]>([]);
+ const [historyRevision,setHistoryRevision]=useState(0);
  const [day,setDay]=useState(localISO(new Date()));const [heatMetric,setHeatMetric]=useState<'active_ms'|'development_ms'|'entertainment_ms'>('active_ms');const [recovery,setRecovery]=useState(20);
  const sample=useMemo(()=>makeDemo(),[]);const shown=demo?sample:data;
- const offline=!demo&&!data;
- const startTour=()=>{setSetupActive(false);setPage('Overview');setMode('full');void presentation('full');setTourActive(true);};
+ const offline=!demo&&(!data||!!error);
+ useEffect(()=>{if(!demo&&!offline)void agent('POST','/privacy/presentation',{enabled:presentationPrivacy}).catch(()=>{});},[demo,offline,presentationPrivacy]);
+ useServiceHints(!demo&&!offline&&!shown?.notifications_muted&&!presentationPrivacy&&!shown?.private_session?.active&&!shown?.tracking_paused,liteMode);
+ useEffect(()=>{if(isTauri&&(presentationPrivacy||shown?.notifications_muted||shown?.private_session?.active||shown?.tracking_paused))void setServiceHintWindow(false).catch(()=>{});},[presentationPrivacy,shown?.notifications_muted,shown?.private_session?.active,shown?.tracking_paused]);
+ const currentMode=useRef(mode);
+ const modeQueue=useRef(Promise.resolve(true));
+ const currentLayout=useRef<WindowLayout|null>(null);
+ const [layout,setLayout]=useState<WindowLayout|null>(null);
+ const [viewport,setViewport]=useState(viewportSize);
+ const lite=useRef(liteMode);
+ lite.current=liteMode;
+ const visibleMode=layout&&!fitsLayout(layout,viewport)?'pill':mode;
+ useLayoutEffect(()=>{
+   const resize=()=>setViewport(viewportSize());
+   window.addEventListener('resize',resize);
+   resize();
+   return()=>window.removeEventListener('resize',resize);
+ },[]);
+
+ const rememberLayout=useCallback((confirmed:WindowLayout|null)=>{
+   currentLayout.current=confirmed;
+   setLayout(confirmed);
+   setViewport(viewportSize());
+ },[]);
+ const changeMode=useCallback((next:Mode)=>{
+   const request=modeQueue.current.then(async()=>{
+     const previous=currentMode.current;
+     if(previous===next&&(!currentLayout.current||fitsLayout(currentLayout.current)))return true;
+     const animate=!lite.current&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+     try {
+       if(next==='pill')window.dispatchEvent(new Event('dd:surface-collapse'));
+       if(animate&&next==='pill'){
+         document.body.classList.add('dd-collapsing');
+         await new Promise(resolve=>window.setTimeout(resolve,180));
+       }
+       let confirmed=await presentation(next);
+       if(confirmed&&!await waitForLayout(confirmed)){
+         confirmed=await presentation(next);
+         if(confirmed&&!await waitForLayout(confirmed))throw Error('The window could not reach its required size.');
+       }
+       currentMode.current=next;
+       rememberLayout(confirmed);
+       setMode(next);
+       if(animate){
+         document.body.classList.add('dd-mode-entering');
+         window.setTimeout(()=>document.body.classList.remove('dd-mode-entering'),180);
+       }
+       return true;
+     }catch(error){
+       if(isTauri){
+         const restored=await presentation(previous).catch(()=>currentLayout.current);
+         rememberLayout(restored);
+       }
+       setMessage(String(error));
+       return false;
+     }finally{
+       document.body.classList.remove('dd-collapsing');
+     }
+   });
+   modeQueue.current=request;
+   return request;
+ },[rememberLayout]);
+
+ const startTour=async()=>{
+   if(!await changeMode('full'))return;
+   setSetupActive(false);
+   setPage('Overview');
+   setTourActive(true);
+ };
  const finishTour=()=>{setTourActive(false);try{window.localStorage.setItem('dd:guided-tour-complete-v1','true');}catch{}};
- const read=useCallback(async()=>{try{const r=await snapshot();setData(r);setError('');}catch(e){setData(null);setError(e instanceof Error?e.message:'Agent unavailable');}},[]);
- useEffect(()=>{if(demo)return;void read();const id=window.setInterval(()=>void read(),mode==='pill'?5_000:3_000);return()=>clearInterval(id);},[demo,read,mode]);
+ const controller=useMemo(()=>createRefreshCoordinator(async()=>{const compact=currentMode.current==='pill'||currentMode.current==='quick';return {snapshot:await snapshot(compact),compact};},({snapshot:r,compact})=>{setData(prev=>compact&&prev?{...prev,current:r.current,metrics:r.metrics,coverage:r.coverage,observed_at_ms:r.observed_at_ms,tracking_paused:r.tracking_paused,private_session:r.private_session,notifications_muted:r.notifications_muted,profile_receipts:r.profile_receipts,focus_goal_hint:r.focus_goal_hint,browser_connected:r.browser_connected,focus:r.focus}:{...r,heatmap:prev?.heatmap||[]});setError('');},e=>setError(e instanceof Error?e.message:'Agent unavailable')),[]);
+ const read=useCallback((force=false)=>controller.refresh(force),[controller]);
+ useEffect(()=>{if(demo)return;void read(true);const id=window.setInterval(()=>void read(),liteMode?12_000:mode==='pill'?5_000:3_000);return()=>clearInterval(id);},[demo,read,mode,liteMode]);
  useEffect(()=>{
    if(!isTauri)return;
    let cancelled=false,attempt=0;
-   const openSetup=()=>{if(!cancelled){setSetupActive(true);setMode('full');void presentation('full');}};
+   const openSetup=async()=>{
+     if(!cancelled&&await changeMode('full')&&!cancelled)setSetupActive(true);
+   };
    const check=async()=>{
      try{
        const result=await getBrowserPairState();
-       if(!cancelled && result.pairs.length===0)openSetup();
-       else if(!cancelled){let complete=false;try{complete=window.localStorage.getItem('dd:guided-tour-complete-v1')==='true';}catch{}if(!complete){setMode('full');void presentation('full');setTourActive(true);}}
+       if(!cancelled && result.pairs.length===0)await openSetup();
+       else if(!cancelled){
+         let complete=false;try{complete=window.localStorage.getItem('dd:guided-tour-complete-v1')==='true';}catch{}
+         if(!complete&&await changeMode('full')&&!cancelled)setTourActive(true);
+       }
      }catch{
        if(cancelled)return;
        if(attempt++<8)window.setTimeout(()=>{if(!cancelled)void check();},1200);
-       else openSetup();
+       else await openSetup();
      }
    };
    void check();
    return()=>{cancelled=true;};
- },[]);
+ },[changeMode]);
+ useEffect(()=>{
+  if(demo||mode==='pill'||mode==='quick'||!['Overview','Activity History'].includes(page))return;
+  let alive=true,busy=false;
+  const report=async()=>{if(busy)return;busy=true;try{const r=await agent<{heatmap:Day[]}>('GET','/reports/heatmap');if(alive)setData(prev=>prev?{...prev,heatmap:r.heatmap}:prev);}catch{}finally{busy=false;}};
+  void report();const timer=setInterval(()=>void report(),liteMode?120000:60000);return()=>{alive=false;clearInterval(timer);};
+ },[demo,mode,page,liteMode]);
+ const receiptSignature=(data?.profile_receipts||[]).map(r=>r.extension_id+':'+r.profile_id+':'+r.accepted_at_ms).join(',');
+ useEffect(()=>{if(demo||offline||presentationPrivacy||mode==='pill'||mode==='quick'||!data||!['Overview','Video Intelligence'].includes(page))return;const receipts=data.profile_receipts||[];if(receipts.length)void agent('POST','/tracking/doctor/rendered',{receipts}).catch(()=>{});},[receiptSignature,page,demo,offline,presentationPrivacy,mode]);
  useEffect(()=>{if(demo){setHistorySessions(sample.sessions);return;}if(page!=='Activity History')return;
    let alive=true;
    void agent<{sessions:Session[]}>('GET',`/sessions/${day}`).then(x=>{if(alive)setHistorySessions(x.sessions);}).catch(()=>{if(alive)setHistorySessions([]);});
    return()=>{alive=false;};
- },[demo,day,page,sample,data?.observed_at_ms]);
+ },[demo,day,page,sample,data?.observed_at_ms,historyRevision]);
+ const openSearch=useCallback(async(forceFull=false)=>{
+   const source=currentMode.current;
+   if((forceFull||source==='pill'||source==='quick')&&!await changeMode('full'))return;
+   commandReturnFocus.current=document.activeElement as HTMLElement|null;
+   setCommandQuery('');
+   setCommandIndex(0);
+   setCommandOpen(true);
+ },[changeMode]);
  useEffect(()=>{
    const handle=(event:KeyboardEvent)=>{
      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){
-       event.preventDefault();setCommandQuery('');setCommandOpen(true);
-       if(mode==='pill'||mode==='quick'){setMode('full');void presentation('full');}
+       event.preventDefault();
+       if(!event.repeat)void openSearch();
      }else if(event.key==='Escape')setCommandOpen(false);
    };
    window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);
- },[mode]);
+ },[openSearch]);
  useEffect(()=>{
    if(!isTauri)return;
    let disposed=false;let unsubscribe:undefined|(()=>void);
+   const open=async(page:Page)=>{
+     if(!await changeMode('full')||disposed)return;
+     setSetupActive(false);
+     if(page==='Settings & Privacy')setSettingsSection('browser');
+     setPage(page);
+   };
    void import('@tauri-apps/api/event').then(async({listen})=>{
-     const openCommand=await listen('dd:global-command',()=>{setMode('full');setCommandQuery('');setCommandOpen(true);});
-     const openDashboard=await listen('dd:open-dashboard',()=>{setSetupActive(false);setMode('full');setPage('Overview');});
-     return ()=>{openCommand();openDashboard();};
+     const openCommand=await listen('dd:global-command',()=>void openSearch(true));
+     const togglePrivacy=await listen('dd:toggle-privacy',()=>setPresentationPrivacy(v=>!v));
+     const openNotice=await listen<Page>('dd:open-notice-page',event=>{
+       if(['Settings & Privacy','Inbox'].includes(event.payload))void open(event.payload);
+     });
+     const openReview=await listen('dd:open-service-review',()=>void open('Activity History'));
+     const collapse=await listen('dd:collapse-request',()=>void changeMode('pill'));
+     const openDashboard=await listen('dd:open-dashboard',()=>void open('Overview'));
+     const resize=await listen<WindowLayout>('dd:window-layout',event=>{
+       if(event.payload.mode===currentMode.current)rememberLayout(event.payload);
+     });
+     return ()=>{openCommand();openDashboard();togglePrivacy();openReview();openNotice();collapse();resize();};
    }).then(fn=>{if(disposed)fn();else unsubscribe=fn;}).catch(()=>{});
    return()=>{disposed=true;unsubscribe?.();};
- },[]);
- const changeMode=async(next:Mode)=>{setMode(next);try{await presentation(next);}catch(e){setMessage(String(e));}};
+ },[changeMode,openSearch,rememberLayout]);
  const beginDrag=(event:PointerEvent<HTMLElement>)=>{
-   const target=event.target as HTMLElement;
-   if(target.closest('button,a,input,textarea,select,[role="button"]'))return;
-   if(event.button===0)void dragWindow().catch(()=>{});
+   const target=event.target as Element;
+   if(event.button!==0||target.closest('button,a,input,textarea,select,label,summary,[contenteditable],[role="button"],[role="listbox"],[data-quick-panel-tools]'))return;
+   void dragWindow().catch(()=>{});
  };
- const run=async(action:()=>Promise<unknown>,success:string)=>{if(demo){setMessage('Sample preview only. Run the Windows agent to make changes.');return;}try{await action();setMessage(success);await read();}catch(e){setMessage(`Action failed: ${String(e)}`);}};
+ const run=async(action:()=>Promise<unknown>,success:string)=>{if(demo){setMessage('Sample preview only. Run the Windows agent to make changes.');return;}try{await action();setMessage(success);await read(true);}catch(e){setMessage(`Action failed: ${String(e)}`);}};
  const createRule=async(p:{name:string;domain:string;path_prefix:string|null;minutes:number|null;budget_minutes:number|null})=>{await run(()=>agent('POST','/rules',p),'Rule saved. Browser enforcement syncs within one minute.');};
  const disableRule=(id:string)=>{void run(()=>agent('DELETE',`/rules/${id}`),'Rule disabled. Browser enforcement will sync.');};
  const pause=()=>{if(!shown)return;void run(()=>agent('POST','/tracking/pause',{paused:!shown.tracking_paused}),shown.tracking_paused?'Tracking resumed':'Tracking paused (browser rules remain active).');};
  const snoozeHint=(choice:'snooze_10m'|'dismiss_focus')=>void run(()=>agent('POST','/focus/hint/choice',{choice}),choice==='snooze_10m'?'Reminder snoozed for up to 10 minutes.':'Reminder dismissed for this focus session.');
- const saveExport=async()=>{if(demo)return setMessage('Export requires live local data.');try{const out=await agent<{truncated?:boolean}>('GET','/export');const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='digital-discipline-export.json';link.click();URL.revokeObjectURL(url);setMessage(out.truncated?'Local export created, but older records were truncated at the 50,000-row safety limit.':'Export created locally.');}catch(e){setMessage(String(e));}};
- const purge=()=>{if(!window.confirm('Permanently delete all locally recorded activity and video history? Your rules will remain. This cannot be undone.'))return;void run(()=>agent('DELETE','/data'),'History deleted. Rules preserved.');};
+ const [exportBusy,setExportBusy]=useState(false);
+ const saveExport=async()=>{if(demo||exportBusy)return;setExportBusy(true);setMessage('Creating a consistent local snapshot…');try{const out=await exportActivity();setMessage(`Exported ${out.rows.toLocaleString()} records to ${out.saved_path}. Provider keys are excluded.`);}catch(e){setMessage(String(e));}finally{setExportBusy(false);}};
+ const purge=async()=>{if(!await confirm({title:'Delete tracked history?',description:'Permanently delete locally recorded activity, videos and remembered AI categories. Your rules and manual category choices remain. This cannot be undone.',confirmLabel:'Delete history',danger:true}))return;void run(()=>agent('DELETE','/data'),'History deleted. Rules preserved.');};
  const selectedDateSessions=historySessions.filter(s=>{const start=new Date(day+'T00:00:00').getTime();return s.end_ms>=start && s.start_ms<new Date(start).setDate(new Date(start).getDate()+1);});
  const selectDay=(d:string)=>{setDay(d);setPage('Activity History');};
- const pillText=shown?.tracking_paused?'Paused':shown?.current?appLabel(shown.current.app):'Waiting for activity';
+ const shortFeedHint=!presentationPrivacy&&!offline&&shown?.short_feed_hint;
+ const pillText=presentationPrivacy?'Activity hidden':shown?.private_session?.active?'Private session':shown?.tracking_paused?'Paused':shortFeedHint?'Short-feed check-in':shown?.current?appLabel(shown.current.app):'Waiting for activity';
  const pillCount=shown?.metrics.qualified_plays??0;
- const palette=pages.filter(p=>p.toLowerCase().includes(commandQuery.trim().toLowerCase()));
+ useLayoutEffect(()=>{document.querySelector('.scroll-content')?.scrollTo({top:0});},[page,settingsSection]);
+ const openInboxPage=(target:Page)=>{if(target==='Settings & Privacy')setSettingsSection('browser');setPage(target);};
+ const openPanel=(target:Page,id:string)=>{setPage(target);window.requestAnimationFrame(()=>document.getElementById(id)?.scrollIntoView({block:'start'}));};
+ const commands:Command[]=[
+   ...pages.map((p,i)=>({id:p,label:p,icon:navIcons[i],run:()=>setPage(p)})),
+   {id:'presets',label:'Start from a focus preset',icon:'target',run:()=>openPanel('Focus & Goals','focus-presets')},
+   {id:'restrictions',label:'Review active restrictions',icon:'shield',run:()=>setPage('Blocking Center')},
+   {id:'tracking-doctor',label:'Open Tracking Doctor',icon:'activity',run:()=>openPanel('Diagnostics','tracking-doctor')},
+ ];
+ if(shown&&!demo&&!offline)commands.push({id:'pause',label:shown.tracking_paused?'Resume tracking':'Pause tracking',icon:shown.tracking_paused?'play':'pause',run:pause});
+ const palette=commands.filter(command=>command.label.toLowerCase().includes(commandQuery.trim().toLowerCase()));
+ const showCommand=()=>{commandReturnFocus.current=document.activeElement as HTMLElement|null;setCommandQuery('');setCommandIndex(0);setCommandOpen(true);};
+ const closeCommand=()=>{setCommandOpen(false);window.requestAnimationFrame(()=>commandReturnFocus.current?.focus());};
+ useEffect(()=>{if(!commandOpen)return;document.getElementById('dd-command-'+commandIndex)?.scrollIntoView({block:'nearest'});},[commandIndex,commandOpen]);
+ useEffect(()=>{if(!commandOpen)return;const trap=(e:KeyboardEvent)=>{if(e.key==='Tab'){e.preventDefault();document.querySelector<HTMLInputElement>('.command-dialog input')?.focus();}};document.addEventListener('keydown',trap);return()=>document.removeEventListener('keydown',trap);},[commandOpen]);
+ const chooseCommand=(command:Command)=>{command.run();closeCommand();};
+ const paletteKeyDown=(event:ReactKeyboardEvent<HTMLInputElement>)=>{
+   if(event.key==='ArrowDown'){event.preventDefault();setCommandIndex(i=>palette.length?(i+1)%palette.length:0);}
+   else if(event.key==='ArrowUp'){event.preventDefault();setCommandIndex(i=>palette.length?(i-1+palette.length)%palette.length:0);}
+   else if(event.key==='Home'){event.preventDefault();setCommandIndex(0);}
+   else if(event.key==='End'){event.preventDefault();setCommandIndex(Math.max(0,palette.length-1));}
+   else if(event.key==='Enter'&&palette[commandIndex]){event.preventDefault();chooseCommand(palette[commandIndex]);}
+   else if(event.key==='Escape'){event.preventDefault();closeCommand();}
+ };
 
- if(setupActive&&isTauri)return <div className="onboarding-shell"><header className="onboarding-top" onPointerDown={beginDrag}><div><span className="eyebrow">WELCOME TO DIGITAL DISCIPLINE</span><h1>Connect your browser</h1><p>Set up Brave once to enable Shorts, Reels and regular video counts. Windows app tracking works independently.</p></div><div className="onboarding-controls"><button type="button" className="secondary-btn" onClick={startTour}>Use app without browser</button><button aria-label={mode==='popout'?'Restore setup window':'Maximize setup window'} type="button" className="icon-btn window-control" onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button></div></header><main className="onboarding-main"><BrowserSetupWizard/><div className="onboarding-bottom"><p>Browser recording is optional and stays disabled until you opt in inside the Brave companion.</p><button type="button" className="primary-btn" onClick={async()=>{const r=await getBrowserPairState().catch(()=>null);if(!r?.pairs.length){setMessage('Authorize an extension in step 3 first, or choose Use app without browser.');return;}startTour();}}>Finish setup and open dashboard</button>{message&&<span role="status">{message}</span>}</div></main></div>;
- if(mode==='pill')return <div className="pill-surface" onPointerDown={beginDrag}><span className={`pill-status ${shown?.tracking_paused?'stopped':''}`} data-tauri-drag-region="true"/><span className="pill-title" data-tauri-drag-region="true">{pillText}</span><span className="pill-separator"/><span className="pill-count"><Icon name="video" size={14}/>{pillCount}</span><button aria-label="Open quick panel" className="pill-open" onClick={()=>void changeMode('quick')}><Icon name="chevron" size={16}/></button></div>;
- if(mode==='quick')return <div className="quick-surface"><div className="quick-head" onPointerDown={beginDrag}><div className="quick-brand"><span className="brand-symbol">◐</span><span>Digital Discipline</span></div><div className="quick-window-controls"><button className="icon-btn window-control" title="Maximize workspace" aria-label="Maximize workspace" onClick={()=>void changeMode('full')}><Icon name="maximize"/></button><button className="icon-btn window-control window-control-close" aria-label="Collapse to pill" title="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></div></div><div className="quick-current"><span className="eyebrow">CURRENT ACTIVITY</span><strong>{pillText}</strong><small>{shown?.current?.category||'Unclassified'} · {shown?.tracking_paused?'Tracking paused':'Local observation'}</small></div><div className="quick-stats"><div><span>Active today</span><strong>{duration(shown?.metrics.active_ms||0)}</strong></div><div><span>Short plays</span><strong>{pillCount}</strong></div><div><span>Development</span><strong>{duration(shown?.metrics.development_ms||0)}</strong></div></div>{shown?.focus_goal_hint&&<div className="focus-context-hint">{shown.focus_goal_hint.text}<button onClick={()=>{setPage('Focus & Goals');void changeMode('full');}}>Review goal</button><button onClick={()=>snoozeHint('snooze_10m')}>10m snooze</button><button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}<div className="quick-actions"><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'} size={16}/>{shown?.tracking_paused?'Resume':'Pause tracking'}</button><button className="primary-btn" onClick={()=>void changeMode('full')}>Open workspace <Icon name="expand" size={16}/></button></div>{offline&&<p className="tiny-muted">Start the local agent to see recorded activity.</p>}</div>;
+
+ if(setupActive&&isTauri&&['full','popout'].includes(visibleMode))return <div className="onboarding-shell">{presentationPrivacy&&<PresentationShield privateActive={!!shown?.private_session?.active} paused={!!shown?.tracking_paused} offline={offline} onReveal={()=>setPresentationPrivacy(false)} onPause={pause}/>}<div className="workspace-content" hidden={presentationPrivacy} aria-hidden={presentationPrivacy||undefined} inert={presentationPrivacy||undefined}><header className="onboarding-top" onPointerDown={beginDrag}><div><span className="eyebrow">WELCOME TO DIGITAL DISCIPLINE</span><h1>Connect your browser</h1><p>Set up Brave once to enable Shorts, Reels and regular video counts. Windows app tracking works independently.</p></div><div className="onboarding-controls"><button type="button" className="secondary-btn" onClick={startTour}>Use app without browser</button><button aria-label={mode==='popout'?'Restore setup window':'Maximize setup window'} type="button" className="icon-btn window-control" onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button></div></header><main className="onboarding-main"><BrowserSetupWizard/><div className="onboarding-bottom"><p>Browser recording is optional and stays disabled until you opt in inside the Brave companion.</p><button type="button" className="primary-btn" onClick={async()=>{const r=await getBrowserPairState().catch(()=>null);if(!r?.pairs.length){setMessage('Authorize an extension in step 3 first, or choose Use app without browser.');return;}startTour();}}>Finish setup and open dashboard</button>{message&&<span role="status">{message}</span>}</div></main></div></div>;
+ if(visibleMode==='pill'){
+  const todoTotal=quickPanelData.todos.length;
+  const todoCompleted=quickPanelData.todos.filter(todo=>todo.completed).length;
+  return <div className="pill-surface" title={message||undefined} data-tauri-drag-region>
+   <span className={`pill-status ${shown?.tracking_paused?'stopped':''}`}/>
+   <span className="pill-title">{pillText}</span>
+   <span className="pill-separator"/>
+   <span className="pill-count"><Icon name="video" size={14}/>{presentationPrivacy?'—':pillCount}</span>
+   {!presentationPrivacy&&<span className="pill-todo-count" role="img" aria-label={`To-dos: ${todoCompleted} of ${todoTotal} completed`}>
+    <Icon name="checklist" size={14}/>{todoCompleted}/{todoTotal}
+   </span>}
+   <button aria-label="Open quick panel" className="pill-open" onClick={()=>void changeMode('quick')}>
+    <Icon name="chevron" size={16}/>
+   </button>
+  </div>;
+ }
+ if(visibleMode==='quick')return <QuickPanel data={quickPanelData} presentationPrivacy={presentationPrivacy}
+  onDrag={beginDrag} onOpenWorkspace={()=>void changeMode('full')} onCollapse={()=>void changeMode('pill')}>
+  <div className="quick-current"><span className="eyebrow">CURRENT ACTIVITY</span><strong>{pillText}</strong><small>{presentationPrivacy?'Details hidden for screen sharing':(shown?.current?.category||'Unclassified')} · {shown?.tracking_paused?'Tracking paused':'Local observation'}</small></div>
+  <div className={presentationPrivacy?'quick-stats dd-privacy-quick':'quick-stats'}><div><span>Active today</span><strong>{duration(shown?.metrics.active_ms||0)}</strong></div><div><span>Short plays</span><strong>{pillCount}</strong></div><div><span>Development</span><strong>{duration(shown?.metrics.development_ms||0)}</strong></div></div>
+  {!presentationPrivacy&&shown?.focus_goal_hint&&<div className="focus-context-hint">{shown.focus_goal_hint.text}<button onClick={()=>{setPage('Focus & Goals');void changeMode('full');}}>Review goal</button><button onClick={()=>snoozeHint('snooze_10m')}>10m snooze</button><button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}
+  {!presentationPrivacy&&<ResumeCard readonly={demo||offline} onOpen={()=>{setPage('Focus & Goals');void changeMode('full');}}/>}
+  <div className="quick-actions"><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'} size={16}/>{shown?.tracking_paused?'Resume':'Pause tracking'}</button><button className="primary-btn" onClick={()=>void changeMode('full')}>Open workspace <Icon name="expand" size={16}/></button></div>
+  {offline&&<p className="tiny-muted">Start the local agent to see recorded activity.</p>}
+ </QuickPanel>;
  return <div className="workspace">
-  <aside className="sidebar"><div className="side-brand" onPointerDown={beginDrag}><div className="brand-symbol">◐</div><div className="brand-copy"><strong>digital discipline</strong><span>YOUR WORKSPACE</span></div></div><div className="side-group-label">WORKSPACE</div><nav aria-label="Primary navigation">{pages.map((p,i)=><button data-tour={['overview','live','history','videos','focus','blocking','automations','insights','coach','devices','settings'][i]} key={p} className={`nav-item ${page===p?'selected':''}`} onClick={()=>setPage(p)}><Icon name={navIcons[i]} size={18}/><span>{p}</span>{stage[p]&&<small>{stage[p]?.replace('Phase ','P')}</small>}</button>)}</nav><div className="sidebar-footer"><div className="agent-health"><span className={`health-dot ${offline?'unavailable':shown?.tracking_paused?'stopped':'on'}`}/><div><strong>{demo?'Sample mode':offline?'Agent offline':shown?.tracking_paused?'Tracking paused':'Agent connected'}</strong><small>{demo?'Not recording actual usage':offline?'No live telemetry':shown?.browser_connected?'Browser signals received':'App-level only'}</small></div></div><p>LOCAL FIRST · VERSION 0.3</p></div></aside>
-  <section className="main-column"><header className="topbar" onPointerDown={beginDrag}><div className="breadcrumbs"><span>WORKSPACE</span><Icon name="chevron" size={14}/><strong>{page}</strong></div><div className="top-controls"><button className="tour-replay-btn" type="button" title="Replay guided tour" onClick={startTour}><Icon name="history" size={15}/> Tour</button><button data-tour="command" className="command-trigger" onClick={()=>{setCommandQuery('');setCommandOpen(true);}}>Search · Ctrl K</button><span className="date-chip"><Icon name="clock" size={15}/>{dayTitle()}</span><button className={`connection-chip ${offline?'offline':''}`} onClick={()=>demo?setDemo(false):void read()}><span className="health-dot on"/>{demo?'Sample data':offline?'Disconnected':shown?.tracking_paused?'Paused':'Tracking on'}</button>{isTauri&&<><button className="icon-btn window-control" title={mode==='popout'?'Restore overlay':'Maximize as window'} aria-label={mode==='popout'?'Restore overlay':'Maximize as window'} onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button><button className="icon-btn window-control window-control-close" title="Collapse to pill" aria-label="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></>}</div></header>
+  <aside className="sidebar"><div className="side-brand" onPointerDown={beginDrag}><div className="brand-symbol">◐</div><div className="brand-copy"><strong>digital discipline</strong><span>YOUR WORKSPACE</span></div></div><div className="side-group-label">WORKSPACE</div><nav aria-label="Primary navigation">{pages.map((p,i)=><button data-tour={['overview','live','history','videos','focus','blocking','automations','insights','coach','devices','settings'][i]} key={p} aria-label={p} className={`nav-item ${page===p?'selected':''}`} onClick={()=>setPage(p)}><Icon name={navIcons[i]} size={18}/><span>{p}</span>{stage[p]&&<small>{stage[p]?.replace('Phase ','P')}</small>}</button>)}</nav><div className="sidebar-footer"><div className="agent-health"><span className={`health-dot ${offline?'unavailable':shown?.tracking_paused?'stopped':'on'}`}/><div><strong>{demo?'Sample mode':offline?'Agent offline':shown?.tracking_paused?'Tracking paused':'Agent connected'}</strong><small>{demo?'Not recording actual usage':offline?'No live telemetry':shown?.browser_connected?'Browser signals received':'App-level only'}</small></div></div><p>LOCAL FIRST · DESKTOP v{desktopPackage.version}</p></div></aside>
+  <section className="main-column"><header className="topbar" onPointerDown={beginDrag}><div className="breadcrumbs"><span>WORKSPACE</span><Icon name="chevron" size={14}/><strong>{page}</strong></div><div className="top-controls"><button type="button" className={presentationPrivacy?'tour-replay-btn dd-privacy-active':'tour-replay-btn'} title="Hide activity details during screen sharing" aria-pressed={presentationPrivacy} onClick={()=>setPresentationPrivacy(v=>!v)}>{presentationPrivacy?'Show details':'Presentation mode'}</button><button className="tour-replay-btn" type="button" title="Replay guided tour" onClick={startTour}><Icon name="history" size={15}/> Tour</button><button data-tour="command" className="command-trigger" onClick={showCommand}>Search · Ctrl K</button><span className="date-chip"><Icon name="clock" size={15}/>{dayTitle()}</span><button className={`connection-chip ${offline?'offline':''}`} onClick={()=>demo?setDemo(false):void read()}><span className="health-dot on"/>{demo?'Sample data':offline?'Disconnected':shown?.private_session?.active?'Private session':shown?.tracking_paused?'Paused':'Tracking on'}</button>{isTauri&&<><button className="icon-btn window-control" title={mode==='popout'?'Restore overlay':'Maximize as window'} aria-label={mode==='popout'?'Restore overlay':'Maximize as window'} onClick={()=>void changeMode(mode==='popout'?'full':'popout')}><Icon name={mode==='popout'?'restore':'maximize'}/></button><button className="icon-btn window-control window-control-close" title="Collapse to pill" aria-label="Collapse to pill" onClick={()=>void changeMode('pill')}><Icon name="close"/></button></>}</div></header>
   <div className="scroll-content">
+  {presentationPrivacy&&<PresentationShield privateActive={!!shown?.private_session?.active} paused={!!shown?.tracking_paused} offline={offline} onReveal={()=>setPresentationPrivacy(false)} onPause={pause}/>}<div className="workspace-content" hidden={presentationPrivacy} aria-hidden={presentationPrivacy||undefined} inert={presentationPrivacy||undefined}>
   {demo&&<div className="preview-banner"><span><Icon name="activity" size={16}/> SAMPLE PREVIEW · The metrics below are illustrative, not recorded activity.</span><button onClick={()=>setDemo(false)}>Switch to live data <Icon name="arrow" size={15}/></button></div>}
   {offline&&<div className="offline-banner"><Icon name="shield" size={19}/><div><strong>Local Windows agent not connected</strong><span>Live tracking and restrictions require the separate agent process and paired browser extension. No data is being fabricated.</span>{error&&<small>{error}</small>}</div><button onClick={()=>setDemo(true)}>View sample</button></div>}
   {message&&<div className="notice" role="status"><span>{message}</span><button onClick={()=>setMessage('')} aria-label="Dismiss"><Icon name="close" size={15}/></button></div>}
 
-  {shown?.focus_goal_hint&&<div className="focus-context-hint" role="status">{shown.focus_goal_hint.text} <button onClick={()=>setPage('Focus & Goals')}>Review your goal</button> <button onClick={()=>snoozeHint('snooze_10m')}>Snooze</button> <button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}
+  {!presentationPrivacy&&shown?.focus_goal_hint&&<div className="focus-context-hint" role="status">{shown.focus_goal_hint.text} <button onClick={()=>setPage('Focus & Goals')}>Review your goal</button> <button onClick={()=>snoozeHint('snooze_10m')}>Snooze</button> <button onClick={()=>snoozeHint('dismiss_focus')}>Dismiss</button></div>}
   {page==='Overview'&&<>
    <SectionTitle overline="YOUR DIGITAL PULSE" title="Overview" subtitle="One clear view of your time, your attention and your intentions." action={<Tag kind={demo?'neutral':'on'}>{demo?'Sample data':shown?.tracking_paused?'Paused':'Today · Live'}</Tag>}/>
    <div className="hero-strip"><div><span className="eyebrow">TODAY IN FOCUS</span><h1>{shown?.metrics.active_ms?`${duration(shown.metrics.active_ms)} tracked.`:'Your time, made visible.'}</h1><p>Understand your patterns. Choose your own boundaries.</p></div><div className="hero-indicator"><span className="hero-ring"><Icon name="activity" size={34}/></span><span>{shown?.current?appLabel(shown.current.app):'Awaiting activity'}<small>Current application</small></span></div></div>
@@ -151,13 +336,13 @@ export default function App(){
 
   {page==='Live Activity'&&<><SectionTitle overline="REAL-TIME OBSERVATION" title="Live Activity" subtitle="A transparent snapshot of what the local collector can actually observe."/><div className="double-grid"><div className="surface padded"><span className="eyebrow">FOREGROUND NOW</span><div className="big-app-icon"><Icon name="activity" size={32}/></div><h2>{shown?.current?appLabel(shown.current.app):'No active application'}</h2><p>{shown?.current?.domain||shown?.current?.category||'Agent has not observed a foreground window.'}</p><div className="inline-info"><span>Input status</span><Tag>{shown?.current?.idle?'Idle':'Not reported idle'}</Tag></div><div className="inline-info"><span>Session observed</span><span>{shown?.current?`${shortTime(shown.current.start_ms)} – ${shortTime(shown.current.end_ms)}`:'—'}</span></div><button className="secondary-btn" onClick={pause}><Icon name={shown?.tracking_paused?'play':'pause'}/>{shown?.tracking_paused?'Resume tracking':'Pause tracking'}</button></div><div className="surface padded"><span className="eyebrow">SOURCE HEALTH</span><div className="source-line"><Icon name="activity"/><div><strong>Windows collector</strong><small>{shown?.coverage.windows_collector||'Unknown'}</small></div></div><div className="source-line"><Icon name="video"/><div><strong>Browser signals</strong><small>{shown?.browser_connected?'Recent extension message':'No recent message · app-level time still tracked'}</small></div></div><div className="source-line"><Icon name="shield"/><div><strong>Rules</strong><small>{shown?.rules.filter(r=>r.enforced).length||0} triggered by agent · browser sync best-effort</small></div></div><p className="muted-paragraph">Browser playback is a separate metric and is never added to foreground time. Unknown apps remain unclassified.</p></div></div><div className="surface padded"><div className="panel-header"><h3>Most recent app sessions</h3><span className="muted">Each interval has one foreground owner</span></div><SessionList sessions={shown?.sessions||[]} onChoose={setSelected}/></div></>}
 
-  {page==='Activity History'&&<><SectionTitle overline="EVIDENCE, NOT ESTIMATION" title="Activity History" subtitle="Explore reconciled foreground intervals. Clock gaps and unsupported sources are not interpreted as productive time." action={<label className="day-picker">Day <input type="date" value={day} onChange={e=>setDay(e.target.value)}/></label>}/><div className="surface padded"><div className="panel-header"><h3>Day timeline</h3><Tag>{day}</Tag></div><Timeline sessions={historySessions} focusDay={day} onChoose={setSelected}/></div><div className="surface padded"><div className="panel-header"><h3>Sessions for selected day</h3><span className="muted">{selectedDateSessions.length} sessions in loaded history</span></div><SessionList sessions={selectedDateSessions} onChoose={setSelected}/></div><div className="surface padded"><div className="panel-header"><h3>Browse another day</h3></div><Heatmap days={shown?.heatmap||[]} metric="active_ms" onDay={selectDay}/></div><CategoryPanel sessions={selectedDateSessions} readonly={demo||offline} onUpdate={()=>void read()}/><ClassificationsPanel readonly={demo||offline} onUpdate={()=>void read()}/></>}
+  {page==='Activity History'&&<><SectionTitle overline="EVIDENCE, NOT ESTIMATION" title="Activity History" subtitle="Explore reconciled foreground intervals. Clock gaps and unsupported sources are not interpreted as productive time." action={<label className="day-picker">Day <DatePicker value={day} onChange={setDay} aria-label="History date"/></label>}/><div className="surface padded"><div className="panel-header"><h3>Day timeline</h3><Tag>{day}</Tag></div><Timeline sessions={historySessions} focusDay={day} onChoose={setSelected}/></div><div className="surface padded"><div className="panel-header"><h3>Sessions for selected day</h3><span className="muted">{selectedDateSessions.length} sessions in loaded history</span></div><SessionList sessions={selectedDateSessions} onChoose={setSelected}/></div><div className="surface padded"><div className="panel-header"><h3>Browse another day</h3></div><Heatmap days={shown?.heatmap||[]} metric="active_ms" onDay={selectDay}/></div><CategoryPanel sessions={selectedDateSessions} readonly={demo||offline} onUpdate={()=>void read()}/><ServiceReviewPanel readonly={demo||offline}/><ClassificationsPanel readonly={demo||offline} onUpdate={()=>void read()}/><HistoryCorrections key={day} day={day} sessions={selectedDateSessions} disabled={demo||offline} onRefresh={()=>setHistoryRevision(r=>r+1)}/></>}
 
   {page==='Video Intelligence'&&<><div className="surface padded" style={{marginBottom:18,borderColor:'#50505c',background:'#24242b'}}><strong>To count Shorts, first opt in inside Brave</strong><p className="muted-paragraph" style={{margin:'7px 0'}}>Connected is not the same as recording. Open the browser companion, switch on <b>Record browser activity</b>, refresh the YouTube tab, then play a Short for at least 3 seconds. The companion now shows local observed counts separately from dashboard-confirmed counts.</p><button className="secondary-btn" onClick={()=>setPage('Settings & Privacy')}>Open browser setup</button></div><SectionTitle overline="SHORT-FORM INTELLIGENCE" title="Video Intelligence" subtitle="Count qualifying playback observations, not route visits or platform-reported views."/><div className="metric-grid"><Metric icon="video" label="Qualified plays" value={shown?.metrics.qualified_plays||0} sub="At least 2 seconds observed"/><Metric icon="target" label="Unique videos" value={shown?.metrics.unique_videos||0} sub="Distinct IDs in reporting day"/><Metric icon="history" label="Repeat plays" value={shown?.metrics.replays||0} sub="Qualified instances beyond unique"/><Metric icon="clock" label="Playback observed" value={duration(shown?.metrics.playback_ms||0)} sub="Separate from foreground time"/></div><div className="surface padded"><div className="panel-header"><div><h3>Regular YouTube videos</h3><p>Separate from Shorts and Reels; observed playback only</p></div><Tag>Brave extension</Tag></div><div className="metric-grid"><Metric icon="video" label="Qualified watch plays" value={shown?.metrics.watch_qualified_plays||0} sub="At least 2 seconds playing"/><Metric icon="target" label="Unique watch videos" value={shown?.metrics.watch_unique_videos||0} sub="Distinct video IDs today"/><Metric icon="clock" label="Watch playback observed" value={duration(shown?.metrics.watch_playback_ms||0)} sub="Not added to foreground time"/></div></div><div className="double-grid"><div className="surface padded"><h3>What is measured</h3><div className="measurement-line"><span className="step-number">01</span><div><strong>Playback progression</strong><p>Visible player advances during an active browser tab.</p></div></div><div className="measurement-line"><span className="step-number">02</span><div><strong>Qualification threshold</strong><p>Playback reaches two observed seconds, not just a page load.</p></div></div><div className="measurement-line"><span className="step-number">03</span><div><strong>Unique versus repeated</strong><p>The same video ID can have separate qualified play instances.</p></div></div></div><div className="surface padded"><h3>Adapter coverage</h3><div className="source-line"><Icon name="video"/><div><strong>YouTube Shorts & regular videos</strong><small>Observed playback, counted separately · Brave extension required</small></div></div><div className="source-line"><Icon name="video"/><div><strong>Instagram Reels</strong><small>Best-effort DOM observation · site changes may degrade it</small></div></div><p className="muted-paragraph">Video titles and transcripts are not collected. Counts are local observations and may be incomplete when browser permissions or player signals are missing.</p></div></div><VideoHistoryPanel active={page==='Video Intelligence'} readonly={demo||offline} refreshKey={shown?.observed_at_ms||0}/></>}
 
-  {page==='Blocking Center'&&<><SectionTitle overline="USER-OWNED CONTROLS" title="Blocking Center" subtitle="Create time-limited domain or path restrictions. All enforcement is reversible."/><div className="double-grid"><div className="surface padded"><div className="panel-header"><h3>Create a restriction</h3><Tag kind="neutral">Browser only</Tag></div><FormRule readonly={demo||offline} onSubmit={createRule}/></div><div className="surface padded"><div className="panel-header"><h3>Your restrictions</h3><span className="muted">{shown?.rules.length||0} configured</span></div><RuleList rules={shown?.rules||[]} onDisable={disableRule} readonly={demo||offline}/></div></div><div className="hint-row"><Icon name="shield" size={19}/><p>Safety: restrictions are synced by the extension and expire locally even if the agent disconnects. The extension offers a 30-minute emergency unblock. This is not OS-wide or tamper-proof blocking.</p></div></>}
+  {page==='Blocking Center'&&<><SectionTitle overline="USER-OWNED CONTROLS" title="Blocking Center" subtitle="Create time-limited domain or path restrictions. All enforcement is reversible."/><div className="double-grid"><div className="surface padded"><div className="panel-header"><h3>Create a restriction</h3><Tag kind="neutral">Browser only</Tag></div><FormRule readonly={demo||offline} onSubmit={createRule}/></div><div className="surface padded"><div className="panel-header"><h3>Your restrictions</h3><span className="muted">{shown?.rules.length||0} configured</span></div><RuleList rules={shown?.rules||[]} onDisable={disableRule} readonly={demo||offline}/></div></div><div className="hint-row"><Icon name="shield" size={19}/><p>Safety: restrictions are synced by the extension and expire locally even if the agent disconnects. The extension offers a 30-minute emergency unblock. This is not OS-wide or tamper-proof blocking.</p></div><ScopedExceptionsPanel rules={shown?.rules||[]} focus={shown?.focus} readonly={demo||offline}/><EarnedTimePanel disabled={demo||offline}/><AttentionPanel disabled={demo||offline} mode="progression"/></>}
 
-  {page==='Focus & Goals'&&<><SectionTitle overline="PLAN · COMMIT · RECOVER" title="Focus & Goals" subtitle="Define goals for any IDE, set a timebox, and choose reversible browser-only focus restrictions."/><GoalsPanel goals={shown?.goals||[]} focus={shown?.focus} readonly={demo||offline} onUpdate={()=>void read()}/></>}
+  {page==='Focus & Goals'&&<><SectionTitle overline="PLAN · COMMIT · RECOVER" title="Focus & Goals" subtitle="Define goals for any IDE, set a timebox, and choose reversible browser-only focus restrictions."/><GoalsPanel goals={shown?.goals||[]} focus={shown?.focus} readonly={demo||offline} onUpdate={()=>void read()}/><FocusWorkflowPanel focus={shown?.focus} rules={shown?.rules||[]} readonly={demo||offline} onUpdate={()=>void read(true)}/><TaskWorkspacePanel readonly={demo||offline}/><ScopedExceptionsPanel rules={shown?.rules||[]} focus={shown?.focus} readonly={demo||offline}/><FocusPresets disabled={demo||offline} onStart={()=>void read(true)}/></>}
 
   {page==='Automations'&&<><SectionTitle overline="DETERMINISTIC RULES" title="Automations" subtitle="IF → AND → THEN policies with schedules, short-video caps, shared site budgets and reversible actions."/><AutomationsPanel readonly={demo||offline} rules={shown?.rules||[]} onUpdate={()=>void read()}/></>}
 
@@ -165,13 +350,30 @@ export default function App(){
 
   {page==='AI Coach'&&<><SectionTitle overline="OPTIONAL · USER-AUTHORIZED" title="AI Coach" subtitle="Ask questions about observed activity. API keys can be stored locally with Windows encryption; sharing requires your consent."/><CoachPanel readonly={demo||offline}/></>}
 
-  {page==='Devices'&&<><SectionTitle overline="OFFLINE · ENCRYPTED EXCHANGE" title="Devices" subtitle="Import and export local observations across installations using a user-owned password."/><DevicesPanel readonly={demo||offline}/></>}
+  {page==='Devices'&&<><SectionTitle overline="OFFLINE · ENCRYPTED EXCHANGE" title="Devices" subtitle="Import and export local observations across installations using a user-owned password."/><DevicesPanel readonly={demo||offline}/><SyncPanel disabled={demo||offline}/></>}
 
-  {page==='Settings & Privacy'&&<><SectionTitle overline="LOCAL DATA & PERMISSIONS" title="Settings & Privacy" subtitle="Manage collection, export and permanent deletion without a cloud account."/><div className="double-grid"><div className="surface padded"><h3>Tracking controls</h3><div className="settings-row"><div><strong>Windows foreground tracking</strong><small>Application basename only; no window title or full executable path stored</small></div><button disabled={demo||offline} className={`toggle ${shown?.tracking_paused?'':'active'}`} aria-label="Toggle tracking" aria-pressed={!shown?.tracking_paused} onClick={pause}><span/></button></div><div className="settings-row"><div><strong>Browser detail coverage</strong><small>Available only where the opted-in companion extension is installed and paired</small></div><Tag kind={shown?.browser_connected?'on':'neutral'}>{shown?.browser_connected?'Recent signal':'Not confirmed'}</Tag></div><div className="settings-row"><div><strong>Remote AI or metadata research</strong><small>Only on your explicit request. No background cloud calls.</small></div><Tag>Off</Tag></div><div className="settings-row"><div><strong>Blocking while tracking paused</strong><small>Restrictions are independently enforced; disable each rule or use emergency recovery.</small></div><Tag>Separate</Tag></div></div><div className="surface padded"><h3>Your local data</h3><p className="muted-paragraph">The native agent writes SQLite under your Windows user profile. Browser extension stores a bounded event retry queue and owned block IDs.</p><button className="secondary-btn wide-btn" disabled={demo||offline} onClick={()=>void saveExport()}><Icon name="download" size={17}/> Export activity JSON</button><button className="danger-btn wide-btn" disabled={demo||offline} onClick={purge}><Icon name="close" size={17}/> Permanently delete tracked history</button><div className="small-divider"/><h4>Collection limits</h4><p className="muted-paragraph">No keylogging, screenshots, clipboard capture, private message extraction, or stored API credentials. Extension event content is restricted to player IDs, durations and approved domains.</p></div></div><BrowserPairPanel/><StartupPanel/><PrivacyPanel readonly={demo||offline} refreshKey={shown?.observed_at_ms||0} onUpdate={()=>void read()}/></>}
+  {page==='Daily Planner'&&<><SectionTitle overline="PLAN AND REVIEW" title="Daily Planner" subtitle="Set time blocks and review your weekly targets."/><PlannerPanel disabled={demo||offline} onFocus={()=>setPage('Focus & Goals')}/><AttentionPanel disabled={demo||offline} mode="reading"/></>}
+  {page==='Inbox'&&<><SectionTitle overline="LOCAL STATUS" title="Inbox" subtitle="Your reminders and component status in one quiet place."/><InboxPanel readonly={demo||offline} onOpen={openInboxPage}/><AttentionPanel disabled={demo||offline} mode="quiet"/></>}
+  {page==='Settings & Privacy'&&<>
+    <SectionTitle title="Settings & Privacy" subtitle="Control what the app records and how it runs."/>
+    <SettingsWorkspace section={settingsSection} onSection={setSettingsSection} snapshot={shown} readonly={demo||offline} preview={demo}
+      lite={liteMode} presentationPrivacy={presentationPrivacy} onPause={pause} onPresentationPrivacy={setPresentationPrivacy}
+      onLite={enabled=>{setLiteMode(enabled);if(!demo)void agent('POST','/settings',{lite_mode:enabled}).catch(error=>setMessage(String(error)));}}
+      onUpdate={()=>void read(true)} onExport={()=>void saveExport()} onDelete={()=>void purge()} exportBusy={exportBusy}/>
+  </>}
+  {page==='Diagnostics'&&<>
+    <SectionTitle title="Diagnostics" subtitle="Inspect resource usage and browser companion delivery."/>
+    <div className="diagnostics-stack">
+      <ResourceHealthPanel readonly={demo} lite={liteMode}/>
+      <TrackingDoctor readonly={demo} lite={liteMode}/>
+      <section className="surface padded diagnostics-card"><h3>AI connections</h3><NetworkPrivacyStatus readonly={demo||offline}/></section>
+    </div>
+  </>}
   <footer className="content-footer">DIGITAL DISCIPLINE / LOCAL-FIRST WORKSPACE <span>Native/browser features are best-effort until verified on Windows · no OS-wide blocking.</span></footer>
+  </div>
   </div></section>
-  <GuidedTour active={tourActive} onFinish={finishTour} onNavigate={setPage}/>
-  {commandOpen&&<div className="command-mask" onClick={()=>setCommandOpen(false)}><div className="command-dialog" role="dialog" aria-modal="true" aria-label="Command palette" onClick={e=>e.stopPropagation()}><input autoFocus placeholder="Navigate to a page…" value={commandQuery} onChange={e=>setCommandQuery(e.target.value)}/><div className="command-results">{palette.map(p=><button key={p} onClick={()=>{setPage(p);setCommandOpen(false);}}><Icon name="arrow" size={15}/>{p}</button>)}{!palette.length&&<span>No matching page</span>}</div><small>Ctrl K in app · Ctrl Shift D system-wide · Escape to close</small></div></div>}
-  {selected&&<div className="drawer-backdrop" onClick={()=>setSelected(null)}><div className="detail-drawer" onClick={e=>e.stopPropagation()}><div className="drawer-top"><span className="eyebrow">SESSION DETAIL</span><button className="icon-btn" aria-label="Close details" onClick={()=>setSelected(null)}><Icon name="close"/></button></div><div className="big-app-icon"><Icon name="activity" size={30}/></div><h2>{appLabel(selected.app)}</h2><Tag>{selected.category}</Tag><div className="small-divider"/><div className="inline-info"><span>Start</span><strong>{new Date(selected.start_ms).toLocaleString()}</strong></div><div className="inline-info"><span>End</span><strong>{new Date(selected.end_ms).toLocaleString()}</strong></div><div className="inline-info"><span>Observed interval</span><strong>{duration(selected.end_ms-selected.start_ms)}</strong></div><div className="inline-info"><span>Foreground status</span><strong>{selected.idle?'Idle':'Active'}</strong></div><div className="inline-info"><span>Domain</span><strong>{selected.domain||'Not recorded'}</strong></div><div className="inline-info"><span>Browser profile</span><strong>{selected.profile_id||'Unattributed'}</strong></div><p className="muted-paragraph">Session durations are native observations, not proof of attention or completed work.</p></div></div>}
+  <GuidedTour active={tourActive&&!presentationPrivacy} onFinish={finishTour} onNavigate={setPage}/>
+  {commandOpen&&<div className="command-mask" onClick={closeCommand}><div className="command-dialog" role="dialog" aria-modal="true" aria-label="Command palette" onClick={e=>e.stopPropagation()}><input autoFocus role="combobox" aria-expanded="true" aria-controls="dd-command-results" aria-activedescendant={palette.length?'dd-command-'+commandIndex:undefined} placeholder="Search pages and actions…" value={commandQuery} onChange={e=>{setCommandQuery(e.target.value);setCommandIndex(0);}} onKeyDown={paletteKeyDown}/><div className="command-results" id="dd-command-results" role="listbox">{palette.map((p,i)=><button id={'dd-command-'+i} role="option" aria-selected={commandIndex===i} tabIndex={-1} className={commandIndex===i?'selected':''} key={p.id} onMouseEnter={()=>setCommandIndex(i)} onClick={()=>chooseCommand(p)}><Icon name={p.icon} size={15}/>{p.label}</button>)}{!palette.length&&<span>No matching command</span>}</div><small>Arrow keys choose · Enter open · Ctrl K search · Escape close</small></div></div>}
+  {selected&&!presentationPrivacy&&<div className="drawer-backdrop" onClick={()=>setSelected(null)}><div className="detail-drawer" onClick={e=>e.stopPropagation()}><div className="drawer-top"><span className="eyebrow">SESSION DETAIL</span><button className="icon-btn" aria-label="Close details" onClick={()=>setSelected(null)}><Icon name="close"/></button></div><div className="big-app-icon"><Icon name="activity" size={30}/></div><h2>{appLabel(selected.app)}</h2><Tag>{selected.category}</Tag><div className="small-divider"/><div className="inline-info"><span>Start</span><strong>{new Date(selected.start_ms).toLocaleString()}</strong></div><div className="inline-info"><span>End</span><strong>{new Date(selected.end_ms).toLocaleString()}</strong></div><div className="inline-info"><span>Observed interval</span><strong>{duration(selected.end_ms-selected.start_ms)}</strong></div><div className="inline-info"><span>Foreground status</span><strong>{selected.idle?'Idle':'Active'}</strong></div><div className="inline-info"><span>Domain</span><strong>{selected.domain||'Not recorded'}</strong></div><div className="inline-info"><span>Browser profile</span><strong>{selected.profile_id||'Unattributed'}</strong></div><p className="muted-paragraph">Session durations are native observations, not proof of attention or completed work.</p></div></div>}
  </div>;
 }

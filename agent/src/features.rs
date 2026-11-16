@@ -2,14 +2,14 @@
 use super::{AppState, ApiResult, err, now_ms, midnight_local_ms};
 use crate::{domain, insights, policy};
 use axum::{extract::{Path,State}, http::StatusCode, Json};
-use chrono::{Datelike, Duration, Local, Timelike, Utc};
+use chrono::{Datelike, Duration, Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::{BTreeMap,BTreeSet,HashMap},sync::Arc};
 use uuid::Uuid;
 
-const CATEGORIES: &[&str]=&["Development","Design","Productivity","Communication","Education","Entertainment","Gaming","Social","News","Utility","System","Browser","Unclassified"];
+pub(crate) const CATEGORIES: &[&str]=&["Development","Design","Productivity","Communication","Education","Entertainment","Gaming","Social","News","Utility","System","Browser","Unclassified"];
 
 pub(super) fn migrate(db:&Connection)->rusqlite::Result<()> {
     let version:i32=db.query_row("PRAGMA user_version",[],|r|r.get(0))?;
@@ -70,46 +70,57 @@ pub(super) fn read_setting(db:&Connection,key:&str)->String {
 pub(super) fn load_categories(db:&Connection)->rusqlite::Result<HashMap<String,String>>{
     let mut stmt=db.prepare("SELECT subject,category FROM (SELECT subject,category,1 AS precedence FROM classifications WHERE state='succeeded' UNION ALL SELECT subject,category,2 AS precedence FROM category_overrides) ORDER BY precedence")?;
     let mut out=HashMap::new();
-    for row in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?{let(k,v)=row?;out.insert(k,v);}
+    for row in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?{let(k,v)=row?;out.insert(k.to_ascii_lowercase(),v);}
+    let mut own=db.prepare("SELECT subject,category FROM category_overrides")?;
+    for row in own.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?{let(k,v)=row?;out.insert(format!("owner:{}",k.to_ascii_lowercase()),v);}
     Ok(out)
 }
 pub(super) fn resolved_category(map:&HashMap<String,String>,app:&str,domain:Option<&str>)->String{
-    domain.and_then(|d|map.get(&format!("domain:{d}")))
-        .or_else(||map.get(&format!("app:{app}")))
+    domain.and_then(|d|map.get(&format!("owner:domain:{}",d.to_ascii_lowercase())))
+        .or_else(||map.get(&format!("owner:app:{}",app.to_ascii_lowercase())))
+        .or_else(||domain.and_then(|d|map.get(&format!("domain:{}",d.to_ascii_lowercase()))))
+        .or_else(||map.get(&format!("app:{}",app.to_ascii_lowercase())))
         .cloned().unwrap_or_else(||domain::category(app,domain).to_owned())
 }
 pub(super) fn category_for(db:&Connection, app:&str, domain:Option<&str>)->String {
     // Domain override takes priority, app override next; known mappings are only suggestions.
-    for subject in domain.map(|x|format!("domain:{x}")).into_iter().chain(std::iter::once(format!("app:{app}"))) {
-        if let Ok(category)=db.query_row::<String,_,_>("SELECT category FROM category_overrides WHERE subject=?1",params![subject],|r|r.get(0)) {return category;}
-        if let Ok(category)=db.query_row::<String,_,_>("SELECT category FROM classifications WHERE subject=?1 AND state='succeeded'",params![subject],|r|r.get(0)) {return category;}
+    let subjects=domain.map(|x|format!("domain:{}",x.to_ascii_lowercase())).into_iter().chain(std::iter::once(format!("app:{}",app.to_ascii_lowercase()))).collect::<Vec<_>>();
+    for table in ["category_overrides","classifications"] {
+      for subject in &subjects {
+        let sql=if table=="category_overrides"{"SELECT category FROM category_overrides WHERE lower(subject)=?1"}else{"SELECT category FROM classifications WHERE subject=?1 AND state='succeeded'"};
+        if let Ok(category)=db.query_row::<String,_,_>(sql,params![subject],|r|r.get(0)) {return category;}
+      }
     }
     domain::category(app,domain).to_owned()
 }
 pub(super) fn excluded(db:&Connection,app:&str,domain:Option<&str>)->bool {
     let apps:Vec<String>=serde_json::from_str(&read_setting(db,"excluded_apps")).unwrap_or_default();
     let domains:Vec<String>=serde_json::from_str(&read_setting(db,"excluded_domains")).unwrap_or_default();
-    apps.iter().any(|x|x==app) || domain.is_some_and(|d|domains.iter().any(|x|d==x||d.ends_with(&format!(".{x}"))))
+    apps.iter().any(|x|x.eq_ignore_ascii_case(app)) || domain.is_some_and(|d|domains.iter().any(|x|d==x||d.ends_with(&format!(".{x}"))))
 }
 
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
 pub(super) struct CategoryInput {subject:String,category:String}
 pub(super) async fn override_category(State(s):State<Arc<AppState>>,Json(p):Json<CategoryInput>)->ApiResult{
     let subject=p.subject.trim().to_ascii_lowercase();
+    let db=s.db.lock().unwrap();
     if !(subject.starts_with("app:")||subject.starts_with("domain:")) || subject.len()>260 ||
-        !(CATEGORIES.contains(&p.category.as_str())) ||
+        !crate::category_labels::known(&db,&p.category) ||
         (subject.starts_with("domain:") && !domain::valid_domain(&subject[7..])) ||
         (subject.starts_with("app:") && (subject.len()<5||!subject[4..].bytes().all(|x|x.is_ascii_alphanumeric()||b"-_.".contains(&x)))) {
         return Err(err(StatusCode::BAD_REQUEST,"invalid_category_override"));
     }
-    s.db.lock().unwrap().execute("INSERT INTO category_overrides(subject,category,updated_ms) VALUES(?1,?2,?3) ON CONFLICT(subject) DO UPDATE SET category=excluded.category,updated_ms=excluded.updated_ms",params![subject,p.category,now_ms()]).map_err(storage)?;
+    db.execute("INSERT INTO category_overrides(subject,category,updated_ms) VALUES(?1,?2,?3) ON CONFLICT(subject) DO UPDATE SET category=excluded.category,updated_ms=excluded.updated_ms",params![subject,p.category,now_ms()]).map_err(storage)?;
     Ok(Json(json!({"ok":true,"subject":subject})))
 }
 pub(super) async fn list_categories(State(s):State<Arc<AppState>>)->ApiResult{
     let db=s.db.lock().unwrap();
     let mut q=db.prepare("SELECT subject,category FROM category_overrides ORDER BY subject LIMIT 1000").map_err(storage)?;
     let overrides=q.query_map([],|r|Ok(json!({"subject":r.get::<_,String>(0)?,"category":r.get::<_,String>(1)?}))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
-    Ok(Json(json!({"ok":true,"categories":CATEGORIES,"overrides":overrides})))
+    let custom=crate::category_labels::custom(&db);
+    let categories=CATEGORIES.iter().copied().chain(custom.iter().map(String::as_str)).collect::<Vec<_>>();
+    Ok(Json(json!({"ok":true,"categories":categories,"custom_categories":custom,
+        "distraction_categories":crate::category_labels::distractions(&db),"overrides":overrides})))
 }
 pub(super) async fn delete_override(Path(subject):Path<String>,State(s):State<Arc<AppState>>)->ApiResult{
     s.db.lock().unwrap().execute("DELETE FROM category_overrides WHERE subject=?1",params![subject]).map_err(storage)?;
@@ -132,7 +143,7 @@ pub(super) fn read_goals(db:&Connection)->rusqlite::Result<Vec<Value>>{
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     let start=super::midnight_local_ms(Local::now().date_naive());
     let now=now_ms();
-    let mut sessions=db.prepare("SELECT start_ms,end_ms,app,domain FROM sessions WHERE idle=0 AND end_ms>?1 AND start_ms<?2")?;
+    let mut sessions=db.prepare("SELECT start_ms,end_ms,app,domain FROM report_sessions WHERE idle=0 AND end_ms>?1 AND start_ms<?2")?;
     let recorded=sessions.query_map(params![start,now],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(goals.into_iter().map(|(id,name,target_minutes,apps,domains,enabled,created_ms)|{
         let intervals=recorded.iter().filter(|(_,_,app,domain)|apps.iter().any(|a|a==app)||domain.as_deref().is_some_and(|d|domains.iter().any(|t|d==t||d.ends_with(&format!(".{t}")))))
@@ -158,26 +169,29 @@ pub(super) async fn delete_goal(Path(id):Path<String>,State(s):State<Arc<AppStat
     Ok(Json(json!({"ok":true})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>}
+pub(super) struct StartFocus {goal_id:Option<String>,minutes:u32,difficulty:String,block_domains:Vec<String>,task_id:Option<String>,profile_id:Option<String>,cycle:Option<crate::focus_workflow::CycleInput>,learning:Option<crate::policy_exceptions::LearningInput>,#[serde(default)] native_apps:Vec<String>,#[serde(default)] minimize_selected_apps:bool}
 pub(super) fn active_focus(db:&Connection,now:i64)->rusqlite::Result<Option<Value>>{
-    db.query_row("SELECT id,goal_id,start_ms,end_ms,difficulty,domains_json FROM focus_sessions WHERE start_ms<=?1 AND end_ms>?1 AND ended_ms IS NULL ORDER BY start_ms DESC LIMIT 1",params![now],|r|{
+    crate::focus_workflow::advance(db,now)?;
+    let mut result=db.query_row("SELECT id,goal_id,start_ms,end_ms,difficulty,domains_json FROM focus_sessions WHERE start_ms<=?1 AND (end_ms>?1 OR EXISTS(SELECT 1 FROM focus_cycles c WHERE c.focus_id=focus_sessions.id AND c.state='paused')) AND ended_ms IS NULL ORDER BY start_ms DESC LIMIT 1",params![now],|r|{
         let domains:String=r.get(5)?;
         Ok(json!({"id":r.get::<_,String>(0)?,"goal_id":r.get::<_,Option<String>>(1)?,"start_ms":r.get::<_,i64>(2)?,"end_ms":r.get::<_,i64>(3)?,"difficulty":r.get::<_,String>(4)?,"block_domains":serde_json::from_str::<Value>(&domains).unwrap_or(json!([]))}))
-    }).optional()
+    }).optional()?;
+    if let Some(f)=&mut result{crate::focus_workflow::augment(db,f)?;}Ok(result)
 }
 /// A hint is emitted only after 60 seconds of a known, user-unlisted application.
 /// Missing browser metadata never becomes a fabricated goal violation.
 pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super::SessionDto>,now:i64)->Option<Value>{
-    let id=focus["goal_id"].as_str()?;
+    let id=focus["goal_id"].as_str();
     let active_focus_id=focus["id"].as_str()?;
     let muted=db.query_row("SELECT until_ms FROM focus_snoozes WHERE focus_id=?1",params![active_focus_id],|r|r.get::<_,i64>(0)).unwrap_or(0);
     if muted>now {return None;}
+    if let Some(hint)=crate::inbox::native_hint(db,focus,current,now){return Some(hint);}
     let session=current?;
     if session.idle || now-session.start_ms<60_000{return None;}
     if ["brave.exe","chrome.exe","msedge.exe"].contains(&session.app.as_str()) && session.domain.is_none(){return None;}
-    let (apps,domains):(String,String)=db.query_row("SELECT apps_json,domains_json FROM goals WHERE id=?1 AND enabled=1",params![id],|r|Ok((r.get(0)?,r.get(1)?))).ok()?;
-    let apps:Vec<String>=serde_json::from_str(&apps).ok()?;
-    let domains:Vec<String>=serde_json::from_str(&domains).ok()?;
+    let (apps,domains)=if focus["profile_id"].as_str().is_some(){(serde_json::from_value::<Vec<String>>(focus["context"]["apps"].clone()).ok()?,serde_json::from_value::<Vec<String>>(focus["context"]["domains"].clone()).ok()?)}else{
+     let (apps,domains):(String,String)=db.query_row("SELECT apps_json,domains_json FROM goals WHERE id=?1 AND enabled=1",params![id?],|r|Ok((r.get(0)?,r.get(1)?))).ok()?;(serde_json::from_str::<Vec<String>>(&apps).ok()?,serde_json::from_str::<Vec<String>>(&domains).ok()?)
+    };
     if apps.is_empty()&&domains.is_empty(){return None;}
     if apps.iter().any(|a|a==&session.app) || session.domain.as_deref().is_some_and(|d|domains.iter().any(|host|d==host||d.ends_with(&format!(".{host}")))) {return None;}
     Some(json!({"kind":"out_of_goal_scope","since_ms":session.start_ms,
@@ -186,18 +200,36 @@ pub(super) fn focus_goal_hint(db:&Connection,focus:&Value,current:Option<&super:
 }
 
 pub(super) async fn start_focus(State(s):State<Arc<AppState>>,Json(p):Json<StartFocus>)->ApiResult{
-    if !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d)){
+    let db=s.db.lock().unwrap();
+    let tx=db.unchecked_transaction().map_err(storage)?;
+    let result=start_focus_in(&tx,p,now_ms())?;
+    tx.commit().map_err(storage)?;
+    Ok(Json(result))
+}
+
+pub(crate) fn start_planned_focus(db:&Connection,minutes:u32,profile_id:Option<String>,now:i64)->Result<Value,(StatusCode,String)> {
+    start_focus_in(db,StartFocus{goal_id:None,minutes,difficulty:"Gentle".into(),block_domains:Vec::new(),
+        task_id:None,profile_id,cycle:None,learning:None,native_apps:Vec::new(),minimize_selected_apps:false},now)
+}
+
+pub(crate) fn start_focus_in(db:&Connection,p:StartFocus,now:i64)->Result<Value,(StatusCode,String)>{
+    if p.minimize_selected_apps && (p.difficulty!="Strict"||p.native_apps.is_empty()) || !(1..=240).contains(&p.minutes)||!["Gentle","Balanced","Strict"].contains(&p.difficulty.as_str())||p.block_domains.len()>15||p.block_domains.iter().any(|d|!domain::valid_domain(d))||p.native_apps.len()>20||p.native_apps.iter().any(|a|!crate::inbox::safe_native_app(a))||p.cycle.as_ref().is_some_and(|c|!c.valid()){
         return Err(err(StatusCode::BAD_REQUEST,"invalid_focus"));
     }
-    let db=s.db.lock().unwrap();let now=now_ms();
-    if active_focus(&db,now).map_err(storage)?.is_some(){return Err(err(StatusCode::CONFLICT,"focus_already_active"));}
+    if active_focus(db,now).map_err(storage)?.is_some(){return Err(err(StatusCode::CONFLICT,"focus_already_active"));}
     if let Some(id)=&p.goal_id {
         let enabled=db.query_row("SELECT enabled FROM goals WHERE id=?1",params![id],|r|r.get::<_,i64>(0)).optional().map_err(storage)?;
         if enabled!=Some(1){return Err(err(StatusCode::BAD_REQUEST,"goal_not_found"));}
     }
-    let id=Uuid::new_v4().to_string();let end=now+p.minutes as i64*60_000;
+    let (profile,mut context)=crate::focus_workflow::context(db,p.task_id.as_deref(),p.profile_id.as_deref())?;
+    context["native_apps"]=json!(p.native_apps);
+    context["minimize_selected_apps"]=json!(p.minimize_selected_apps);
+    let planned=p.cycle.as_ref().map_or(p.minutes as i64*60000,|c|c.planned_ms());
+    let id=Uuid::new_v4().to_string();let end=now+planned;
     db.execute("INSERT INTO focus_sessions(id,goal_id,start_ms,end_ms,difficulty,domains_json) VALUES(?1,?2,?3,?4,?5,?6)",params![id,p.goal_id,now,end,p.difficulty,serde_json::to_string(&p.block_domains).unwrap()]).map_err(storage)?;
-    Ok(Json(json!({"ok":true,"id":id,"end_ms":end,"safety":"emergency_unblock_available"})))
+    crate::focus_workflow::attach(db,&id,p.task_id.as_deref(),profile.as_deref(),&context,p.cycle.as_ref(),now,planned).map_err(storage)?;
+    if let Some(learning)=&p.learning{let _=crate::policy_exceptions::start_learning(db,&id,learning)?;}
+    Ok(json!({"ok":true,"id":id,"end_ms":end,"safety":"emergency_unblock_available"}))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
 pub(super) struct FocusHintChoice { choice:String }
@@ -215,27 +247,33 @@ pub(super) async fn choose_focus_hint(State(s):State<Arc<AppState>>,Json(p):Json
 }
 
 pub(super) async fn end_focus(State(s):State<Arc<AppState>>)->ApiResult{
-    s.db.lock().unwrap().execute("UPDATE focus_sessions SET ended_ms=?1 WHERE ended_ms IS NULL AND end_ms>?1",params![now_ms()]).map_err(storage)?;
+    let db=s.db.lock().unwrap();let tx=db.unchecked_transaction().map_err(storage)?;let now=now_ms();
+    crate::focus_workflow::finish_all(&tx,now).map_err(storage)?;
+    tx.execute("UPDATE focus_sessions SET ended_ms=?1 WHERE ended_ms IS NULL AND end_ms>?1",params![now]).map_err(storage)?;tx.commit().map_err(storage)?;
     Ok(Json(json!({"ok":true,"extension_sync_pending":true})))
 }
 
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]
-pub(super) struct SettingsInput {retention_days:Option<u32>,idle_threshold_ms:Option<u32>,excluded_apps:Option<Vec<String>>,excluded_domains:Option<Vec<String>>,video_history_visible:Option<bool>,distraction_categories:Option<Vec<String>>,prediction_opt_in:Option<bool>,coach_share_opt_in:Option<bool>}
+pub(super) struct SettingsInput {lite_mode:Option<bool>,retention_days:Option<u32>,idle_threshold_ms:Option<u32>,excluded_apps:Option<Vec<String>>,excluded_domains:Option<Vec<String>>,video_history_visible:Option<bool>,distraction_categories:Option<Vec<String>>,prediction_opt_in:Option<bool>,coach_share_opt_in:Option<bool>}
 pub(super) async fn get_settings(State(s):State<Arc<AppState>>)->ApiResult{
     let db=s.db.lock().unwrap();let mut map=serde_json::Map::new();
-    for key in ["retention_days","idle_threshold_ms","excluded_apps","excluded_domains","video_history_visible","distraction_categories","prediction_opt_in","coach_share_opt_in"] {
+    for key in ["lite_mode","retention_days","idle_threshold_ms","excluded_apps","excluded_domains","video_history_visible","distraction_categories","prediction_opt_in","coach_share_opt_in"] {
         let v=read_setting(&db,key);
         map.insert(key.into(),serde_json::from_str(&v).unwrap_or(Value::Null));
     }
     Ok(Json(json!({"ok":true,"settings":map})))
 }
 pub(super) async fn set_settings(State(s):State<Arc<AppState>>,Json(p):Json<SettingsInput>)->ApiResult{
+    let db=s.db.lock().unwrap();
     if p.retention_days.is_some_and(|x|!(1..=3650).contains(&x))||p.idle_threshold_ms.is_some_and(|x|!(30_000..=3_600_000).contains(&x))||
         p.excluded_apps.as_ref().is_some_and(|xs|xs.len()>100||xs.iter().any(|x|x.is_empty()||x.len()>120||!x.bytes().all(|c|c.is_ascii_alphanumeric()||b"-_.".contains(&c))))||
         p.excluded_domains.as_ref().is_some_and(|xs|xs.len()>100||xs.iter().any(|x|!domain::valid_domain(x))) ||
-        p.distraction_categories.as_ref().is_some_and(|xs|xs.len()>CATEGORIES.len()||xs.iter().any(|c|!CATEGORIES.contains(&c.as_str()))) {return Err(err(StatusCode::BAD_REQUEST,"invalid_settings"));}
-    let db=s.db.lock().unwrap();
+        p.distraction_categories.as_ref().is_some_and(|xs|!crate::category_labels::valid_selection(&db,xs)) {return Err(err(StatusCode::BAD_REQUEST,"invalid_settings"));}
+    let privacy_changed=p.excluded_apps.is_some()||p.excluded_domains.is_some();
+    let tx=db.unchecked_transaction().map_err(storage)?;
+    if privacy_changed{crate::data_lifecycle::advance_epoch(&tx).map_err(storage)?;}
     for (key,value) in [
+        ("lite_mode",p.lite_mode.map(|v|v.to_string())),
         ("retention_days",p.retention_days.map(|v|v.to_string())),
         ("idle_threshold_ms",p.idle_threshold_ms.map(|v|v.to_string())),
         ("excluded_apps",p.excluded_apps.map(|v|serde_json::to_string(&v).unwrap())),
@@ -245,11 +283,13 @@ pub(super) async fn set_settings(State(s):State<Arc<AppState>>,Json(p):Json<Sett
         ("prediction_opt_in",p.prediction_opt_in.map(|v|v.to_string())),
         ("coach_share_opt_in",p.coach_share_opt_in.map(|v|v.to_string()))
     ] {
-        if let Some(v)=value {db.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,v]).map_err(storage)?;}
+        if let Some(v)=value {tx.execute("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,v]).map_err(storage)?;}
     }
-    Ok(Json(json!({"ok":true,"effective_on_next_poll":true})))
+    tx.commit().map_err(storage)?;
+    Ok(Json(json!({"ok":true,"effective_on_next_poll":true,"historical_data_retained":true})))
 }
 pub(super) fn prune(db:&Connection,now:i64)->rusqlite::Result<()> {
+    let tx=db.unchecked_transaction()?;let db=&tx;
     let days=read_setting(db,"retention_days").parse::<i64>().unwrap_or(90).clamp(1,3650);
     let cutoff=now-days*86_400_000;
     db.execute("DELETE FROM sessions WHERE end_ms<=?1",params![cutoff])?;
@@ -260,14 +300,19 @@ pub(super) fn prune(db:&Connection,now:i64)->rusqlite::Result<()> {
     db.execute("DELETE FROM focus_sessions WHERE end_ms<?1",params![cutoff])?;
     db.execute("DELETE FROM focus_snoozes WHERE focus_id NOT IN (SELECT id FROM focus_sessions)",[])?;
     db.execute("DELETE FROM device_sessions WHERE end_ms<?1",params![cutoff])?;
-    Ok(())
+    crate::data_lifecycle::prune(db,cutoff,now)?;
+    tx.commit()
 }
 
 pub(super) async fn video_history(State(s):State<Arc<AppState>>)->ApiResult{
     let db=s.db.lock().unwrap();
     if read_setting(&db,"video_history_visible")!="true" {return Ok(Json(json!({"ok":true,"videos":[],"visibility_disabled":true})));}
-    let mut stmt=db.prepare("SELECT platform,video_id,COUNT(*),SUM(qualified),SUM(watched_ms),MAX(occurred_ms) FROM videos GROUP BY platform,video_id ORDER BY MAX(occurred_ms) DESC LIMIT 500").map_err(storage)?;
-    let videos=stmt.query_map([],|r|Ok(json!({"platform":r.get::<_,String>(0)?,"video_id":r.get::<_,String>(1)?,"instances":r.get::<_,i64>(2)?,"qualified_plays":r.get::<_,i64>(3)?,"watched_ms":r.get::<_,i64>(4)?,"last_seen_ms":r.get::<_,i64>(5)?}))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
+    let mut stmt=db.prepare("WITH plays AS (SELECT platform,video_id,COUNT(*) instances,SUM(qualified) qualified,SUM(watched_ms) watched,MAX(occurred_ms) last_ms FROM videos GROUP BY platform,video_id),
+      visits AS (SELECT platform,video_id,COUNT(*) visits,MAX(occurred_ms) last_ms FROM video_visits GROUP BY platform,video_id),
+      ids AS (SELECT platform,video_id FROM plays UNION SELECT platform,video_id FROM visits)
+      SELECT ids.platform,ids.video_id,COALESCE(p.instances,0),COALESCE(p.qualified,0),COALESCE(p.watched,0),max(COALESCE(p.last_ms,0),COALESCE(v.last_ms,0)),COALESCE(v.visits,0)
+      FROM ids LEFT JOIN plays p USING(platform,video_id) LEFT JOIN visits v USING(platform,video_id) ORDER BY 6 DESC LIMIT 500").map_err(storage)?;
+    let videos=stmt.query_map([],|r|Ok(json!({"platform":r.get::<_,String>(0)?,"video_id":r.get::<_,String>(1)?,"instances":r.get::<_,i64>(2)?,"qualified_plays":r.get::<_,i64>(3)?,"watched_ms":r.get::<_,i64>(4)?,"last_seen_ms":r.get::<_,i64>(5)?,"route_visits":r.get::<_,i64>(6)?}))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
     Ok(Json(json!({"ok":true,"videos":videos,"title_collection":false})))
 }
 
@@ -276,15 +321,15 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
     let today=Local::now().date_naive();let this_week=today-Duration::days(today.weekday().number_from_monday() as i64-1);
     let this_start=midnight_local_ms(this_week);let last_start=midnight_local_ms(this_week-Duration::days(7));
     let start=midnight_local_ms(today-Duration::days(90));
-    let mut q=db.prepare("SELECT start_ms,end_ms,app,idle,domain,profile_id FROM sessions WHERE end_ms>?1 ORDER BY start_ms ASC LIMIT 200000").map_err(storage)?;
-    let rows=q.query_map(params![start],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?>0,r.get::<_,Option<String>>(4)?,r.get::<_,Option<String>>(5)?))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
+    let mut q=db.prepare("SELECT start_ms,end_ms,app,idle,domain,profile_id,corrected_category FROM report_sessions WHERE end_ms>?1 ORDER BY start_ms ASC LIMIT 200000").map_err(storage)?;
+    let rows=q.query_map(params![start],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?>0,r.get::<_,Option<String>>(4)?,r.get::<_,Option<String>>(5)?,r.get::<_,Option<String>>(6)?))).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
     let map=load_categories(&db).map_err(storage)?;
     let mut categories:BTreeMap<String,i64>=BTreeMap::new();let mut browser:BTreeMap<String,i64>=BTreeMap::new();
     let(mut current,mut previous)=(0,0);
     let mut switching=Vec::new();let mut hourly=[0_i64;24];
-    for (a,b,app,idle,domain,profile_id) in &rows {
+    for (a,b,app,idle,domain,profile_id,correction) in &rows {
         if *idle {continue;}
-        let cat=resolved_category(&map,app,domain.as_deref());
+        let cat=correction.clone().unwrap_or_else(||resolved_category(&map,app,domain.as_deref()));
         let delta=(b-a).max(0);
         *categories.entry(cat).or_default()+=delta;
         if ["brave.exe","chrome.exe","msedge.exe"].contains(&app.as_str()) {
@@ -295,15 +340,15 @@ pub(super) async fn insights(State(s):State<Arc<AppState>>)->ApiResult{
         switching.push((app.clone(),*a,*b,false));
         crate::hourly::add_to_hours(&mut hourly,*a,*b);
     }
-    current=rows.iter().filter(|r|!r.3).map(|(a,b,_,_,_,_)|(*b).min(now).saturating_sub((*a).max(this_start))).sum();
+    current=rows.iter().filter(|r|!r.3).map(|(a,b,_,_,_,_,_)|(*b).min(now).saturating_sub((*a).max(this_start))).sum();
     let mut video_stmt=db.prepare("SELECT occurred_ms FROM videos WHERE platform!='youtube_watch' AND qualified=1 AND occurred_ms>=?1 ORDER BY occurred_ms").map_err(storage)?;
     let video_times=video_stmt.query_map(params![start],|r|r.get::<_,i64>(0)).map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
     let (max_streak,streak_at)=insights::longest_streak(video_times,120_000);
     let switches=insights::count_switches(&switching,this_start,now);
     let days_with_activity=rows.iter().filter(|r|!r.3).filter_map(|r|chrono::DateTime::<Utc>::from_timestamp_millis(r.0)).map(|dt|dt.with_timezone(&Local).date_naive()).collect::<BTreeSet<_>>().len();
     let selected:Vec<String>=serde_json::from_str(&read_setting(&db,"distraction_categories")).unwrap_or_default();
-    let prediction=crate::prediction::forecast(&db,Local::now(),read_setting(&db,"prediction_opt_in")=="true",&selected,
-        |app,domain|resolved_category(&map,app,domain)).map_err(storage)?;
+    let prediction=if read_setting(&db,"lite_mode")=="true"{json!({"available":false,"reason":"Prediction is paused in Lite Mode"})}else{crate::prediction::forecast(&db,Local::now(),read_setting(&db,"prediction_opt_in")=="true",&selected,
+        |app,domain|resolved_category(&map,app,domain)).map_err(storage)?};
     Ok(Json(json!({"ok":true,"categories":categories,"browser_comparison":browser,"hourly_distribution_ms":hourly,
         "week":{"current_ms":current,"previous_ms":previous,"delta_ms":current-previous,"caution":"Incomplete collector coverage can make comparisons misleading"},
         "attention_switches_this_week":switches,"shorts_longest_streak_90d":max_streak,"streak_last_at_ms":streak_at,
