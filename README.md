@@ -1,40 +1,55 @@
-# Digital Discipline
+# Digital Discipline — Windows
 
-Windows-first, local-first activity tracking and reversible browser restrictions, with a Rust agent, Tauri/React desktop and Brave-first MV3 companion.
+**Digital Discipline** is a Windows-first, local-first productivity app for understanding how time is spent, managing distractions and building better focus habits. It combines a lightweight Rust background agent, a Tauri/React desktop interface and an optional Brave-first browser companion.
 
-**Development branch:** `feature/master-spec-complete-2026-11`. Desktop/agent source version: **0.4.4**. Companion: **0.3.9**. Event protocol: **1.0**. This branch implements the master specification in stages; it is not a complete or production-accepted release.
+**Current Windows source:** desktop **v0.5.3**, agent **v0.5.3**, browser companion **v0.4.0**. This is the source version on `main`, **not a claim that the latest installer has passed CI or been publicly signed**.
 
-Read the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) for all F01–F22, N01–N20 and original A1–D8 requirements, and the [current build status](docs/BUILD-STATUS.md) for changes, test evidence and remaining acceptance.
+[Windows build workflow](.github/workflows/windows-ci.yml) · [GitHub Actions builds](https://github.com/motionedits246-max/digital-discipline/actions/workflows/windows-ci.yml) · [Releases](https://github.com/motionedits246-max/digital-discipline/releases) · [Build and acceptance evidence](docs/BUILD-STATUS.md)
 
-The integrated **0.4.4 Windows development build** is available in the [verified Actions bundle](https://github.com/motionedits246-max/digital-discipline-windows/actions/runs/42574830666/artifacts/13655195843). It uses a self-signed development certificate. See build status for the tested source and SHA-256 checksums.
+> **Platform scope:** `main` tracks the Windows desktop product. Android and Linux prototypes are developed on separate feature branches. Do not use Windows installation instructions to install those versions.
 
-## Current capabilities
+## Features
 
-- Independent local Windows foreground/idle tracking, SQLite history and owner-defined categories.
-- Floating pill, quick panel, dashboard overlay, optional separate window and tray controls.
-- Opt-in observed playback for YouTube Shorts, ordinary YouTube videos and Instagram Reels. A play requires **2 seconds of visible playback progression**; route visits are not watched plays.
-- Domain/path browser restrictions, schedules, usage budgets, automation, goals and browser-only focus sessions.
-- Optional BYOK Coach and a lightweight service-classification ladder. Saved choices and executable descriptions run locally first; public metadata/DuckDuckGo lookups are separately opt-in. LLM batches contain only individually approved service names.
-- Current-user Windows DPAPI encryption for explicitly saved provider keys.
-- Editable profiles, task-linked focus, persistent work/break cycles, selected-video Learning Mode, scoped temporary unlocks and local session reviews/resume cards.
-- Visible Presentation Mode, timed private sessions, profile-scoped Tracking Doctor, grouped local inbox and warning-only selected native-app interventions.
-- Complete streamed local snapshots with allowlisted preferences; credentials/enrollment omitted. Measured agent resources and Lite scheduling are available. Expanded roadmap acceptance remains open.
-- Manual encrypted exchange of recent device sessions. This is not a full backup or automatic sync.
+- **Activity tracking:** Windows foreground application and idle-time monitoring, local SQLite history, customizable activity categories, and analytics with timelines and activity heatmaps.
+- **Distraction controls:** Goals, schedules, browser website/path restrictions, focus sessions, configurable usage budgets, reversible pauses and emergency browser unblock.
+- **Floating interface:** A small draggable desktop pill, expandable quick panel, dashboard/workspace, optional separate window and tray controls.
+- **To-dos and notes:** Quick-panel to-do list with completion progress and scrollable tasks; notes with headings and text, saved locally.
+- **Browser insights:** Optional YouTube Shorts, regular YouTube and Instagram Reels tracking through the Brave MV3 companion. Counts are best-effort observations based on visible playback progression, not proof that every platform video was viewed.
+- **Planning and productivity:** Profiles, task-linked focus, persistent work/break cycles, learning controls, local inbox and activity review.
+- **Settings and diagnostics:** Customized controls, privacy exclusions, app/site labels, tracking diagnostics, companion delivery visibility, process resource information and manual data export/import.
+- **Optional intelligence:** User-controlled app classification and BYOK AI Coach. Core tracking does not require cloud login or an API key.
 
-## Recent improvements — 0.4.3–0.4.4
+Some advanced features have partial acceptance coverage; see the [implementation ledger](docs/IMPLEMENTATION-LEDGER.md) and [build status](docs/BUILD-STATUS.md). Source code present does not establish full real-device acceptance.
 
-- Custom confirmation dialogs replace browser-native prompts in the desktop and companion.
-- Workspace close animates into the pill; reduced-motion/Lite preferences are respected.
-- Full GUI mode has a native 960×640 minimum, bounded by the usable display area; compact controls retain their own sizes.
-- Shared service/browser/inbox overlays expire within three seconds, stay open during interaction and dismiss after app/window switches or outside clicks. Timeout never approves an LLM request; unresolved service items remain in Activity History → Service discovery.
-- Windows File Description/Product Name and conservative keyword rules can identify an AI development environment locally. Optional public lookups are bounded to 20 requests per day. Pollinations is supported as a keyed, explicitly approved LLM provider.
-- The companion popup can update from the installed desktop bundle and reload in place. Browser setup can register a custom existing extension folder. Updates retain extension ID, profile, consent and pending observations; owned files have rollback protection.
+## Install on Windows
 
-**Upgrade from companion 0.3.8:** install the desktop update, then Reload your existing unpacked extension once to get the new Update & reload button. For a custom folder, register that same folder in desktop browser setup first. Keep its existing location and refresh already-open video tabs after reload. New installations use the stable DigitalDiscipline/browser-extension user folder.
+**Recommended for testers:** Check the [latest completed Windows Actions run](https://github.com/motionedits246-max/digital-discipline/actions/workflows/windows-ci.yml) or a [published release](https://github.com/motionedits246-max/digital-discipline/releases). Select the Windows installer artifact from a **successful** run, download/extract it and launch the `*-setup.exe`. GitHub Actions artifacts may require GitHub sign-in and can expire. Verify the included `SHA256SUMS.txt` where available.
 
-## Build and check
+The CI workflow creates an **ephemeral self-signed development certificate**. It is *not* a publicly trusted publisher signature and does not guarantee Windows SmartScreen acceptance. A new source commit is not itself a downloadable installer; check the corresponding workflow run.
 
-Windows requires Rust stable MSVC, Visual Studio C++ Build Tools/Windows SDK, Node.js 22+, Python 3 and WebView2.
+**Build from source (Windows 10/11):** Install stable Rust with MSVC target, Visual Studio C++ Build Tools and Windows SDK, Node.js 22+, Python 3 and Microsoft Edge WebView2. From the repository root, run PowerShell:
+
+```powershell
+git clone https://github.com/motionedits246-max/digital-discipline.git
+cd digital-discipline
+.\scripts\build-windows.ps1
+```
+
+A successful build places the Windows installer, standalone agent and companion ZIP in `release-output/`. For local development, run `.\scripts\dev-windows.ps1`.
+
+### Browser companion setup
+
+1. Install or launch Digital Discipline, then open **Settings & Privacy → Browser setup**.
+2. In `brave://extensions`, turn on Developer mode and choose **Load unpacked**; select the bundled extension folder (not the ZIP itself).
+3. Authorize the companion extension ID in the desktop application and test its local connection.
+4. Enable **Record browser activity** only if you want browser observations; it is disabled by default. For a test, refresh the video tab and play a Short/Reel visibly for several seconds.
+5. Keep the same unpacked extension folder when updating to preserve its extension ID and local pending-event queue. Removing an extension may delete its browser-local data.
+
+Browser pairing uses a restricted localhost bridge; normal operation does not require native-messaging registry installation.
+
+## Verification
+
+The Windows build script runs the JavaScript policy tests, database/migration tests, Rust tests, agent runtime tests, frontend build, renderer UI tests and Tauri NSIS packaging. On the `main` branch, the Windows GitHub Actions workflow runs on code pushes (documentation-only changes are ignored), or can be run manually.
 
 ```powershell
 node --test tests/*.test.mjs
@@ -47,38 +62,22 @@ npm ci
 npm run build
 ```
 
-For development use `scripts/dev-windows.ps1`. For Windows packaging use:
+**Important:** Earlier verification results in `docs/BUILD-STATUS.md` refer to the exact historical builds identified there. They should not be presented as validation of today's v0.5.3 promotion until a matching Windows Actions run succeeds.
 
-```powershell
-.\scripts\build-windows.ps1
-```
+## Privacy and data
 
-Committed Cargo/npm lockfiles pin dependency resolution. The Windows workflow records actual toolchain versions and builds this feature branch on source changes. Documentation-only commits do not rebuild the installer. Artifacts and SHA256SUMS are available only after a successful run; see [build status](docs/BUILD-STATUS.md).
+Activity history stays on the local Windows device by default. The agent records foreground executable basenames, timing/idle observations and opted-in browser activity rather than continuously capturing screenshots, typed text, chats or clipboard contents. Browser recording and AI sharing have separate controls. Saved provider credentials use Windows current-user DPAPI protection; the SQLite history itself is not represented as fully encrypted.
 
-Without a configured certificate the script may produce unsigned files. CI uses an ephemeral **self-signed development certificate**. This is not publicly trusted signing and does not guarantee SmartScreen acceptance.
+Pause tracking independently from browser restrictions. Local bridge authentication protects against ordinary unauthorized connections but does not protect against malware already running as your Windows account. Export or delete local history using the application's privacy controls.
 
-## Connect or upgrade Brave
+## Project and contribution
 
-1. Open Settings & Privacy → browser setup. Use the bundled companion folder.
-2. In `brave://extensions`, enable Developer mode and load the unpacked folder.
-3. Authorize its extension ID in the desktop app, then test the direct local connection in the companion.
-4. Turn on **Record browser activity** only if you want browser observations; it is off by default. Browser restrictions sync separately.
-5. Refresh an open YouTube/Instagram tab and play visibly for 3–5 seconds for an unambiguous test of the 2-second threshold.
+- [Windows desktop](apps/desktop/) — Tauri/React UI
+- [Background agent](agent/) — Rust tracking and local services
+- [Brave companion](extension/) — opt-in browser playback and restrictions
+- [Windows build scripts](scripts/) and [CI workflow](.github/workflows/windows-ci.yml)
+- [Original blueprint](docs/blueprint/README.md), [implementation ledger](docs/IMPLEMENTATION-LEDGER.md), and [historical release notes](docs/)
 
-**Upgrade in place:** preserve the existing unpacked folder and extension ID, replace its files and click Reload. Removing the extension erases its local queue. Normal companion connection uses the restricted loopback bridge, not native messaging or registry setup.
+Suggestions, reproducible bug reports and contributions are welcome. If this project is useful, consider **starring the repository** to support development.
 
-The companion's Delivery & recovery section distinguishes acknowledged events, paused/excluded events, terminal rejections, expiry, capacity losses and deliberate queue deletion. These are delivery counters, not video totals.
-
-## Privacy and recovery
-
-- The agent stores executable basenames, observed intervals/idle state and opted-in domains/video IDs under the current Windows user. No default window titles, full executable paths, screenshots, clipboard, typed text, private messages, video titles or transcripts.
-- Recording, notifications, automatic classification and Coach sharing have separate preferences. Classification can make background provider calls only after explicit enablement. The Coach is initiated by the owner.
-- Saved keys are DPAPI encrypted; one-time keys are not saved. The activity database is not described as fully encrypted. Settings reports key-file presence and request status without displaying a key.
-- Turning companion recording off stops new collection and retains pending observations for local sync. Delete pending observations explicitly if desired.
-- Queue retention is bounded to 2,000 events or 2 MB for 24 hours. Rejection metadata is limited to 100 entries for seven days and contains no event payloads. Browser wake/sleep can delay retries.
-- Pausing tracking does not disable restrictions. Browser policies use short fail-open leases (at most three minutes without renewal); emergency recovery is available in the companion.
-- Closing the desktop keeps intended background activity; use explicit Quit to stop it. Installed lifecycle/crash acceptance still needs the scenarios in the ledger.
-- Local API authentication protects against ordinary unauthorized calls, not malware running as the same Windows user.
-- The complete local snapshot includes a completion footer and is cancelled if privacy or deletion changes invalidate it. Exclusions apply to future collection; use scoped or full deletion to erase existing history. Full encrypted restore, verified updates and automatic sync remain roadmap work.
-
-The original [blueprint](docs/blueprint/README.md) and its 32 feature definitions are retained as design history. Historical release notes describe their own revisions; use the current ledger and build evidence for this branch.
+[Open the Digital Discipline repository](https://github.com/motionedits246-max/digital-discipline)
